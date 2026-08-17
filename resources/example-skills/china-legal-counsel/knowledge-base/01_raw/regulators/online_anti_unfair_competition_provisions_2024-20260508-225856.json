@@ -1,0 +1,17 @@
+{
+  "id": "online_anti_unfair_competition_provisions_2024",
+  "name": "网络反不正当竞争暂行规定",
+  "url": "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/fgs/art/2024/art_80019fe59e464196bef173dc56678a42.html",
+  "authority_level": "P0",
+  "source_type": "regulator",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "article_rule_parser",
+  "notes": "市场监管总局令第91号，流量劫持、恶意不兼容、数据抓取、刷单控评、平台竞争规则。",
+  "fetched_at": "20260508-225856",
+  "content_type": "text/html; charset=utf-8",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/regulators/online_anti_unfair_competition_provisions_2024-20260508-225856.html"
+}

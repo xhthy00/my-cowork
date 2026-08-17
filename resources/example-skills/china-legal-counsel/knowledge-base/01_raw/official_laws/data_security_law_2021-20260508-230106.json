@@ -1,0 +1,18 @@
+{
+  "id": "data_security_law_2021",
+  "name": "中华人民共和国数据安全法",
+  "url": "https://wb.flk.npc.gov.cn/flfg/texthtml/7c80cbdefa2c4c00ad73178209b83741.html",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "article_rule_parser",
+  "notes": "数据分类分级、重要数据、风险评估、数据交易和向境外司法执法机构提供数据限制；国家法律法规数据库正文。",
+  "fetched_at": "20260508-230106",
+  "content_type": "",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/official_laws/data_security_law_2021-20260508-230106.html",
+  "fetched_by": "curl"
+}

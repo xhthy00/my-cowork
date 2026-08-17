@@ -1,0 +1,17 @@
+{
+  "id": "ip_punitive_damages_interpretation_2021",
+  "name": "最高人民法院关于审理侵害知识产权民事案件适用惩罚性赔偿的解释",
+  "url": "https://www.court.gov.cn/zixun/xiangqing/288861.html",
+  "authority_level": "P0",
+  "source_type": "judicial_interpretation",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "court_article_parser",
+  "notes": "法释〔2021〕4号，知识产权恶意侵权、情节严重、惩罚性赔偿基数和倍数。",
+  "fetched_at": "20260508-225857",
+  "content_type": "text/html; charset=utf-8",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/judicial_interpretations/ip_punitive_damages_interpretation_2021-20260508-225857.html"
+}

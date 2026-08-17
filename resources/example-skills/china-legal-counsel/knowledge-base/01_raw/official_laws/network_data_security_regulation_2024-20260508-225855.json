@@ -1,0 +1,17 @@
+{
+  "id": "network_data_security_regulation_2024",
+  "name": "网络数据安全管理条例",
+  "url": "https://www.gov.cn/zhengce/zhengceku/202409/content_6977767.htm",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "article_rule_parser",
+  "notes": "国令第790号，2025-01-01施行，网络数据处理、个人信息、重要数据、数据出境和大型平台义务。",
+  "fetched_at": "20260508-225855",
+  "content_type": "text/html",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/official_laws/network_data_security_regulation_2024-20260508-225855.html"
+}

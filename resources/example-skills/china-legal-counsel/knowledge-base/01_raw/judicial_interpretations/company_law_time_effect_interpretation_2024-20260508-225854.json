@@ -1,0 +1,17 @@
+{
+  "id": "company_law_time_effect_interpretation_2024",
+  "name": "最高人民法院关于适用《中华人民共和国公司法》时间效力的若干规定",
+  "url": "https://www.court.gov.cn/fabu/xiangqing/436481.html",
+  "authority_level": "P0",
+  "source_type": "judicial_interpretation",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "court_article_parser",
+  "notes": "法释〔2024〕7号，公司法新旧衔接、溯及适用与既判力规则。",
+  "fetched_at": "20260508-225854",
+  "content_type": "text/html; charset=utf-8",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/judicial_interpretations/company_law_time_effect_interpretation_2024-20260508-225854.html"
+}

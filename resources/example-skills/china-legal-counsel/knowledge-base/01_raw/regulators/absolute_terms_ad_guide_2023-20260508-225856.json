@@ -1,0 +1,17 @@
+{
+  "id": "absolute_terms_ad_guide_2023",
+  "name": "广告绝对化用语执法指南",
+  "url": "https://www.samr.gov.cn/ggjgs/tzgg/art/2023/art_183b5cb48d9e4f0dba67f9f912a913ba.html",
+  "authority_level": "P0",
+  "source_type": "regulator",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "section_parser",
+  "notes": "广告法第九条绝对化用语执法尺度，适合营销文案、医美/教育/金融广告风险初筛。",
+  "fetched_at": "20260508-225856",
+  "content_type": "text/html; charset=utf-8",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/regulators/absolute_terms_ad_guide_2023-20260508-225856.html"
+}

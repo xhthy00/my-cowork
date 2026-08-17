@@ -1,0 +1,1 @@
+"""Feishu channel plugin package."""

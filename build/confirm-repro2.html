@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font-family: sans-serif; }
+  .pane { width: 640px; height: 500px; border: 2px solid red; display: flex; flex-direction: column; }
+
+  /* .main */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; position: relative; }
+
+  /* .chat-header */
+  .header { height: 44px; padding: 0 12px; flex-shrink: 0; display: flex; align-items: center; background: #fafafa; border-bottom: 1px solid #eee; }
+
+  /* .messages */
+  .messages {
+    flex: 1; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    padding: 16px 20px 120px;
+    display: flex; flex-direction: column; gap: 16px; align-items: center;
+    container-type: inline-size;
+  }
+
+  /* .chat-surface-fluid */
+  .fluid { width: 100%; max-width: 100%; }
+  @container (min-width: 720px) {
+    .fluid { width: calc(100% - clamp(80px, 10cqw, 240px)); max-width: none; margin-left: auto; margin-right: auto; }
+  }
+
+  /* message groups must not shrink so scrolling actually happens */
+  .group { flex-shrink: 0; min-width: 0; padding: 10px; border: 1px solid #ddd; background: #fff; }
+  .group.user { align-self: flex-end; }
+
+  /* .chat-confirm-card exact */
+  .card {
+    align-self: stretch;
+    width: auto;
+    max-width: 100%;
+    margin-left: 8px;
+    margin-right: 8px;
+    position: sticky;
+    bottom: 8px;
+    z-index: 20;
+    margin-bottom: 12px;
+    margin-top: 4px;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 10px;
+    border: 1px solid #999;
+    background: #eee;
+    padding: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.15);
+    flex-shrink: 0;
+  }
+  @container (min-width: 720px) {
+    .card { margin-left: calc(clamp(80px, 10cqw, 240px) / 2); margin-right: calc(clamp(80px, 10cqw, 240px) / 2); }
+  }
+  .card .row { display: flex; align-items: center; gap: 8px; }
+  .title { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; }
+  .badge { flex: 0 0 auto; border: 1px solid #999; border-radius: 999px; padding: 1px 6px; font-size: 10px; background: #f7f7f7; }
+  .btns { margin-top: 8px; display: flex; flex-direction: column; border: 1px solid #999; border-radius: 8px; overflow: hidden; }
+  .btns button { padding: 8px 10px; text-align: left; background: #fff; border: 0; border-top: 1px solid #eee; font-size: 13px; }
+  .btns button:first-child { border-top: 0; }
+
+  /* .composer-wrap */
+  .composer { flex-shrink: 0; padding: 12px; background: #fafafa; border-top: 1px solid #eee; }
+</style>
+</head>
+<body>
+<div class="pane">
+  <div class="main">
+    <div class="header">header</div>
+    <div class="messages" id="msgs">
+      <div class="group user fluid" style="height:120px;">user message</div>
+      <div class="group fluid" style="height:260px;">assistant long content 1</div>
+      <div class="group user fluid" style="height:80px;">user 2</div>
+      <div class="group fluid" style="height:500px;">assistant long content 2 — makes the conversation tall</div>
+      <div class="card" id="card">
+        <div class="row">
+          <span class="title">exec.bash</span>
+          <span class="badge">执行命令</span>
+        </div>
+        <div style="margin-top:4px; font-size:11px; color:#666;">权限请求 · exec.bash</div>
+        <div class="btns">
+          <button>本次允许</button>
+          <button>本会话总是允许此工具</button>
+          <button>拒绝</button>
+        </div>
+      </div>
+    </div>
+    <div class="composer">composer</div>
+  </div>
+</div>
+</body>
+</html>

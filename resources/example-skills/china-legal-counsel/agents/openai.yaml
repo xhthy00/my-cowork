@@ -1,0 +1,7 @@
+interface:
+  display_name: "中国大陆法务顾问"
+  short_description: "合同审查、起草、法务咨询与合规风控"
+  default_prompt: "Use $china-legal-counsel to review this contract or legal risk under China mainland law with citations, risk grading, revision suggestions, and escalation notes."
+
+policy:
+  allow_implicit_invocation: true

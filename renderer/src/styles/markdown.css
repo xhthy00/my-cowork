@@ -1,0 +1,273 @@
+/**
+ * AionUi markdown typography, ported 1:1 from AionUi
+ * packages/desktop/src/renderer/components/Markdown/ShadowView.tsx
+ * (Apache-2.0 © AionUi). AionUi injects these rules into a Shadow DOM;
+ * my-cowork scopes them under `.aion-md` instead. AionUi CSS variables are
+ * mapped onto the my-cowork design tokens (light theme):
+ *   --text-primary   → --ds-text-neutral-default-default
+ *   --text-secondary → --ds-text-neutral-muted-default
+ *   --bg-1           → --ds-bg-neutral-subtle-default
+ *   --bg-2           → --ds-bg-neutral-default-default
+ *   --bg-3           → --ds-bg-neutral-strong-default
+ *   --primary        → --accent
+ */
+
+.aion-md {
+  --aion-text-primary: var(--ds-text-neutral-default-default);
+  --aion-text-secondary: var(--ds-text-neutral-muted-default);
+  --aion-bg-1: var(--ds-bg-neutral-subtle-default);
+  --aion-bg-2: var(--ds-bg-neutral-default-default);
+  --aion-bg-3: var(--ds-bg-neutral-strong-default);
+  --aion-primary: var(--accent, #000000);
+  width: 100%;
+  min-width: 0;
+  color: var(--aion-text-primary);
+}
+
+.aion-md * {
+  line-height: 24px;
+  font-size: 16px;
+  color: inherit;
+}
+
+.aion-md {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.aion-md > p:first-child {
+  margin-top: 0px;
+}
+
+.aion-md h1,
+.aion-md h2,
+.aion-md h3,
+.aion-md h4,
+.aion-md h5,
+.aion-md h6 {
+  margin-block-start: 0px;
+  margin-block-end: 0px;
+}
+
+.aion-md p {
+  margin-block-start: 12px;
+  margin-block-end: 12px;
+}
+
+.aion-md li {
+  margin-block-start: 6px;
+  margin-block-end: 6px;
+}
+
+.aion-md a {
+  color: var(--aion-primary);
+  text-decoration: none;
+  cursor: pointer;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+/* Local file link pill (AionUi .markdown-local-file-link) */
+.aion-md-local-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 2px 6px;
+  background: var(--aion-bg-2);
+  color: var(--aion-text-primary);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  box-shadow: none;
+  font: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.aion-md-local-file-link:hover {
+  background: var(--aion-bg-3);
+  color: var(--aion-text-primary);
+  text-decoration: none;
+}
+
+.aion-md-local-file-link .truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aion-md-local-file-line {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--aion-bg-3);
+  color: var(--aion-text-secondary);
+}
+
+.aion-md h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: bold;
+}
+
+.aion-md h2,
+.aion-md h3,
+.aion-md h4,
+.aion-md h5,
+.aion-md h6 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: bold;
+  margin-top: 20px;
+  margin-bottom: 12px;
+}
+
+.aion-md code span {
+  font-size: var(--code-font-size, 13px);
+  line-height: 20px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.aion-md > p:last-child {
+  margin-bottom: 0px;
+}
+
+.aion-md ol,
+.aion-md ul {
+  padding-inline-start: 24px;
+}
+
+.aion-md hr {
+  border: none;
+  border-top: 1px solid var(--aion-bg-3);
+  margin: 28px 0;
+}
+
+.aion-md strong {
+  font-weight: 600;
+  color: var(--aion-text-primary);
+}
+
+.aion-md code:not(pre code) {
+  background: var(--aion-bg-3);
+  color: var(--aion-text-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.aion-md blockquote {
+  border-left: 3px solid var(--aion-bg-3);
+  padding-left: 12px;
+  color: var(--aion-text-primary);
+  margin: 16px 0;
+}
+
+.aion-md pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-block-start: 8px;
+  margin-block-end: 8px;
+}
+
+/* Code block horizontal scrollbar — blends with bg-2 */
+.aion-md pre,
+.aion-md .hljs {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+}
+
+.aion-md pre::-webkit-scrollbar,
+.aion-md .hljs::-webkit-scrollbar {
+  height: 6px;
+  background: transparent;
+}
+
+.aion-md pre::-webkit-scrollbar-track,
+.aion-md .hljs::-webkit-scrollbar-track,
+.aion-md pre::-webkit-scrollbar-corner,
+.aion-md .hljs::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.aion-md pre::-webkit-scrollbar-thumb,
+.aion-md .hljs::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.aion-md pre::-webkit-scrollbar-thumb:hover,
+.aion-md .hljs::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.aion-md img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Table borders (AionUi ShadowView + MarkdownView overrides) */
+.aion-md table {
+  border-collapse: collapse;
+  border: 1px solid var(--aion-bg-3);
+  min-width: 100%;
+}
+
+.aion-md th {
+  padding: 8px;
+  border: 1px solid var(--aion-bg-3);
+  background-color: var(--aion-bg-1);
+  font-weight: bold;
+}
+
+.aion-md td {
+  padding: 8px;
+  border: 1px solid var(--aion-bg-3);
+  min-width: 120px;
+}
+
+.aion-md .md-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* Inline code should wrap on small screens to avoid horizontal overflow */
+.aion-md code {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+/* Allow KaTeX to use its own line-height for proper fraction/superscript rendering */
+.aion-md .katex,
+.aion-md .katex * {
+  line-height: normal;
+}
+
+/* Display math: only scroll horizontally when formula exceeds container width */
+.aion-md .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+
+/* Mermaid loading spinner (AionUi ShadowView `.loading`) */
+.aion-md-loading {
+  animation: aion-md-loading 1s linear infinite;
+}
+
+@keyframes aion-md-loading {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

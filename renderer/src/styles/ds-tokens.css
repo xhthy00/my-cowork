@@ -1,0 +1,200 @@
+/**
+ * Adapted from eigent light theme `eigent` (seed background #faf7f6, ink #1d1d1d,
+ * contrast 43) — see eigent/src/lib/themeTokens/engine.ts neutral matrix.
+ *
+ * Brightness order (critical): subtle > default > strong ≈ muted
+ * = near-white canvas + greyer panels (NOT white panels on grey page).
+ */
+:root {
+  /* Primitive */
+  --colors-primary-1: #faf7f6;
+  --colors-primary-2: #f0edec;
+  --colors-primary-3: #cccccc;
+  --colors-primary-4: #aaaaaa;
+  --colors-primary-5: #757473;
+  --colors-primary-6: #535352;
+  --colors-primary-7: #444444;
+  --colors-primary-8: #333333;
+  --colors-primary-10: #111111;
+  --colors-primary-default: #1d1d1d;
+  --colors-white-100: #ffffff;
+  --colors-off-white-100: #faf7f6;
+  --colors-green-default: #00a63e;
+  --colors-green-500: #00c950;
+
+  /* Semantic DS (light eigent @ contrast 43) */
+  --ds-bg-neutral-subtle-default: #faf7f6;
+  --ds-bg-neutral-default-default: #f0edec;
+  --ds-bg-neutral-default-hover: #efeceb;
+  --ds-bg-neutral-strong-default: #eae7e6;
+  --ds-bg-neutral-muted-default: #e7e4e3;
+  --ds-bg-brand-subtle-default: #f0edec;
+  --ds-bg-brand-default-default: #000000;
+  --ds-bg-brand-subtle-disabled: #f0edec;
+
+  --ds-text-neutral-default-default: #1d1d1d;
+  --ds-text-neutral-muted-default: #535352;
+  --ds-text-neutral-subtle-default: #757473;
+  --ds-text-brand-default-default: #1d1d1d;
+  --ds-text-brand-subtle-default: #757473;
+  --ds-text-brand-muted-default: #535352;
+  --ds-text-brand-strong-default: #141414;
+  --ds-text-brand-inverse-default: #ffffff;
+  --ds-text-success-default-default: #00a63e;
+  --ds-text-error-default-default: #e7000b;
+  /* Rich input chips (#skill / @connector) — Eigent role tones */
+  --ds-text-information-default-default: #155dfc;
+  --ds-text-warning-default-default: #d08700;
+  --ds-text-terminal-default-default: #059669;
+  --ds-text-document-default-default: #a16207;
+  /* PlanTaskBox / splitting surface (Eigent status-splitting #0284c7) */
+  --ds-bg-status-splitting-subtle-default: #e0f2fe;
+  --ds-bg-splitting-subtle-default: #e0f2fe;
+  --ds-icon-status-splitting-default-default: #0284c7;
+  --ds-text-status-splitting-default: #0369a1;
+
+  --ds-border-neutral-default-default: rgba(29, 29, 29, 0.15);
+  --ds-border-neutral-subtle-default: rgba(29, 29, 29, 0.09);
+  --ds-border-neutral-subtle-disabled: rgba(29, 29, 29, 0.06);
+  --ds-border-neutral-strong-default: rgba(29, 29, 29, 0.23);
+  --ds-border-information-default-default: #155dfc;
+
+  --ds-icon-neutral-muted-default: #757473;
+  --ds-icon-neutral-default-default: #535352;
+  --ds-ring-neutral-subtle-default: rgba(29, 29, 29, 0.29);
+
+  --ds-bg-status-completed-subtle-default: #ecfdf5;
+  --ds-bg-status-completed-default-default: #16a34a;
+  --ds-text-status-completed-default: #00a63e;
+  --ds-icon-status-completed-default: #00a63e;
+  --ds-icon-status-completed-default-default: #16a34a;
+  --ds-bg-success-default-default: #00a63e;
+  --ds-text-success-inverse-default: #ffffff;
+
+  --shadow-button: 0 1px 2px rgba(0, 0, 0, 0.04);
+
+  /* Eigent borderRadius contract */
+  --borderRadius-sm: 4px;
+  --borderRadius-lg: 8px;
+  --borderRadius-xl: 16px;
+
+  /* Compat aliases — map roles, not the old reversed brightness */
+  --bg-app: var(--ds-bg-neutral-muted-default);
+  --bg-shell: var(--ds-bg-neutral-muted-default);
+  --bg-panel: var(--ds-bg-neutral-default-default);
+  --bg-elevated: var(--ds-bg-neutral-default-default);
+  --bg-muted: var(--ds-bg-neutral-strong-default);
+  --bg-hover: var(--ds-bg-neutral-default-hover);
+  --bg-active: var(--ds-bg-neutral-strong-default);
+  --border: var(--ds-border-neutral-default-default);
+  --border-subtle: var(--ds-border-neutral-subtle-default);
+  --text: var(--ds-text-neutral-default-default);
+  --text-secondary: var(--ds-text-neutral-muted-default);
+  --text-muted: var(--ds-text-neutral-subtle-default);
+  --accent: #000000;
+  --accent-soft: var(--ds-bg-neutral-strong-default);
+  --accent-hover: #141414;
+  --accent-text: #1d1d1d;
+  --accent-2: #535352;
+  --accent-2-soft: var(--ds-bg-neutral-strong-default);
+  --danger: #e7000b;
+  --danger-soft: #fef2f2;
+  --warning: #d08700;
+  --warning-soft: #fefce8;
+  --success: #00a63e;
+  --success-soft: #ecfdf5;
+  --info: #155dfc;
+  --info-soft: #eff6ff;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --shadow-soft:
+    0 8px 20px -2px rgba(29, 33, 41, 0.1),
+    0 32px 48px -12px rgba(29, 33, 41, 0.12);
+  --radius: var(--borderRadius-lg, 8px);
+  --radius-sm: var(--borderRadius-sm, 4px);
+  --radius-lg: var(--borderRadius-xl, 16px);
+  --titlebar-h: 40px;
+  --rail-w: 48px;
+  --sidebar-w: 240px;
+  --trace-w: 300px;
+  --preview-w: 360px;
+  --hub-gutter: clamp(24px, 6vw, 72px);
+  --font: "Inter", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  /* Sweep highlight on in-progress ShinyText (must stay much lighter than the base grey). */
+  --shiny-text-highlight: #e8e4e2;
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --ds-bg-neutral-subtle-default: #2e2c2a;
+  --ds-bg-neutral-default-default: #252422;
+  --ds-bg-neutral-default-hover: #2a2826;
+  --ds-bg-neutral-strong-default: #222120;
+  --ds-bg-neutral-muted-default: #1c1b1a;
+  --ds-bg-brand-subtle-default: #252422;
+  --ds-bg-brand-default-default: #f5f2f0;
+  --ds-bg-brand-subtle-disabled: #252422;
+
+  --ds-text-neutral-default-default: #f5f2f0;
+  --ds-text-neutral-muted-default: #c4c0bd;
+  --ds-text-neutral-subtle-default: #9a9693;
+  --ds-text-brand-default-default: #f5f2f0;
+  --ds-text-brand-subtle-default: #9a9693;
+  --ds-text-brand-muted-default: #c4c0bd;
+  --ds-text-brand-strong-default: #e4e0dc;
+  --ds-text-brand-inverse-default: #1c1b1a;
+  --ds-text-success-default-default: #4ade80;
+  --ds-text-error-default-default: #f87171;
+  --ds-text-information-default-default: #60a5fa;
+  --ds-text-warning-default-default: #e6b84d;
+  --ds-text-terminal-default-default: #34d399;
+  --ds-text-document-default-default: #d4a017;
+
+  --ds-bg-status-splitting-subtle-default: #0c2a3d;
+  --ds-bg-splitting-subtle-default: #0c2a3d;
+  --ds-icon-status-splitting-default-default: #38bdf8;
+  --ds-text-status-splitting-default: #7dd3fc;
+
+  --ds-border-neutral-default-default: rgba(255, 255, 255, 0.12);
+  --ds-border-neutral-subtle-default: rgba(255, 255, 255, 0.08);
+  --ds-border-neutral-subtle-disabled: rgba(255, 255, 255, 0.05);
+  --ds-border-neutral-strong-default: rgba(255, 255, 255, 0.18);
+  --ds-border-information-default-default: #60a5fa;
+
+  --ds-icon-neutral-muted-default: #9a9693;
+  --ds-icon-neutral-default-default: #c4c0bd;
+  --ds-ring-neutral-subtle-default: rgba(255, 255, 255, 0.28);
+
+  --ds-bg-status-completed-subtle-default: #052e16;
+  --ds-bg-status-completed-default-default: #16a34a;
+  --ds-text-status-completed-default: #4ade80;
+  --ds-icon-status-completed-default: #4ade80;
+  --ds-icon-status-completed-default-default: #22c55e;
+  --ds-bg-success-default-default: #16a34a;
+  --ds-text-success-inverse-default: #052e16;
+
+  --shadow-button: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --accent: #f5f2f0;
+  --accent-hover: #e4e0dc;
+  --accent-text: #f5f2f0;
+  --accent-2: #c4c0bd;
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.16);
+  --warning: #e6b84d;
+  --warning-soft: rgba(230, 184, 77, 0.16);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.16);
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.16);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-soft:
+    0 8px 20px -2px rgba(0, 0, 0, 0.35),
+    0 32px 48px -12px rgba(0, 0, 0, 0.4);
+  --shiny-text-highlight: #f5f2f0;
+}

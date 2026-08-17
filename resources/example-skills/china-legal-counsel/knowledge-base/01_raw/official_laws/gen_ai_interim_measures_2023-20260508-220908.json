@@ -1,0 +1,17 @@
+{
+  "id": "gen_ai_interim_measures_2023",
+  "name": "生成式人工智能服务管理暂行办法",
+  "url": "https://www.gov.cn/gongbao/2023/issue_10666/202308/content_6900864.html",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "article_rule_parser",
+  "notes": "2023-08-15施行，生成式AI服务基础规则；需结合第二条适用范围判断。",
+  "fetched_at": "20260508-220908",
+  "content_type": "text/html",
+  "raw_path": "/Users/suze/Documents/New project 3/legal-counsel-kb/01_raw/official_laws/gen_ai_interim_measures_2023-20260508-220908.html"
+}

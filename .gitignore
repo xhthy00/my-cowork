@@ -1,0 +1,83 @@
+# Dependencies
+node_modules/
+.opencode/node_modules/
+.pnpm-store/
+.yarn/
+.pnp.*
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+config.toml
+*.pem
+*.key
+electron-builder.env
+
+# Electron / Vite / TypeScript build output
+dist/
+dist-electron/
+dist-renderer/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+backend/.venv/
+.pytest_cache/
+.import_linter_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# PyInstaller work dirs and smoke logs (keep *.spec)
+build/pyinstaller/work-*/
+build/pyinstaller/smoke-*.log
+
+# Tests
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Logs and debug dumps
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editors / local tooling
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+
+# Misc
+*.local
+tmp/
+temp/
+.cache/
+.vite/

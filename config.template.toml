@@ -1,0 +1,9 @@
+# MyCowork config template — copy to config.toml and adjust.
+
+[mcp.servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "~/Desktop"]

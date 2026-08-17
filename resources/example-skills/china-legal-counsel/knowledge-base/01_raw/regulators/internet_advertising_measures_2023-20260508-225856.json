@@ -1,0 +1,17 @@
+{
+  "id": "internet_advertising_measures_2023",
+  "name": "互联网广告管理办法",
+  "url": "https://www.samr.gov.cn/cms_files/filemanager/1647978232/attach/20234/W020230320579023662253.pdf",
+  "authority_level": "P0",
+  "source_type": "regulator",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "pdf_article_parser",
+  "notes": "市场监管总局令第72号，互联网广告、软文种草、直播广告、竞价排名、算法广告和档案留存。",
+  "fetched_at": "20260508-225856",
+  "content_type": "application/pdf",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/regulators/internet_advertising_measures_2023-20260508-225856.pdf"
+}

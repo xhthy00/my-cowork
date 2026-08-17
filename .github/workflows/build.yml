@@ -1,0 +1,78 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build + smoke backend
+        run: bash scripts/build-python-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-cowork-backend-macos
+          path: dist/my-cowork-backend
+
+  python-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build + smoke backend
+        shell: pwsh
+        run: ./scripts/build-python-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-cowork-backend-windows
+          path: dist/my-cowork-backend.exe
+
+  electron:
+    needs: [python-macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: astral-sh/setup-uv@v5
+      - name: Fetch backend binary
+        uses: actions/download-artifact@v4
+        with:
+          name: my-cowork-backend-macos
+          path: dist
+      - run: chmod +x dist/my-cowork-backend || true
+      - run: npm ci
+      - run: bash scripts/build-electron.sh --mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-cowork-dmg
+          path: dist-electron/*.dmg
+
+  electron-windows:
+    needs: [python-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Fetch backend binary
+        uses: actions/download-artifact@v4
+        with:
+          name: my-cowork-backend-windows
+          path: dist
+      - run: npm ci
+      - run: bash scripts/fetch-officecli.sh
+      - run: npm run build
+      - name: Package NSIS installer
+        run: npx electron-builder --config build/electron-builder.yml --win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-cowork-win
+          path: dist-electron/*.{exe,yml}

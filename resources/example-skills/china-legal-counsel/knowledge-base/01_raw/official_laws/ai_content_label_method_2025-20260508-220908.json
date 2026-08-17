@@ -1,0 +1,17 @@
+{
+  "id": "ai_content_label_method_2025",
+  "name": "人工智能生成合成内容标识办法",
+  "url": "https://www.cac.gov.cn/2025-03/14/c_1743654684782215.htm",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "article_rule_parser",
+  "notes": "2025-09-01施行，AI生成合成内容显式/隐式标识规则。",
+  "fetched_at": "20260508-220908",
+  "content_type": "text/html; charset=utf-8",
+  "raw_path": "/Users/suze/Documents/New project 3/legal-counsel-kb/01_raw/official_laws/ai_content_label_method_2025-20260508-220908.html"
+}

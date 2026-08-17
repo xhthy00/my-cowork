@@ -1,0 +1,52 @@
+appId: com.my-cowork.app
+productName: MyCowork
+directories:
+  output: dist-electron
+files:
+  - dist-electron/**/*
+  - dist-renderer/**/*
+  - package.json
+  - "!dist-electron/win-unpacked/**"
+  - "!dist-electron/*.exe"
+  - "!dist-electron/*.blockmap"
+  - "!dist-electron/builder-debug.yml"
+mac:
+  target:
+    - dmg
+  category: public.app-category.productivity
+  extraResources:
+    - from: dist/my-cowork-backend
+      to: python_bin
+    - from: resources/prebuilt
+      to: prebuilt
+      filter:
+        - "**/*"
+        - "!cache/**"
+        - "!**/*.pyc"
+    - from: resources/bin/officecli
+      to: bin/officecli
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+  extraResources:
+    - from: dist/win-python
+      to: python_runtime
+    - from: dist/my-cowork-backend.exe
+      to: python_bin.exe
+    - from: resources/prebuilt
+      to: prebuilt
+      filter:
+        - "**/*"
+        - "!cache/**"
+        - "!**/*.pyc"
+    - from: resources/bin/officecli.exe
+      to: bin/officecli.exe
+    - from: resources/example-skills
+      to: resources/example-skills
+    - from: skills
+      to: skills
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+asar: true

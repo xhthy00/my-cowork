@@ -1,0 +1,17 @@
+{
+  "id": "deep_synthesis_provisions_2022",
+  "name": "互联网信息服务深度合成管理规定",
+  "url": "https://www.cac.gov.cn/2022-12/11/c_1672221949354811.htm",
+  "authority_level": "P0",
+  "source_type": "regulator",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "article_rule_parser",
+  "notes": "深度合成服务、内容标识、日志保存、训练数据、实名制和平台治理义务。",
+  "fetched_at": "20260508-225855",
+  "content_type": "text/html; charset=utf-8",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/regulators/deep_synthesis_provisions_2022-20260508-225855.html"
+}

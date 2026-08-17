@@ -1,0 +1,331 @@
+/**
+ * Adapted from eigent: ChatBox/MessageItem/TaskWorkLogAccordion.tsx
+ * Live wait UX: ShinyText header, active_form, Thinking…, animated steps.
+ */
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+import FileTypeIcon from "@/components/files/FileTypeIcon";
+import ShinyText from "@/components/ui/ShinyText";
+import { formatSplittingElapsed } from "@/lib/formatElapsed";
+import { formatTokenCount } from "@/lib/formatTokens";
+import {
+  formatWorkLogLine,
+  humanizeAgent,
+  humanizeAssignContent,
+  humanizeTool,
+} from "@/lib/processLabels";
+import { buildWorkLogSteps } from "@/lib/progressFromTrace";
+import { cn } from "@/lib/utils";
+import { usePageTabStore } from "@/store/pageTab";
+import { usePreviewStore } from "@/store/preview";
+import { useSessionStore } from "@/store/session";
+import { useWorkforceStore } from "@/store/workforce";
+
+const HEIGHT_MOTION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
+
+export default function WorkLogAccordion({ className }: { className?: string }) {
+  const runStatus = useSessionStore((s) => s.runStatus);
+  const taskStartedAt = useSessionStore((s) => s.taskStartedAt);
+  const taskElapsedMs = useSessionStore((s) => s.taskElapsedMs);
+  const budgetTokens = useSessionStore((s) => s.budgetTokens);
+  const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
+  const confirmQueue = useSessionStore((s) => s.confirmQueue);
+  const trace = useSessionStore((s) => s.trace);
+  const messages = useSessionStore((s) => s.messages);
+  const pendingArtifacts = useSessionStore((s) => s.pendingArtifacts);
+  const taskInfo = useWorkforceStore((s) => s.taskInfo);
+  const taskRunning = useWorkforceStore((s) => s.taskRunning);
+  const [now, setNow] = useState(() => Date.now());
+  const [outerOpen, setOuterOpen] = useState(() => runStatus === "running");
+
+  useEffect(() => {
+    if (runStatus !== "running" || !taskStartedAt) return;
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [runStatus, taskStartedAt]);
+
+  useEffect(() => {
+    if (runStatus === "done" || runStatus === "error") setOuterOpen(false);
+    else if (runStatus === "running") setOuterOpen(true);
+  }, [runStatus]);
+
+  const elapsedMs = useMemo(() => {
+    if (runStatus === "running" && taskStartedAt) {
+      return Date.now() - taskStartedAt + taskElapsedMs;
+    }
+    return taskElapsedMs;
+  }, [runStatus, taskStartedAt, taskElapsedMs, now]);
+
+  /** Only files from this turn (after last user msg) + pending — not whole-session history. */
+  const artifactNames = useMemo(() => {
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    const names: string[] = [];
+    const seen = new Set<string>();
+    const add = (name: string) => {
+      const key = name.trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      names.push(key);
+    };
+    for (let i = lastUserIdx + 1; i < messages.length; i++) {
+      for (const a of messages[i].artifacts ?? []) add(a.name);
+    }
+    for (const a of pendingArtifacts) add(a.name);
+    return names;
+  }, [messages, pendingArtifacts]);
+
+  const steps = useMemo(
+    () => buildWorkLogSteps(trace, artifactNames),
+    [trace, artifactNames],
+  );
+
+  const liveLabel = useMemo(() => {
+    const runningTodo =
+      taskInfo.find((t) => t.status === "running") ||
+      taskRunning[0] ||
+      taskInfo.find((t) => t.status === "waiting");
+    if (runningTodo?.active_form?.trim()) return runningTodo.active_form.trim();
+    if (runningTodo?.content?.trim()) return runningTodo.content.trim();
+
+    const lastTool = [...trace]
+      .reverse()
+      .find(
+        (ev) =>
+          ev.type === "tool.confirm_request" ||
+          ev.type === "tool.result" ||
+          ev.type === "agent.assign",
+      );
+    if (lastTool?.type === "tool.confirm_request") {
+      const tool = String(lastTool.payload.tool ?? "工具");
+      return `等待确认 · ${humanizeTool(tool)}`;
+    }
+    if (lastTool?.type === "agent.assign") {
+      const content = String(lastTool.payload.content ?? "").trim();
+      const agent = String(lastTool.payload.agent_id ?? "");
+      const localized = humanizeAssignContent(content, agent);
+      if (localized && !/^正在运行|^已完成/i.test(localized)) return localized;
+      if (agent) return `正在执行 · ${humanizeAgent(agent)}`;
+    }
+    if (steps.some((s) => s.kind === "prep")) return "正在准备智能体…";
+    return "思考中…";
+  }, [taskInfo, taskRunning, trace, steps]);
+
+  const phaseHint = useMemo(() => {
+    // Confirm must win over pendingArtifacts — approved docgen leaves
+    // artifacts pending until graph.end, which wrongly looked like "等待写文件".
+    if (confirmQueue.length > 0) return "等待你确认工具调用";
+    if (pendingArtifacts.length > 0) return "文件已生成，任务收尾中";
+    if (trace.some((e) => e.type === "todo_state")) return "按计划执行中";
+    if (trace.some((e) => e.type === "graph.start")) return "已连接后端";
+    return "正在启动任务";
+  }, [trace, pendingArtifacts.length, confirmQueue.length]);
+
+  if (runStatus === "idle") return null;
+  if (runStatus !== "running" && steps.length === 0 && elapsedMs < 1000) return null;
+
+  const timeLabel = formatSplittingElapsed(elapsedMs);
+  const running = runStatus === "running";
+  const tokenLabel =
+    budgetTokens > 0
+      ? `${formatTokenCount(budgetTokens)} tokens`
+      : running
+        ? "0 tokens"
+        : null;
+  const tokenTitle =
+    budgetMaxTokens > 0
+      ? `本轮累计约 ${formatTokenCount(budgetTokens)} / ${formatTokenCount(budgetMaxTokens)} tokens（估算）`
+      : undefined;
+
+  return (
+    <div
+      className={cn("my-2 flex w-full min-w-0 flex-col", className)}
+      role="status"
+      aria-live="polite"
+    >
+      <button
+        type="button"
+        aria-expanded={outerOpen}
+        onClick={() => setOuterOpen((v) => !v)}
+        className="flex w-full min-w-0 items-center justify-start gap-1.5 px-0 py-2 text-left"
+      >
+        {running ? (
+          <Loader2
+            className="h-3.5 w-3.5 shrink-0 animate-spin text-ds-icon-neutral-muted-default"
+            aria-hidden
+          />
+        ) : null}
+        <span
+          className="min-w-0 flex-1 text-body-sm font-medium text-ds-text-neutral-muted-default"
+          title={running ? tokenTitle : undefined}
+        >
+          {running ? (
+            <ShinyText
+              text={`已工作 ${timeLabel}${tokenLabel ? ` · ${tokenLabel}` : ""}`}
+              speed={2.2}
+              className="max-w-full truncate tabular-nums"
+            />
+          ) : (
+            <>
+              已工作{" "}
+              <span className="tabular-nums text-ds-text-neutral-subtle-default">
+                {timeLabel}
+              </span>
+              {tokenLabel ? (
+                <span
+                  className="tabular-nums text-ds-text-neutral-subtle-default"
+                  title={tokenTitle}
+                >
+                  {" "}
+                  · {tokenLabel}
+                </span>
+              ) : null}
+            </>
+          )}
+        </span>
+        {outerOpen ? (
+          <ChevronDown
+            size={16}
+            strokeWidth={2}
+            aria-hidden
+            className="shrink-0 text-ds-icon-neutral-muted-default"
+          />
+        ) : (
+          <ChevronRight
+            size={16}
+            strokeWidth={2}
+            aria-hidden
+            className="shrink-0 text-ds-icon-neutral-muted-default"
+          />
+        )}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {outerOpen ? (
+          <motion.div
+            key="work-log-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={HEIGHT_MOTION}
+            className="overflow-hidden"
+          >
+            <div className="flex min-w-0 flex-col gap-1.5 pb-1 pl-0">
+              {running ? (
+                <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={liveLabel}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.18 }}
+                      className="min-w-0"
+                    >
+                      <ShinyText
+                        text={liveLabel}
+                        speed={2.4}
+                        className="max-w-full truncate text-body-sm"
+                      />
+                    </motion.div>
+                  </AnimatePresence>
+                  <span className="text-[11px] text-ds-text-neutral-subtle-default">
+                    {phaseHint}
+                  </span>
+                </div>
+              ) : null}
+
+              {steps.length === 0 && running ? (
+                <div className="flex items-center gap-2 py-1 text-body-sm text-ds-text-neutral-subtle-default">
+                  <span className="inline-flex gap-0.5" aria-hidden>
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-ds-text-neutral-subtle-default" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-ds-text-neutral-subtle-default [animation-delay:150ms]" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-ds-text-neutral-subtle-default [animation-delay:300ms]" />
+                  </span>
+                  正在连接并准备执行…
+                </div>
+              ) : null}
+
+              <AnimatePresence initial={false}>
+                {steps.map((step, idx) => {
+                  const isLatest = running && idx === steps.length - 1 && step.kind !== "file";
+                  if (step.kind === "file") {
+                    return (
+                      <motion.button
+                        key={step.id}
+                        type="button"
+                        layout
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex w-full items-center gap-1.5 py-1 text-left text-body-sm font-medium text-ds-text-neutral-muted-default hover:underline"
+                        onClick={() => {
+                          const art =
+                            messages
+                              .flatMap((m) => m.artifacts ?? [])
+                              .find((a) => a.name === step.detail) ||
+                            pendingArtifacts.find((a) => a.name === step.detail);
+                          if (!art) return;
+                          usePageTabStore.getState().openPreviewFoldSide();
+                          usePreviewStore.getState().openFile(art.path, art.name);
+                        }}
+                      >
+                        <FileTypeIcon
+                          pathOrName={step.detail || step.label}
+                          size="sm"
+                        />
+                        <span className="truncate">{step.label}</span>
+                        <ChevronRight
+                          size={14}
+                          strokeWidth={2}
+                          aria-hidden
+                          className="ml-auto shrink-0 text-ds-icon-neutral-muted-default"
+                        />
+                      </motion.button>
+                    );
+                  }
+                  return (
+                    <motion.div
+                      key={step.id}
+                      layout
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex min-w-0 items-center gap-2 py-0.5 text-body-sm text-ds-text-neutral-muted-default"
+                    >
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          isLatest
+                            ? "bg-[var(--colors-green-default,#22c55e)] shadow-[0_0_0_3px_rgba(34,197,94,0.2)]"
+                            : "bg-ds-border-neutral-default-default",
+                        )}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 truncate">
+                        {isLatest ? (
+                          <ShinyText
+                            text={formatWorkLogLine(step.label, step.detail)}
+                            speed={2.6}
+                            className="truncate text-body-sm"
+                          />
+                        ) : (
+                          formatWorkLogLine(step.label, step.detail)
+                        )}
+                      </span>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}

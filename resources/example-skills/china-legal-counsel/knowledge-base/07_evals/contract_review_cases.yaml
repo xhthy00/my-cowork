@@ -1,0 +1,22 @@
+- id: contract-review-ai-deployment-001
+  type: contract_review
+  title: AI部署服务合同审查
+  prompt: 审查一份AI部署服务合同，重点看验收、付款、AI生成内容责任、数据处理、IP、违约和争议解决。
+  expected_checks:
+    - 验收标准是否量化
+    - 付款节点是否与验收和交付证据绑定
+    - AI生成内容版权与侵权责任是否分配
+    - 个人信息/敏感信息处理条款是否存在
+    - 责任上限和例外是否合理
+
+- id: contract-draft-community-terms-001
+  type: contract_drafting
+  title: 付费社群用户协议起草
+  prompt: 起草付费社群用户协议，要求包含内容版权、退款、社群行为、违约处理、账号封禁、争议解决。
+  expected_checks:
+    - 退款机制
+    - 用户内容授权
+    - 禁止录屏传播和侵权处理
+    - 账号封禁/禁言流程
+    - 争议解决和送达
+

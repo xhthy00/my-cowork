@@ -1,0 +1,73 @@
+[project]
+name = "my-cowork-backend"
+version = "0.1.0"
+description = "Backend for my-cowork agent harness"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic-settings>=2.6.0",
+    "structlog>=24.4.0",
+    "langgraph>=0.2.0",
+    "langchain>=1.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
+    "openpyxl>=3.1.5",
+    "httpx>=0.28.1",
+    "lark-oapi>=1.7.1",
+    "apscheduler>=3.11.3",
+    "sqlalchemy>=2.0.51",
+    "pyyaml>=6.0.3",
+    "sqlite-vec>=0.1.9",
+    "tiktoken>=0.13.0",
+    "pyinstaller>=6.21.0",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0",
+    "freezegun>=1.5.0",
+    "import-linter>=2.1.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = [
+    "app",
+    "app.agents",
+    "app.assistants",
+    "app.graphs",
+    "app.guardrails",
+    "app.llm",
+    "app.llm.providers",
+    "app.memory",
+    "app.observability",
+    "app.orchestrator",
+    "app.runtime",
+    "app.sandbox",
+    "app.server",
+    "app.server.routes",
+    "app.tools",
+    "app.tools.builtin",
+    "app.tools.builtin.docgen",
+    "app.tools.builtin.lark",
+    "app.tools.mcp",
+    "app.tools.officecli",
+    "app.skills",
+]
+
+[dependency-groups]
+dev = [
+    "freezegun>=1.5.5",
+    "respx>=0.23.1",
+]
+

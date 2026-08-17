@@ -1,0 +1,4 @@
+# Platform binaries fetched by scripts/fetch-officecli.sh — not committed.
+*
+!.gitignore
+!README.md

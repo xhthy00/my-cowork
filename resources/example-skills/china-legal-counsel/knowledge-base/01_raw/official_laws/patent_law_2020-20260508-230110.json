@@ -1,0 +1,18 @@
+{
+  "id": "patent_law_2020",
+  "name": "中华人民共和国专利法",
+  "url": "https://wb.flk.npc.gov.cn/flfg/PDF/0135bada4ec94fca91d43a1f8077d86d.pdf",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "pdf_article_parser",
+  "notes": "技术成果、专利权归属、许可转让、开放许可、侵权与赔偿；国家法律法规数据库公报PDF。",
+  "fetched_at": "20260508-230110",
+  "content_type": "",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/official_laws/patent_law_2020-20260508-230110.pdf",
+  "fetched_by": "curl"
+}

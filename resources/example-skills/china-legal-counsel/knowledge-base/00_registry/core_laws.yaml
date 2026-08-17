@@ -1,0 +1,181 @@
+# First-wave law/rule collection targets.
+
+- priority: P0
+  title: 中华人民共和国民法典
+  domains: [合同, 物权, 侵权, 人格权, 总则]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 最高人民法院关于适用《中华人民共和国民法典》合同编通则若干问题的解释
+  domains: [合同, 司法解释]
+  preferred_source: 最高人民法院
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国公司法
+  domains: [公司治理, 股东, 董监高, 注册资本]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国劳动合同法
+  domains: [劳动用工]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国个人信息保护法
+  domains: [个人信息, 数据合规]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国数据安全法
+  domains: [数据合规]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国网络安全法
+  domains: [网络安全, 数据合规]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 生成式人工智能服务管理暂行办法
+  domains: [生成式AI, AI合规]
+  preferred_source: 中国政府网/国家网信办
+  chunking: article
+
+- priority: P0
+  title: 互联网信息服务深度合成管理规定
+  domains: [深度合成, AI合规]
+  preferred_source: 国家网信办
+  chunking: article
+
+- priority: P0
+  title: 人工智能生成合成内容标识办法
+  domains: [AI标识, 内容合规]
+  preferred_source: 国家网信办
+  chunking: article
+
+- priority: P0
+  title: 网络数据安全管理条例
+  domains: [数据合规, 网络安全]
+  preferred_source: 中国政府网
+  chunking: article
+
+- priority: P0
+  title: 互联网广告管理办法
+  domains: [广告, 内容合规]
+  preferred_source: 市场监管总局
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国广告法
+  domains: [广告, 医美, 金融, 教育]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国著作权法
+  domains: [知识产权, 内容, AI生成内容]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国商标法
+  domains: [知识产权, 品牌]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国专利法
+  domains: [知识产权, 技术]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P0
+  title: 电子签名法
+  domains: [合同, 证据, 电子签署]
+  preferred_source: 国家法律法规数据库
+  chunking: article
+
+- priority: P1
+  title: 医疗美容服务管理办法
+  domains: [医美, 卫生健康]
+  preferred_source: 国家卫健委/国家法律法规数据库
+  chunking: article
+
+- priority: P1
+  title: 医疗美容广告执法指南
+  domains: [医美, 广告]
+  preferred_source: 市场监管总局
+  chunking: section
+
+- priority: P1
+  title: 广告绝对化用语执法指南
+  domains: [广告, 市场监管]
+  preferred_source: 市场监管总局
+  chunking: section
+
+- priority: P0
+  title: 中华人民共和国电子商务法
+  domains: [电商, 平台, 电子合同, 消费者, 知识产权]
+  preferred_source: 中国人大网
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国消费者权益保护法
+  domains: [消费者, B2C, 售后, 平台, 个人信息]
+  preferred_source: 中国人大网
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国消费者权益保护法实施条例
+  domains: [消费者, 售后, 直播电商, 平台]
+  preferred_source: 中国政府网
+  chunking: article
+
+- priority: P0
+  title: 中华人民共和国反不正当竞争法
+  domains: [竞争, 虚假宣传, 商业秘密, 数据抓取, 网络竞争]
+  preferred_source: 中国人大网
+  chunking: article
+
+- priority: P0
+  title: 网络反不正当竞争暂行规定
+  domains: [竞争, 平台, 数据抓取, 算法, 流量]
+  preferred_source: 市场监管总局
+  chunking: article
+
+- priority: P0
+  title: 互联网信息服务算法推荐管理规定
+  domains: [算法, 平台, AI合规, 内容分发]
+  preferred_source: 国家网信办
+  chunking: article
+
+- priority: P0
+  title: 个人信息出境标准合同办法
+  domains: [个人信息, 数据出境, 跨境服务]
+  preferred_source: 国家网信办
+  chunking: article
+
+- priority: P0
+  title: 合同行政监督管理办法
+  domains: [合同, 格式条款, 消费者, 市场监管]
+  preferred_source: 市场监管总局
+  chunking: article
+
+- priority: P0
+  title: 最高人民法院关于适用《中华人民共和国公司法》时间效力的若干规定
+  domains: [公司治理, 司法解释, 新旧法衔接]
+  preferred_source: 最高人民法院
+  chunking: article
+
+- priority: P0
+  title: 最高人民法院关于审理侵害知识产权民事案件适用惩罚性赔偿的解释
+  domains: [知识产权, 赔偿, 侵权]
+  preferred_source: 最高人民法院
+  chunking: article

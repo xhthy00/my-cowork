@@ -1,0 +1,27 @@
+# Crawl and licensing policy for the legal counsel KB.
+
+default_rules:
+  - Prefer official public sources.
+  - Record source URL, fetch date, checksum, and parser version.
+  - Keep old versions; mark status instead of deleting.
+  - Do not bypass paywalls, login gates, CAPTCHAs, or anti-bot controls.
+  - Do not bulk-copy commercial databases or paid templates without authorization.
+  - For law-firm and media articles, store metadata/summary/notes unless full-text storage is licensed.
+
+fetch_frequency:
+  P0_official_law: daily
+  P0_regulator: daily
+  P0_case: weekly
+  P0_template: weekly
+  P1_local_or_vertical: weekly
+  P2_licensed: manual_or_on_demand
+
+quality_gates:
+  - title_present
+  - source_url_present
+  - authority_level_present
+  - effective_or_publish_date_when_available
+  - checksum_present
+  - chunking_complete
+  - citation_probe_passed
+

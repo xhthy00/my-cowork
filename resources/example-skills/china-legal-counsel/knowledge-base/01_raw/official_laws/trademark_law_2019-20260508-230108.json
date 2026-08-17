@@ -1,0 +1,18 @@
+{
+  "id": "trademark_law_2019",
+  "name": "中华人民共和国商标法",
+  "url": "https://wb.flk.npc.gov.cn/flfg/PDF/9f3f0755e8d34362850e60e292140737.pdf",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "pdf_article_parser",
+  "notes": "商标注册、使用许可、无效、侵权保护、恶意注册和品牌合规；国家法律法规数据库公报PDF。",
+  "fetched_at": "20260508-230108",
+  "content_type": "",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/official_laws/trademark_law_2019-20260508-230108.pdf",
+  "fetched_by": "curl"
+}

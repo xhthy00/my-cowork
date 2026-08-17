@@ -1,0 +1,18 @@
+{
+  "id": "personal_information_protection_law_2021",
+  "name": "中华人民共和国个人信息保护法",
+  "url": "https://wb.flk.npc.gov.cn/flfg/PDF/f67af9f12e1b4c83a998cf5a876ce0e4.pdf",
+  "authority_level": "P0",
+  "source_type": "official_law",
+  "jurisdiction": "中国大陆",
+  "auth_required": "false",
+  "full_text_allowed": "true",
+  "fetch_method": "requests",
+  "update_frequency": "version_watch",
+  "parser": "pdf_article_parser",
+  "notes": "个人信息处理、敏感个人信息、跨境提供、处理者义务和监管责任；国家法律法规数据库公报PDF。",
+  "fetched_at": "20260508-230104",
+  "content_type": "",
+  "raw_path": "/Users/suze/.codex/skills/china-legal-counsel/knowledge-base/01_raw/official_laws/personal_information_protection_law_2021-20260508-230104.pdf",
+  "fetched_by": "curl"
+}

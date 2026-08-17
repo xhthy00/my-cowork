@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="mc-bg" x1="8" y1="6" x2="122" y2="124" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7B3CF2"/>
+      <stop offset=".38" stop-color="#CF84AA"/>
+      <stop offset=".68" stop-color="#E2988B"/>
+      <stop offset="1" stop-color="#FED426"/>
+    </linearGradient>
+    <radialGradient id="mc-cream" cx="62%" cy="34%" r="72%">
+      <stop stop-color="#FFF9F0"/>
+      <stop offset=".52" stop-color="#FBEBD2"/>
+      <stop offset="1" stop-color="#E4C09A"/>
+    </radialGradient>
+    <radialGradient id="mc-patch" cx="36%" cy="30%" r="70%">
+      <stop stop-color="#8B5A40"/>
+      <stop offset=".5" stop-color="#6B4030"/>
+      <stop offset="1" stop-color="#4A2818"/>
+    </radialGradient>
+    <radialGradient id="mc-horn" cx="36%" cy="24%" r="78%">
+      <stop stop-color="#FFE58A"/>
+      <stop offset=".42" stop-color="#F5C230"/>
+      <stop offset="1" stop-color="#E0860C"/>
+    </radialGradient>
+    <radialGradient id="mc-snout" cx="44%" cy="30%" r="78%">
+      <stop stop-color="#FFD4C6"/>
+      <stop offset=".55" stop-color="#FDBBA6"/>
+      <stop offset="1" stop-color="#E89078"/>
+    </radialGradient>
+    <radialGradient id="mc-ear" cx="40%" cy="30%" r="75%">
+      <stop stop-color="#FFF7EC"/>
+      <stop offset="1" stop-color="#E8C4A0"/>
+    </radialGradient>
+    <clipPath id="mc-squircle">
+      <rect width="128" height="128" rx="28"/>
+    </clipPath>
+    <clipPath id="mc-head">
+      <path d="M27 68c0-22 16.5-38 37-38s37 16 37 38c0 10-3 18-9 24-8 8-17 12-28 12s-20-4-28-12c-6-6-9-14-9-24Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#mc-squircle)">
+    <rect width="128" height="128" fill="url(#mc-bg)"/>
+    <ellipse cx="64" cy="105" rx="30" ry="6.5" fill="#5A2A12" fill-opacity=".2"/>
+
+    <!-- ears: cream outside, pink inside -->
+    <ellipse cx="25.5" cy="63" rx="14.2" ry="16.2" fill="url(#mc-ear)"/>
+    <ellipse cx="28" cy="65" rx="7.2" ry="8.6" fill="#F2A898"/>
+    <ellipse cx="102.5" cy="63" rx="14.2" ry="16.2" fill="url(#mc-ear)"/>
+    <ellipse cx="100" cy="65" rx="7.2" ry="8.6" fill="#F2A898"/>
+
+    <!-- horns -->
+    <ellipse cx="39.6" cy="29.2" rx="7.2" ry="11.4" fill="url(#mc-horn)" transform="rotate(-15 39.6 29.2)"/>
+    <ellipse cx="88.4" cy="29.2" rx="7.2" ry="11.4" fill="url(#mc-horn)" transform="rotate(15 88.4 29.2)"/>
+    <ellipse cx="38" cy="25.6" rx="2.3" ry="3.1" fill="#FFF6C8" fill-opacity=".5" transform="rotate(-15 38 25.6)"/>
+    <ellipse cx="86.8" cy="25.6" rx="2.3" ry="3.1" fill="#FFF6C8" fill-opacity=".5" transform="rotate(15 86.8 25.6)"/>
+
+    <!-- pear-shaped head -->
+    <path fill="url(#mc-cream)" d="M27 68c0-22 16.5-38 37-38s37 16 37 38c0 10-3 18-9 24-8 8-17 12-28 12s-20-4-28-12c-6-6-9-14-9-24Z"/>
+
+    <!-- brown patch over viewer's-left eye, not a half-split -->
+    <g clip-path="url(#mc-head)">
+      <path fill="url(#mc-patch)" d="M30 46c4-12 16-18 28-16 8 1 12 8 11 16-1 10-4 16-2 24 1 6-2 12-10 14-10 2-20-2-26-12-6-10-6-18-1-26Z"/>
+    </g>
+
+    <!-- hair tuft: three peaks -->
+    <ellipse cx="64" cy="37.5" rx="9.5" ry="8" fill="#5C3A28"/>
+    <ellipse cx="56.8" cy="37.2" rx="5.4" ry="7.2" fill="#4A2C1C"/>
+    <ellipse cx="64" cy="35.4" rx="5" ry="7.4" fill="#4A2C1C"/>
+    <ellipse cx="71.2" cy="37.2" rx="5.2" ry="7" fill="#4A2C1C"/>
+
+    <!-- brows -->
+    <path d="M39 65.2c4.2-2.6 10.2-2.8 14.8.1" stroke="#2A1810" stroke-width="2.05" stroke-linecap="round"/>
+    <path d="M74.2 65.2c4.2-2.6 10.2-2.8 14.8.1" stroke="#2A1810" stroke-width="2.05" stroke-linecap="round"/>
+
+    <!-- eyes -->
+    <ellipse cx="47.2" cy="74.2" rx="8.3" ry="8.9" fill="#1A0E08"/>
+    <ellipse cx="80.1" cy="74.2" rx="8.3" ry="8.9" fill="#1A0E08"/>
+    <ellipse cx="50" cy="71" rx="2.7" ry="2.9" fill="#fff"/>
+    <ellipse cx="82.9" cy="71" rx="2.7" ry="2.9" fill="#fff"/>
+    <circle cx="44.6" cy="77.6" r="1.1" fill="#fff" fill-opacity=".5"/>
+    <circle cx="77.5" cy="77.6" r="1.1" fill="#fff" fill-opacity=".5"/>
+
+    <!-- snout -->
+    <ellipse cx="64" cy="87.4" rx="18.8" ry="13.2" fill="url(#mc-snout)"/>
+    <ellipse cx="56.8" cy="85.6" rx="2.2" ry="2.65" fill="#8A4A3A"/>
+    <ellipse cx="71.4" cy="85.6" rx="2.2" ry="2.65" fill="#8A4A3A"/>
+    <path d="M55.2 92.4c4.4 3.9 13.2 3.9 17.6 0" stroke="#8A4A3A" stroke-width="1.7" stroke-linecap="round"/>
+  </g>
+</svg>

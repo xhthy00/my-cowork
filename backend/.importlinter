@@ -1,0 +1,64 @@
+[importlinter]
+root_package = app
+
+[importlinter:contract:harness-layers]
+name = Harness layered dependency direction
+type = layers
+layers =
+    app.server
+    app.orchestrator
+    app.graphs
+    app.runtime
+    app.agents
+    app.memory
+    app.observability
+    app.tools
+    app.guardrails
+    app.llm
+    app.sandbox
+
+[importlinter:contract:cross-cut-forbidden]
+name = Cross-cutting layers must not import business layers
+type = forbidden
+source_modules =
+    app.observability
+    app.guardrails
+forbidden_modules =
+    app.server
+    app.orchestrator
+    app.graphs
+    app.runtime
+    app.agents
+
+[importlinter:contract:sandbox-forbidden]
+name = Sandbox layer must not import business layers
+type = forbidden
+source_modules =
+    app.sandbox
+forbidden_modules =
+    app.server
+    app.orchestrator
+    app.graphs
+    app.runtime
+    app.agents
+    app.memory
+    app.observability
+    app.guardrails
+    app.tools
+    app.llm
+
+[importlinter:contract:llm-forbidden]
+name = LLM layer must not import business layers
+type = forbidden
+source_modules =
+    app.llm
+forbidden_modules =
+    app.server
+    app.orchestrator
+    app.graphs
+    app.runtime
+    app.agents
+    app.memory
+    app.observability
+    app.guardrails
+    app.tools
