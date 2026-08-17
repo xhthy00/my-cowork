@@ -255,3 +255,9 @@ Design notes: [落地方案.md](落地方案.md) · task plan: [开发计划.md]
 
 - [开发指南](docs/开发指南.md) — local development, tests, skills / MCP / office assistants (Chinese)
 - [部署手册](docs/部署手册.md) — install, first-run setup, Lark tunnel, safety notes (Chinese)
+
+---
+
+## License
+
+This repository is released under the [MIT License](LICENSE). Third-party skills bundled under `resources/example-skills/` keep the original license in each skill directory.

@@ -255,3 +255,9 @@ docs/                    开发 / 部署文档与本 README 截图
 
 - [开发指南](docs/开发指南.md) — 本地开发、测试、Skill / MCP / 办公助手
 - [部署手册](docs/部署手册.md) — 安装、首次配置、飞书 Tunnel、安全提示
+
+---
+
+## 协议
+
+本仓库以 [MIT License](LICENSE) 发布。`resources/example-skills/` 中捆绑的第三方技能保留各自目录内的原始协议。
