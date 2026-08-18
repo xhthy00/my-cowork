@@ -331,6 +331,74 @@ class TestSingleAgentGraph:
         assert "未生成文档文件" in str(end.get("error") or "")
 
     @pytest.mark.asyncio
+    async def test_remote_channel_does_not_fail_graph_when_doc_missing(self):
+        from app.agents.factory import create_single_agent
+        from app.graphs.single_agent import compile_single_agent_graph
+        from app.guardrails.approval import reset_remote_channel, set_remote_channel
+
+        model = FakeChatModel(
+            responses=[make_ai(content="清单如下……"), make_ai(content="清单如下……")]
+        )
+        graph = compile_single_agent_graph(
+            create_single_agent("prompt", model, tools=[])
+        )
+        bus = TraceBus()
+        events = []
+        token = set_remote_channel(True)
+        try:
+            async for ev in run_graph(
+                _Task(
+                    task_id="sa-wx-docx",
+                    text="帮我把上述方案内容生成 docx",
+                    session_mode="single-agent",
+                ),
+                graph,
+                bus,
+            ):
+                events.append(ev)
+        finally:
+            reset_remote_channel(token)
+
+        end = events[-1]
+        assert end["type"] == "graph.end"
+        assert end["status"] != "error"
+        assert "写入确认" not in str(end.get("error") or "")
+
+    @pytest.mark.asyncio
+    async def test_remote_channel_errors_when_claimed_file_missing(self):
+        from app.agents.factory import create_single_agent
+        from app.graphs.single_agent import compile_single_agent_graph
+        from app.guardrails.approval import reset_remote_channel, set_remote_channel
+
+        fake = "/Users/tanghaoyu/.my-cowork/spaces/space-local/projects/x/runs/x/江苏兴化旅游攻略.docx"
+        reply = f"最终交付文件\n- 路径：`{fake}`"
+        model = FakeChatModel(responses=[make_ai(content=reply), make_ai(content=reply)])
+        graph = compile_single_agent_graph(
+            create_single_agent("prompt", model, tools=[])
+        )
+        bus = TraceBus()
+        events = []
+        token = set_remote_channel(True)
+        try:
+            async for ev in run_graph(
+                _Task(
+                    task_id="sa-wx-claimed",
+                    text="整理兴化旅游攻略 word 版本发我",
+                    session_mode="single-agent",
+                ),
+                graph,
+                bus,
+            ):
+                events.append(ev)
+        finally:
+            reset_remote_channel(token)
+
+        end = events[-1]
+        assert end["type"] == "graph.end"
+        assert end["status"] == "error"
+        assert "未生成文档文件" in str(end.get("error") or "")
+
+    @pytest.mark.asyncio
     async def test_run_graph_errors_when_claimed_xlsx_missing(self):
         from app.agents.factory import create_single_agent
         from app.graphs.single_agent import compile_single_agent_graph

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.guardrails.approval import ConfirmHub, ConfirmTimeout
+from app.guardrails.approval import ConfirmHub, ConfirmTimeout, is_remote_channel, reset_remote_channel, set_remote_channel
 
 
 class TestConfirmHub:
@@ -107,3 +107,27 @@ class TestConfirmHub:
         hub.resolve_plan("tid", edited)
         result = await task
         assert result[0]["content"] == "edited"
+
+    @pytest.mark.asyncio
+    async def test_remote_channel_auto_approves_confirm(self) -> None:
+        events: list[dict] = []
+        hub = ConfirmHub(emit=events.append, timeout_seconds=30)
+        token = set_remote_channel(True)
+        try:
+            assert is_remote_channel() is True
+            ok = await hub.request("c-remote", "docx.gen", {"out_path": "/tmp/a.docx"})
+            assert ok is True
+            assert events == []
+        finally:
+            reset_remote_channel(token)
+
+    @pytest.mark.asyncio
+    async def test_remote_channel_skips_plan_confirm(self) -> None:
+        hub = ConfirmHub(timeout_seconds=30)
+        subtasks = [{"id": "task_1", "content": "x"}]
+        token = set_remote_channel(True)
+        try:
+            result = await hub.request_plan("tid", subtasks)
+            assert result == subtasks
+        finally:
+            reset_remote_channel(token)

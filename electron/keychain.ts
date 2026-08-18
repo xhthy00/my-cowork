@@ -129,6 +129,9 @@ export const LARK_APP_ID_ACCOUNT = "lark:app_id";
 export const LARK_APP_SECRET_ACCOUNT = "lark:app_secret";
 export const LARK_VERIFY_TOKEN_ACCOUNT = "lark:verify_token";
 export const LARK_ENCRYPT_KEY_ACCOUNT = "lark:encrypt_key";
+export const WEIXIN_BOT_TOKEN_ACCOUNT = "weixin:bot_token";
+export const WEIXIN_ACCOUNT_ID_ACCOUNT = "weixin:account_id";
+export const WEIXIN_BASE_URL_ACCOUNT = "weixin:base_url";
 
 async function injectLarkEnv(env: Record<string, string>): Promise<void> {
   const appId = (await getKey(SERVICE, LARK_APP_ID_ACCOUNT))?.trim();
@@ -139,6 +142,15 @@ async function injectLarkEnv(env: Record<string, string>): Promise<void> {
   if (appSecret) env.LARK_APP_SECRET = appSecret;
   if (verifyToken) env.LARK_VERIFY_TOKEN = verifyToken;
   if (encryptKey) env.LARK_ENCRYPT_KEY = encryptKey;
+}
+
+async function injectWeixinEnv(env: Record<string, string>): Promise<void> {
+  const token = (await getKey(SERVICE, WEIXIN_BOT_TOKEN_ACCOUNT))?.trim();
+  const accountId = (await getKey(SERVICE, WEIXIN_ACCOUNT_ID_ACCOUNT))?.trim();
+  const baseUrl = (await getKey(SERVICE, WEIXIN_BASE_URL_ACCOUNT))?.trim();
+  if (token) env.WEIXIN_BOT_TOKEN = token;
+  if (accountId) env.WEIXIN_ACCOUNT_ID = accountId;
+  if (baseUrl) env.WEIXIN_BASE_URL = baseUrl;
 }
 
 export async function buildPythonEnv(): Promise<Record<string, string>> {
@@ -157,6 +169,7 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
       env["MY_COWORK_BASE_URL"] = active.baseUrl;
     }
     await injectLarkEnv(env);
+    await injectWeixinEnv(env);
     return env;
   }
 
@@ -165,5 +178,6 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
     env["MY_COWORK_API_KEY"] = legacy;
   }
   await injectLarkEnv(env);
+  await injectWeixinEnv(env);
   return env;
 }

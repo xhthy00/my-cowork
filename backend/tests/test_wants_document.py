@@ -11,6 +11,8 @@ from app.graphs.routing import (
 def test_wants_document_generation_intent():
     assert wants_document("帮我生成一份旅游攻略PPT")
     assert wants_document("做成一份报告")
+    assert wants_document("整理宜昌旅游攻略 word 版本发我")
+    assert wants_document("把行程做成word版")
     assert wants_pptx("请做一份 pptx")
 
 
@@ -60,6 +62,44 @@ def test_document_tools_docx_gen_counts():
         ]
     }
     assert document_tools_succeeded(state)
+
+
+def test_document_tools_officecli_help_does_not_count():
+    state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "bash",
+                        "args": {"cmd": "officecli --version"},
+                        "id": "c1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content="officecli 1.0.144 is ready\nSee officecli create report.docx",
+                tool_call_id="c1",
+                name="bash",
+            ),
+        ]
+    }
+    assert not document_tools_succeeded(state)
+
+
+def test_looks_like_workspace_dump():
+    from app.runtime.context import looks_like_plan_only, looks_like_workspace_dump
+
+    dump = (
+        "Working Directory: e950532f\n"
+        "Final Output Directory: /Users/me/runs/x\n"
+        "officecli 1.0.144 is ready\n"
+        "Execution Plan: Batch 1 Cover"
+    )
+    assert looks_like_workspace_dump(dump)
+    assert looks_like_plan_only("整理宜昌旅游攻略 word 版本发我", dump)
+    assert not looks_like_workspace_dump("已生成宜昌旅游攻略.docx，含景点与行程。")
 
 
 def test_document_tools_officecli_bash_counts():

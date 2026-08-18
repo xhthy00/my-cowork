@@ -32,6 +32,16 @@ _PLAN_MARKERS = (
     "先按规范",
 )
 _QUESTION_MARKERS = ("哪些", "什么", "如何", "为什么", "注意", "？", "?")
+_WORKSPACE_DUMP_MARKERS_ZH = (
+    "最终产出目录",
+    "工作空间约束",
+    "过程/临时文件",
+)
+_WORKSPACE_DUMP_MARKERS_EN = (
+    "working directory",
+    "final output directory",
+    "preloaded_skill",
+)
 _FOLLOWUP_NOTE = (
     "This is a follow-up in an existing conversation. "
     "Answer the LATEST user message completely in Chinese in the message body. "
@@ -57,9 +67,22 @@ def strip_think_blocks(content: str) -> str:
     return text.replace("<think>", "").replace("</think>", "").strip()
 
 
+def looks_like_workspace_dump(text: str) -> bool:
+    """True when the model echoed harness/officecli status instead of a user reply."""
+    blob = text or ""
+    if any(marker in blob for marker in _WORKSPACE_DUMP_MARKERS_ZH):
+        return True
+    low = blob.lower()
+    if any(marker in low for marker in _WORKSPACE_DUMP_MARKERS_EN):
+        return True
+    return "officecli" in low and "is ready" in low
+
+
 def looks_like_plan_only(user_text: str, ai_text: str) -> bool:
     """True when the model stopped after a plan instead of answering."""
     body = strip_think_blocks(ai_text)
+    if looks_like_workspace_dump(body):
+        return True
     cjk = len(_CJK_RE.findall(body))
     if cjk >= 150:
         return False

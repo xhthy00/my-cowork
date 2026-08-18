@@ -59,6 +59,22 @@ class TestExecBash:
         assert "rejected" in parsed["stderr"].lower()
 
     @pytest.mark.asyncio
+    async def test_remote_channel_auto_approves_bash(self, tmp_path):
+        from app.guardrails.approval import ConfirmHub, reset_remote_channel, set_remote_channel
+
+        guard = PathGuard([str(tmp_path)])
+        hub = ConfirmHub(timeout_seconds=30)
+        bash = make_bash(guard, CommandFilter([]), hub)
+        token = set_remote_channel(True)
+        try:
+            raw = await bash.ainvoke({"cmd": "echo hi", "cwd": str(tmp_path)})
+        finally:
+            reset_remote_channel(token)
+        payload = json.loads(raw)
+        assert payload["exit_code"] == 0
+        assert "hi" in payload["stdout"]
+
+    @pytest.mark.asyncio
     async def test_user_allowed_runs_subprocess(self, tmp_path):
         bash = _make(make_bash, tmp_path, ok=True)
 

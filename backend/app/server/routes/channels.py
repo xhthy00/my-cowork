@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.server.channels.manager import ChannelError, ChannelManager
+from app.server.channels.plugins import weixin as weixin_plugin
 
 router = APIRouter()
 
@@ -161,5 +163,49 @@ async def channel_stream(request: Request) -> StreamingResponse:
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         finally:
             mgr.bus.unsubscribe(queue)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.get("/api/channel/weixin/login")
+async def weixin_login(request: Request) -> StreamingResponse:
+    stop = {"flag": False}
+
+    def should_stop() -> bool:
+        return stop["flag"]
+
+    async def gen():
+        queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def run() -> None:
+            try:
+                for event, payload in weixin_plugin.login_flow(should_stop=should_stop):
+                    loop.call_soon_threadsafe(queue.put_nowait, (event, payload))
+            except Exception as exc:  # noqa: BLE001
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", {"message": str(exc)}))
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        worker = threading.Thread(target=run, name="weixin-login", daemon=True)
+        worker.start()
+        try:
+            while True:
+                if await request.is_disconnected():
+                    stop["flag"] = True
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=1)
+                except TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if item is None:
+                    break
+                event, payload = item
+                yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if event in {"done", "error"}:
+                    break
+        finally:
+            stop["flag"] = True
 
     return StreamingResponse(gen(), media_type="text/event-stream")

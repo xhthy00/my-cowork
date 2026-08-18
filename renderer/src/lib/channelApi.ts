@@ -142,4 +142,56 @@ export const channelApi = {
       es?.close();
     };
   },
+  loginWeixin: async (
+    handlers: {
+      onQr: (qrcodeData: string) => void;
+      onScanned: () => void;
+      onDone: (data: { accountId: string; botToken: string; baseUrl?: string }) => void;
+      onError: (message: string) => void;
+    },
+  ): Promise<() => void> => {
+    const url = await base();
+    const es = new EventSource(`${url}/api/channel/weixin/login`);
+    es.addEventListener("qr", (e: MessageEvent) => {
+      try {
+        const { qrcodeData } = JSON.parse(String(e.data)) as { qrcodeData: string };
+        handlers.onQr(qrcodeData);
+      } catch {
+        handlers.onError("WeChat login failed");
+      }
+    });
+    es.addEventListener("scanned", () => {
+      handlers.onScanned();
+    });
+    es.addEventListener("done", (e: MessageEvent) => {
+      es.close();
+      try {
+        const data = JSON.parse(String(e.data)) as {
+          accountId: string;
+          botToken: string;
+          baseUrl?: string;
+        };
+        handlers.onDone(data);
+      } catch {
+        handlers.onError("WeChat login failed");
+      }
+    });
+    es.addEventListener("error", (e: MessageEvent) => {
+      es.close();
+      let message = "";
+      if (e.data) {
+        try {
+          message = String((JSON.parse(String(e.data)) as { message?: string }).message ?? "");
+        } catch {
+          message = "";
+        }
+      }
+      handlers.onError(message);
+    });
+    es.onerror = () => {
+      es.close();
+      handlers.onError("");
+    };
+    return () => es.close();
+  },
 };

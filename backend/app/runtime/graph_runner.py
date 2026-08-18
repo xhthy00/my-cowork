@@ -17,6 +17,7 @@ from app.graphs.routing import (
     wants_document,
     wants_pptx,
 )
+from app.guardrails.approval import is_remote_channel
 from app.llm.token_counter import count_tokens
 from app.runtime.attachments import stage_attachments_for_task
 from app.runtime.budget import BudgetExhausted
@@ -26,7 +27,7 @@ from app.runtime.budget_context import (
     set_budget_runtime,
 )
 from app.runtime.compressor import maybe_compress
-from app.runtime.context import inject_memories
+from app.runtime.context import inject_memories, looks_like_workspace_dump
 from app.runtime.decompose import decompose_subtasks, normalize_subtasks
 from app.runtime.notes_context import NotesRuntime, reset_notes_runtime, set_notes_runtime
 from app.runtime.workspace_context import (
@@ -940,7 +941,22 @@ async def run_graph(
 
         end_status = "ok"
         end_extra: dict[str, Any] = {}
-        if wants_document(plan_ask) and not doc_ok:
+        # IM channels have no desktop confirm UI (AionUi YOLO). Keep the
+        # agent reply instead of a "click Allow" harness error.
+        if is_remote_channel() and wants_document(plan_ask) and (
+            not doc_ok or claimed_missing
+        ):
+            last = _strip_think(_last_ai_text(run_messages))
+            if last and not looks_like_workspace_dump(last) and not claimed_missing:
+                end_extra["summary"] = last
+            else:
+                end_status = "error"
+                end_extra["error"] = (
+                    "未生成 PPTX 文件。"
+                    if wants_pptx(plan_ask)
+                    else "未生成文档文件。"
+                )
+        elif wants_document(plan_ask) and not doc_ok:
             end_status = "error"
             end_extra["error"] = (
                 "未生成 PPTX 文件。请重试；若弹出写入确认，请点击允许。"

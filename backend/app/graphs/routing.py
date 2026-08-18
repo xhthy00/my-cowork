@@ -27,6 +27,10 @@ _DOC_TOOL_NAMES = frozenset(
     }
 )
 _BASH_TOOL_NAMES = frozenset({"bash", "exec.bash"})
+_OFFICECLI_WRITE_RE = re.compile(
+    r"\bofficecli(?:\.exe)?\s+(create|add|set|batch|save|close|remove|move|swap)\b",
+    re.IGNORECASE,
+)
 _OFFICE_EXTS = (".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls", ".pdf")
 _PPTX_EXTS = (".pptx", ".ppt")
 _RESULT_FAIL_MARKERS = (
@@ -109,6 +113,8 @@ def wants_document(user_text: str) -> bool:
     if _DOC_GEN_RE.search(q):
         return True
     if _DOC_SKILL_RE.search(q) and any(v in q for v in _GEN_HINTS):
+        return True
+    if re.search(r"word\s*版", q, re.IGNORECASE):
         return True
     return any(
         k in q
@@ -250,7 +256,10 @@ def document_tools_succeeded(state: dict[str, Any], *, require_pptx: bool = Fals
             continue
         if require_pptx and content.lower().rstrip().endswith(".pdf"):
             continue
-        if is_officecli_bash and not _has_office_ext(f"{cmd}\n{content}", require_pptx=require_pptx):
+        if is_officecli_bash and (
+            not _OFFICECLI_WRITE_RE.search(cmd)
+            or not _has_office_ext(cmd, require_pptx=require_pptx)
+        ):
             continue
         if name == "fs.write" and not _has_office_ext(content, require_pptx=require_pptx):
             continue

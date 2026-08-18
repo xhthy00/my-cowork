@@ -138,4 +138,16 @@ describe("buildPythonEnv", () => {
     expect(env.LARK_VERIFY_TOKEN).toBe("tok_test");
     expect(env.LARK_ENCRYPT_KEY).toBe("enc_test");
   });
+
+  it("injects Weixin credentials from keychain", async () => {
+    initKeychain(tmp);
+    await setKey("my-cowork", "weixin:bot_token", "wx-token");
+    await setKey("my-cowork", "weixin:account_id", "wx-account");
+    await setKey("my-cowork", "weixin:base_url", "https://ilinkai.weixin.qq.com");
+
+    const env = await buildPythonEnv();
+    expect(env.WEIXIN_BOT_TOKEN).toBe("wx-token");
+    expect(env.WEIXIN_ACCOUNT_ID).toBe("wx-account");
+    expect(env.WEIXIN_BASE_URL).toBe("https://ilinkai.weixin.qq.com");
+  });
 });

@@ -56,6 +56,8 @@ def test_plugin_success_and_failure(tmp_path):
 def test_enable_without_credentials_rejected(tmp_path, monkeypatch):
     monkeypatch.delenv("LARK_APP_ID", raising=False)
     monkeypatch.delenv("LARK_APP_SECRET", raising=False)
+    monkeypatch.delenv("WEIXIN_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("WEIXIN_ACCOUNT_ID", raising=False)
     mgr, _, _ = _mgr(tmp_path)
     with pytest.raises(ChannelError, match="请输入 App ID 和 App Secret"):
         mgr.enable_plugin("lark", {})
@@ -63,6 +65,8 @@ def test_enable_without_credentials_rejected(tmp_path, monkeypatch):
         mgr.enable_plugin("telegram", {})
     with pytest.raises(ChannelError, match="即将推出"):
         mgr.enable_plugin("dingtalk", {})
+    with pytest.raises(ChannelError, match="请先使用微信扫码登录"):
+        mgr.enable_plugin("weixin", {})
 
 
 def test_unauthorized_creates_pairing(tmp_path):
@@ -87,6 +91,19 @@ def test_approve_then_message_goes_to_task_manager(tmp_path):
     assert tasks[0].source == "lark"
     assert tasks[0].reply_chat_id == "oc_1"
     assert tasks[0].session_mode == "single-agent"
+    assert tasks[0].history is None
+
+
+def test_followup_message_includes_channel_history(tmp_path):
+    mgr, _, tasks = _mgr(tmp_path)
+    result = mgr.ingest("lark", user_id="ou_1", chat_id="oc_1", text="hello")
+    mgr.approve_pairing(result["code"])
+    mgr.ingest("lark", user_id="ou_1", chat_id="oc_1", text="调研大模型备案")
+    mgr.ingest("lark", user_id="ou_1", chat_id="oc_1", text="帮我生成一份 Word")
+    hist = tasks[1].history
+    assert hist is not None
+    assert hist[0] == {"role": "user", "content": "调研大模型备案"}
+    assert hist[1]["role"] == "assistant"
 
 
 def test_reply_uses_graph_summary(tmp_path):
@@ -171,18 +188,24 @@ async def test_http_plugins_and_enable(tmp_path, monkeypatch):
     monkeypatch.setenv("MY_COWORK_CHANNEL_AUTOSTART", "0")
     monkeypatch.delenv("LARK_APP_ID", raising=False)
     monkeypatch.delenv("LARK_APP_SECRET", raising=False)
+    monkeypatch.delenv("WEIXIN_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("WEIXIN_ACCOUNT_ID", raising=False)
     app = create_app(task_manager=MagicMock(), bus=None, confirm_hub=MagicMock())
     app.state.channels._start_lark = lambda *a, **k: None
     app.state.channels._stop_lark = lambda: None
     app.state.channels._test_lark = lambda app_id, app_secret: {"success": True, "bot_username": "lark"}
+    app.state.channels._start_weixin = lambda *a, **k: None
+    app.state.channels._stop_weixin = lambda: None
 
     transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         plugins = (await client.get("/api/channel/plugins")).json()
         ids = [p["plugin_id"] for p in plugins]
-        assert ids == ["telegram", "lark", "dingtalk"]
+        assert ids == ["telegram", "lark", "dingtalk", "weixin"]
         assert plugins[0]["coming_soon"] is True
         assert plugins[2]["coming_soon"] is True
+        assert plugins[3]["plugin_id"] == "weixin"
+        assert plugins[3]["coming_soon"] is False
 
         bad = await client.post("/api/channel/plugins/enable", json={"plugin_id": "telegram"})
         assert bad.status_code == 400
@@ -208,3 +231,19 @@ async def test_http_plugins_and_enable(tmp_path, monkeypatch):
         enabled = (await client.get("/api/channel/plugins")).json()
         lark = next(p for p in enabled if p["plugin_id"] == "lark")
         assert lark["enabled"] is True
+
+        wx_missing = await client.post("/api/channel/plugins/enable", json={"plugin_id": "weixin", "config": {}})
+        assert wx_missing.status_code == 400
+        assert "扫码" in wx_missing.json()["detail"]
+
+        wx_ok = await client.post(
+            "/api/channel/plugins/enable",
+            json={
+                "plugin_id": "weixin",
+                "config": {"credentials": {"account_id": "acc", "bot_token": "tok"}},
+            },
+        )
+        assert wx_ok.status_code == 200
+        enabled = (await client.get("/api/channel/plugins")).json()
+        weixin = next(p for p in enabled if p["plugin_id"] == "weixin")
+        assert weixin["enabled"] is True

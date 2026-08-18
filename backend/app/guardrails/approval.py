@@ -4,9 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextvars import ContextVar, Token
 from typing import Any, Callable
 
 _OFFICECLI_CMD_RE = re.compile(r"^\s*officecli(\s|$)")
+REMOTE_CHANNEL_SOURCES = frozenset({"weixin", "lark", "telegram", "dingtalk"})
+_remote_channel: ContextVar[bool] = ContextVar("confirm_remote_channel", default=False)
+
+
+def set_remote_channel(enabled: bool) -> Token:
+    return _remote_channel.set(bool(enabled))
+
+
+def reset_remote_channel(token: Token) -> None:
+    _remote_channel.reset(token)
+
+
+def is_remote_channel() -> bool:
+    return _remote_channel.get()
 
 
 class ConfirmTimeout(Exception):
@@ -48,7 +63,19 @@ class ConfirmHub:
 
         Returns ``True`` if the user approves, ``False`` if they reject.
         Raises ``ConfirmTimeout`` if no resolution arrives within the timeout.
+        Remote IM channels have no confirm UI (AionUi YOLO), so tool calls
+        are auto-approved instead of waiting on the desktop modal.
         """
+        if is_remote_channel():
+            self._audit_log(
+                kind="confirm_request",
+                tool=tool,
+                call_id=call_id,
+                ok=True,
+                detail={"args": args, "remote_auto_approved": True},
+            )
+            return True
+
         cmd = str(args.get("cmd") or "")
         is_officecli = tool == "exec.bash" and bool(_OFFICECLI_CMD_RE.match(cmd))
         if is_officecli and self._officecli_auto_ok:
@@ -115,6 +142,8 @@ class ConfirmHub:
         self, task_id: str, subtasks: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Emit to_sub_tasks and wait for edited subtasks from the UI."""
+        if is_remote_channel():
+            return list(subtasks)
         future: asyncio.Future[list[dict[str, Any]]] = (
             asyncio.get_running_loop().create_future()
         )

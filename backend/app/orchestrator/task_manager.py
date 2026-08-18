@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+from app.guardrails.approval import (
+    REMOTE_CHANNEL_SOURCES,
+    reset_remote_channel,
+    set_remote_channel,
+)
 from app.runtime.budget import Budget
 from app.runtime.graph_runner import run_graph
 from app.skills import find_skill
@@ -286,6 +291,7 @@ class TaskManager:
             queue.put_nowait(event)
 
         unsub = self.bus.subscribe(_on_bus)
+        remote_token = set_remote_channel(source in REMOTE_CHANNEL_SOURCES)
 
         async def _run_graph() -> None:
             try:
@@ -351,6 +357,7 @@ class TaskManager:
                     break
         finally:
             unsub()
+            reset_remote_channel(remote_token)
             self._cancel_events.pop(task_id, None)
             self._graph_tasks.pop(task_id, None)
             if not graph_task.done():
