@@ -12,7 +12,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool as langchain_tool
 
 from app.agents.factory import create_single_agent
-from app.agents.sanitize import ensure_tool_responses
+from app.agents.sanitize import ensure_tool_responses, prepare_model_messages, strip_model_junk
 from app.graphs.single_agent import compile_single_agent_graph
 from app.graphs.state import WorkforceState
 
@@ -328,3 +328,114 @@ class TestAgentRoundTrip:
             str(m.content) for m in result["messages"] if m.content
         )
         assert "done" in texts
+
+
+class TestPrepareModelMessages:
+    def test_merges_leading_systems(self):
+        out = prepare_model_messages(
+            [
+                SystemMessage(content="role A"),
+                SystemMessage(content="rules B"),
+                HumanMessage(content="调研扬州"),
+            ]
+        )
+        assert len(out) == 2
+        assert isinstance(out[0], SystemMessage)
+        assert "role A" in out[0].content
+        assert "rules B" in out[0].content
+        assert isinstance(out[1], HumanMessage)
+
+    def test_mid_thread_system_is_folded_into_tool_result(self):
+        out = prepare_model_messages(
+            [
+                SystemMessage(content="agent"),
+                HumanMessage(content="q"),
+                AIMessage(
+                    content=" ",
+                    tool_calls=[
+                        {
+                            "id": "c1",
+                            "name": "load_skill",
+                            "args": {"name": "x"},
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(content="skill body", tool_call_id="c1", name="load_skill"),
+                SystemMessage(content="<loaded_skill>body</loaded_skill>"),
+            ]
+        )
+        roles = [getattr(m, "type", None) for m in out]
+        assert roles.count("system") == 1
+        assert "human" not in roles[2:]
+        assert isinstance(out[-1], ToolMessage)
+        assert "skill body" in str(out[-1].content)
+        assert "loaded_skill" in str(out[-1].content)
+
+    def test_instruction_between_parallel_tools_is_folded(self):
+        out = prepare_model_messages(
+            [
+                HumanMessage(content="写一份请示"),
+                AIMessage(
+                    content="加载公文写作规范和 Word 文档生成技能。",
+                    tool_calls=[
+                        {
+                            "id": "c1",
+                            "name": "load_skill",
+                            "args": {"name": "official-document-writing"},
+                            "type": "tool_call",
+                        },
+                        {
+                            "id": "c2",
+                            "name": "load_skill",
+                            "args": {"name": "officecli-docx"},
+                            "type": "tool_call",
+                        },
+                    ],
+                ),
+                ToolMessage(content="公文规范", tool_call_id="c1", name="load_skill"),
+                HumanMessage(content="[Instruction]\n<loaded_skill>公文规范</loaded_skill>"),
+                ToolMessage(content="Word 技能", tool_call_id="c2", name="load_skill"),
+                HumanMessage(content="[Instruction]\n<loaded_skill>Word 技能</loaded_skill>"),
+            ]
+        )
+        roles = [getattr(m, "type", None) for m in out]
+        assert roles == ["human", "ai", "tool", "tool"]
+        assert "loaded_skill" in str(out[2].content)
+        assert "loaded_skill" in str(out[3].content)
+
+    def test_empty_tool_call_content_becomes_space(self):
+        out = prepare_model_messages(
+            [
+                HumanMessage(content="q"),
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "c1",
+                            "name": "web_search",
+                            "args": {"query": "扬州"},
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+            ]
+        )
+        assert out[-1].content == " "
+
+
+def test_strip_model_junk_minimax_tokens():
+    raw = (
+        "大模型备案分算法备案与生成式服务备案两步。\n"
+        "]<|minimax|>[0xf\n"
+        "]<|minimax|>[0xf\n"
+        "]<|minimax|>[0xX\n"
+        "详见官方指引。"
+    )
+    cleaned = strip_model_junk(raw)
+    assert "<|minimax|>" not in cleaned
+    assert "0xf" not in cleaned
+    assert "算法备案" in cleaned
+    assert "官方指引" in cleaned
+    assert strip_model_junk("]<|minimax|>[0xf") == ""
+    assert strip_model_junk("] <|minimax|> [0xX") == ""

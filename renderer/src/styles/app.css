@@ -1427,7 +1427,7 @@ html.electron .titlebar {
 .preview-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .preview-chooser { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
 .preview-browser { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.preview-browser-bar { padding: 8px; border-bottom: 1px solid var(--border-subtle); }
+.preview-browser-bar { padding: 8px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
 .preview-url {
   width: 100%;
   border: 1px solid var(--border-subtle);
@@ -1437,10 +1437,20 @@ html.electron .titlebar {
   background: var(--bg);
   color: var(--text);
 }
+.preview-content-slot { flex: 1; min-height: 0; position: relative; }
 .preview-browser-host { flex: 1; position: relative; min-height: 120px; }
+.preview-browser-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
 .preview-webview-layer {
   position: absolute;
   inset: 0;
+}
+.preview-webview-layer.shown {
+  pointer-events: auto;
 }
 .preview-webview-layer.parked {
   left: -10000px;

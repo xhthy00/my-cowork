@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import type { SSEvent } from "../api/sse";
 import { usePreviewStore } from "./preview";
+import { usePageTabStore } from "./pageTab";
 import { applyToProject } from "./livePark";
 import { useWorkforceStore } from "./workforce";
 import { decodeUnicodeEscapes, fileBasename } from "@/lib/fsPath";
@@ -369,7 +370,7 @@ function isStatusOnlyChatter(text: string): boolean {
   const lines = t.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return true;
   const statusRe =
-    /(请稍候|制作中|生成中|规划任务|这就为您|如果遇到问题|正在为您|稍等|处理中|开始制作|先规划)/;
+    /(请稍候|制作中|生成中|规划任务|这就为您|如果遇到问题|正在为您|稍等|处理中|开始制作|先规划|正在调用工具)/;
   const substanceRe = /(已生成|已保存|完成了|文件路径|如下|总结|内容如下)/;
   if (substanceRe.test(t)) return false;
   return lines.every((l) => l.length < 100 && statusRe.test(l));
@@ -402,12 +403,39 @@ export function formalAnswerFromContent(content: string): string {
   let withoutThink = content.replace(/<think>[\s\S]*?<\/think>/gi, "\n");
   // Drop unclosed trailing think (streaming).
   withoutThink = withoutThink.replace(/<think>[\s\S]*$/i, "\n");
-  withoutThink = withoutThink.replace(/<\/?think>/gi, "").trim();
+  withoutThink = withoutThink.replace(/<\/?think>/gi, "");
+  withoutThink = withoutThink.replace(/正在调用工具[.。…\s]*/g, "").trim();
+  withoutThink = stripProcessTail(withoutThink);
   if (!withoutThink || isWorkforceProcessMeta(withoutThink)) return "";
   // Drop leading English meta paragraphs if a Chinese/markdown body follows.
   const chunks = withoutThink.split(/\n{2,}/);
-  const kept = chunks.filter((c) => !isWorkforceProcessMeta(c));
+  const kept = chunks.filter((c) => !isWorkforceProcessMeta(c) && !isOfficeProcessChunk(c));
   return kept.join("\n\n").trim();
+}
+
+const PROCESS_TAIL_RE =
+  /\n(?:Now let me |Let me (?:add|set|close|build|create|set up)|已完成。[^\n]{0,40}Word|交付摘要|文件规格：)/i;
+
+function stripProcessTail(text: string): string {
+  const idx = text.search(PROCESS_TAIL_RE);
+  if (idx < 0) return text;
+  const head = text.slice(0, idx).trim();
+  if (/[\u4e00-\u9fff]/.test(head) && head.length >= 8) return head;
+  return text;
+}
+
+function isOfficeProcessChunk(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (
+    /交付摘要|文件规格：|schema 校验|page layout|pageBreakBefore|fldChar/i.test(t) &&
+    t.length < 1200
+  ) {
+    return true;
+  }
+  return /^(Now let me |Let me (?:add|set|close|build|create|set up)|已完成。[^\n]{0,40}Word)/i.test(
+    t,
+  );
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -612,6 +640,10 @@ export const useSessionStore = create<SessionState>((set) => ({
           pushPendingArtifact(state, updates, art);
           return { ...state, ...updates };
         });
+        if (/\.md$/i.test(art.name || art.path)) {
+          usePageTabStore.getState().openPreviewFoldSide();
+          usePreviewStore.getState().openFile(art.path, art.name);
+        }
       }
     }
     // artifact.cleanup: disk cleanup only — keep Trace, do not touch UI artifacts.
@@ -770,8 +802,7 @@ export const useSessionStore = create<SessionState>((set) => ({
         const alreadyStreamed =
           Boolean(lastAsst?.content) &&
           text.length > 0 &&
-          (lastAsst!.content.includes(text.slice(0, Math.min(48, text.length))) ||
-            lastAsst!.content.length >= Math.min(text.length, 24));
+          lastAsst!.content.includes(text.slice(0, Math.min(48, text.length)));
         if (
           text &&
           !alreadyStreamed &&
@@ -906,6 +937,15 @@ export const useSessionStore = create<SessionState>((set) => ({
         updates.thinking = state.thinking
           ? { ...state.thinking, subject: `已完成 · ${String(payload.agent_id ?? "")}` }
           : null;
+      } else if (event.type === "tool.start") {
+        const tool = String(payload.tool ?? "工具");
+        const preview = String(payload.preview ?? "").trim();
+        updates.thinking = {
+          subject: preview ? `正在执行 · ${tool} · ${preview}` : `正在执行 · ${tool}`,
+          description: "",
+          startedAtMs: state.thinking?.startedAtMs ?? Date.now(),
+          agentId: state.thinking?.agentId ?? String(payload.agent_id ?? ""),
+        };
       } else if (event.type === "step.delta") {
         const delta = String(payload.delta ?? "");
         if (delta && state.thinking) {

@@ -220,4 +220,67 @@ describe("workforce + preview stores", () => {
     expect(agent?.tasks[0]?.id).toBe("task_1");
     expect(agent?.tasks[0]?.terminal).toEqual(["$ ls\nok\n"]);
   });
+
+  it("reuses one terminal tab per agent instead of stacking bash preview.open", () => {
+    const pv = usePreviewStore.getState();
+    pv.handlePreviewEvent("preview.open", {
+      kind: "terminal",
+      agent_id: "single_agent",
+      assign_id: "run-1:single_agent",
+    });
+    pv.openFile("/tmp/report.md");
+    pv.handlePreviewEvent("preview.open", {
+      kind: "terminal",
+      agent_id: "single_agent",
+      assign_id: "run-1:single_agent",
+    });
+    pv.handlePreviewEvent("preview.open", {
+      kind: "terminal",
+      agent_id: "single_agent",
+      assign_id: "run-1:single_agent",
+    });
+
+    const terminals = usePreviewStore
+      .getState()
+      .tabs.filter((t) => t.type === "terminal");
+    expect(terminals).toHaveLength(1);
+    if (terminals[0]?.type === "terminal") {
+      expect(terminals[0].agentId).toBe("single_agent");
+    }
+    const fileTab = usePreviewStore.getState().tabs.find((t) => t.type === "file");
+    expect(usePreviewStore.getState().activeTabId).toBe(fileTab?.id);
+  });
+
+  it("keeps terminal output when agent.assign completes the same task", () => {
+    const wf = useWorkforceStore.getState();
+    wf.handleWorkforceEvent("agent.create", {
+      agent_id: "single_agent",
+      name: "Single Agent",
+      agent_type: "single_agent",
+    });
+    wf.handleWorkforceEvent("agent.assign", {
+      agent_id: "single_agent",
+      assign_id: "run-1:single_agent",
+      content: "正在运行 · single_agent",
+      status: "running",
+    });
+    wf.handleWorkforceEvent("agent.terminal", {
+      agent_id: "single_agent",
+      assign_id: "run-1:single_agent",
+      output: "$ ls\nreport.md\n",
+    });
+    wf.handleWorkforceEvent("agent.assign", {
+      agent_id: "single_agent",
+      assign_id: "run-1:single_agent",
+      content: "已完成 · single_agent",
+      status: "completed",
+    });
+
+    const agent = useWorkforceStore
+      .getState()
+      .taskAssigning.find((a) => a.agent_id === "single_agent");
+    expect(agent?.tasks).toHaveLength(1);
+    expect(agent?.tasks[0]?.status).toBe("completed");
+    expect(agent?.tasks[0]?.terminal).toEqual(["$ ls\nreport.md\n"]);
+  });
 });

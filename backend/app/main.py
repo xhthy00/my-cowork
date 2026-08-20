@@ -32,8 +32,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from app.agents.factory import (
     create_single_agent,
     create_worker,
-    load_single_agent_prompt,
-    load_worker_prompt,
+    load_prompt,
 )
 from app.graphs.single_agent import compile_single_agent_graph
 from app.graphs.workforce import compile_workforce_graph
@@ -85,6 +84,9 @@ from app.tools.builtin.lark.tools import make_lark_send_tool
 from app.tools.builtin.notes import make_note_tools
 from app.tools.builtin.skills import make_skill_tools
 from app.tools.builtin.todo import make_todo_write_tool
+from app.tools.builtin.web_search import make_web_search_tool
+from app.tools.builtin.web_fetch import make_web_fetch_tool
+from app.tools.builtin.browser import make_browser_tools
 from app.skills.config import default_skills_config_path, default_skills_root
 from app.tools.mcp.manager import (
     McpManager,
@@ -112,24 +114,9 @@ def _path_hints() -> str:
     )
 
 
-_SKILLS_WORKFLOW = """
-<skills_system>
-Skills are your primary specialized workflows (Eigent SkillToolkit).
-- Trigger: If the user references a skill with double curly braces (e.g. {{pptx}})
-  or the task clearly matches a skill domain, you MUST use the skill workflow first.
-- Steps:
-  1. Call `list_skills` to confirm exact available skill names.
-  2. Call `load_skill` for the best matching skill before domain work.
-  3. Follow the loaded skill as the primary plan (process, constraints, output format).
-- Do not rely on memory for skill details; always use loaded content.
-- If multiple skills apply, prioritize the most specific one and load others as needed.
-</skills_system>
-""".strip()
-
-
 def _skills_prompt_for(agent_id: str) -> str:
     """Eigent: workflow block + catalog (tools also expose list/load)."""
-    lines = [_SKILLS_WORKFLOW, ""]
+    lines = [load_prompt("skills_system"), ""]
     try:
         from app.skills.config import list_skills_api, skill_visible_for_agent
 
@@ -158,25 +145,48 @@ def _with_skills(base: str, agent_id: str) -> str:
 
 
 def _developer_prompt() -> str:
-    template = load_worker_prompt("developer_agent")
-    return _with_skills(
-        template.replace("{path_hints}", _path_hints()), "developer_agent"
-    )
+    from app.runtime.v2.assemble import _env_placeholders
+
+    p = _env_placeholders()
+    body = load_prompt("developer", **p)
+    local = load_prompt("local_constraints", **p)
+    return _with_skills(f"{body}\n\n{local}", "developer_agent")
 
 
 def _document_prompt() -> str:
-    template = load_worker_prompt("document_agent")
-    return _with_skills(
-        template.replace("{path_hints}", _path_hints()), "document_agent"
-    )
+    from app.runtime.v2.assemble import _env_placeholders
+
+    p = _env_placeholders()
+    body = load_prompt("document", **p)
+    local = load_prompt("local_constraints", **p)
+    return _with_skills(f"{body}\n\n{local}", "document_agent")
+
+
+def _browser_prompt() -> str:
+    from app.runtime.v2.assemble import _env_placeholders
+
+    p = _env_placeholders()
+    body = load_prompt("browser", **p)
+    local = load_prompt("local_constraints", **p)
+    return _with_skills(f"{body}\n\n{local}", "browser_agent")
+
+
+def _multi_modal_prompt() -> str:
+    from app.runtime.v2.assemble import _env_placeholders
+
+    p = _env_placeholders()
+    body = load_prompt("multi_modal", **p)
+    local = load_prompt("local_constraints", **p)
+    return _with_skills(f"{body}\n\n{local}", "multi_modal_agent")
 
 
 def _single_agent_prompt() -> str:
-    template = load_single_agent_prompt()
-    return _with_skills(
-        template.replace("{path_hints}", _path_hints()),
-        "single_agent",
-    )
+    from app.runtime.v2.assemble import _env_placeholders
+
+    p = _env_placeholders()
+    body = load_prompt("single_agent", **p)
+    local = load_prompt("local_constraints", **p)
+    return _with_skills(f"{body}\n\n{local}", "single_agent")
 
 
 def _parse_fallback_specs() -> list[tuple[str, str]]:
@@ -348,6 +358,9 @@ def build_stack(
     )
     lark_tool = make_lark_send_tool()
     note_tools = make_note_tools()
+    web_search_tool = make_web_search_tool()
+    web_fetch_tool = make_web_fetch_tool()
+    browser_tools = make_browser_tools()
 
     registry = ToolRegistry()
     registry.register("builtin.fs.read", fs_read)
@@ -438,104 +451,216 @@ def build_stack(
 
     # Eigent: ObservableTodoToolkit is single-agent only. Workforce Progress
     # is the confirmed sub_tasks list (status via graph todo_state / task_state).
-    developer_agent = create_worker(
-        "developer_agent",
-        system_prompt=_developer_prompt(),
-        model=developer_llm,
-        tools=[
-            *_skills_for("developer_agent"),
-            *note_tools,
-            fs_read,
-            write_tool,
-            fs_list,
-            bash_tool,
-        ],
+    from app.runtime.v2.flag import is_v2
+    from app.runtime.v2.office import officecli_available
+
+    office_gen_tools = (
+        []
+        if officecli_available()
+        else [docx_tool, pptx_tool, xlsx_tool]
     )
-    document_agent = create_worker(
-        "document_agent",
-        system_prompt=_document_prompt(),
-        model=document_llm,
-        tools=[
-            *_skills_for("document_agent"),
+
+    if not is_v2():
+        developer_agent = create_worker(
+            "developer_agent",
+            system_prompt=_developer_prompt(),
+            model=developer_llm,
+            tools=[
+                *_skills_for("developer_agent"),
+                *note_tools,
+                fs_read,
+                write_tool,
+                fs_list,
+                bash_tool,
+            ],
+        )
+        document_agent = create_worker(
+            "document_agent",
+            system_prompt=_document_prompt(),
+            model=document_llm,
+            tools=[
+                *_skills_for("document_agent"),
+                *note_tools,
+                fs_read,
+                write_tool,
+                fs_list,
+                document_bash_tool,
+                docx_tool,
+                gongwen_tool,
+                pptx_tool,
+                xlsx_tool,
+                pdf_tool,
+                lark_tool,
+            ],
+        )
+        browser_agent = create_worker(
+            "browser_agent",
+            system_prompt=_browser_prompt(),
+            model=browser_llm,
+            tools=[
+                *_skills_for("browser_agent"),
+                *note_tools,
+                fs_read,
+                fs_list,
+                web_search_tool,
+                web_fetch_tool,
+                *browser_tools,
+                *mcp_tools,
+            ],
+        )
+        multi_modal_agent = create_worker(
+            "multi_modal_agent",
+            system_prompt=_multi_modal_prompt(),
+            model=multi_modal_llm,
+            tools=[
+                *_skills_for("multi_modal_agent"),
+                *note_tools,
+                fs_read,
+                fs_list,
+            ],
+        )
+    else:
+        developer_agent = document_agent = browser_agent = multi_modal_agent = None
+
+    checkpointer = get_checkpointer(data_dir / "checkpoints.db")
+    from app.graphs.v2_single import compile_v2_single_agent_graph
+    from app.graphs.v2_workforce import compile_v2_workforce_graph
+
+    # Eigent Single Agent: one meta-agent with the full tool set (no routing).
+    if is_v2():
+        single_agent_tools = [
+            todo_tool,
+            *_skills_for("single_agent"),
             *note_tools,
             fs_read,
             write_tool,
             fs_list,
-            document_bash_tool,
+            single_bash_tool,
+            *office_gen_tools,
+            gongwen_tool,
+            pdf_tool,
+            lark_tool,
+            web_search_tool,
+            web_fetch_tool,
+            *browser_tools,
+            *mcp_tools,
+        ]
+    else:
+        single_agent_tools = [
+            todo_tool,
+            *_skills_for("single_agent"),
+            *note_tools,
+            fs_read,
+            write_tool,
+            fs_list,
+            single_bash_tool,
             docx_tool,
             gongwen_tool,
             pptx_tool,
             xlsx_tool,
             pdf_tool,
             lark_tool,
-        ],
-    )
-    browser_agent = create_worker(
-        "browser_agent",
-        system_prompt=_with_skills(
-            load_worker_prompt("browser_agent"), "browser_agent"
-        ),
-        model=browser_llm,
-        tools=[
-            *_skills_for("browser_agent"),
-            *note_tools,
-            fs_read,
-            fs_list,
+            web_search_tool,
+            web_fetch_tool,
+            *browser_tools,
             *mcp_tools,
-        ],
-    )
-    multi_modal_agent = create_worker(
-        "multi_modal_agent",
-        system_prompt=_with_skills(
-            load_worker_prompt("multi_modal_agent"), "multi_modal_agent"
-        ),
-        model=multi_modal_llm,
-        tools=[
-            *_skills_for("multi_modal_agent"),
-            *note_tools,
-            fs_read,
-            fs_list,
-        ],
-    )
+        ]
 
-    checkpointer = get_checkpointer(data_dir / "checkpoints.db")
-    graph = compile_workforce_graph(
-        workers={
-            "developer_agent": developer_agent,
-            "document_agent": document_agent,
-            "browser_agent": browser_agent,
-            "multi_modal_agent": multi_modal_agent,
-        },
-        checkpointer=checkpointer,
-    )
+    if is_v2():
+        graph = compile_v2_workforce_graph(
+            workers={
+                "developer_agent": {
+                    "model": developer_llm,
+                    "tools": [
+                        *_skills_for("developer_agent"),
+                        *note_tools,
+                        fs_read,
+                        write_tool,
+                        fs_list,
+                        bash_tool,
+                    ],
+                    "prompt_name": "developer",
+                },
+                "document_agent": {
+                    "model": document_llm,
+                    "tools": [
+                        *_skills_for("document_agent"),
+                        *note_tools,
+                        fs_read,
+                        write_tool,
+                        fs_list,
+                        document_bash_tool,
+                        *office_gen_tools,
+                        gongwen_tool,
+                        pdf_tool,
+                        lark_tool,
+                    ],
+                    "prompt_name": "document",
+                },
+                "browser_agent": {
+                    "model": browser_llm,
+                    "tools": [
+                        *_skills_for("browser_agent"),
+                        *note_tools,
+                        fs_read,
+                        fs_list,
+                        web_search_tool,
+                        web_fetch_tool,
+                        *browser_tools,
+                        *mcp_tools,
+                    ],
+                    "prompt_name": "browser",
+                },
+                "multi_modal_agent": {
+                    "model": multi_modal_llm,
+                    "tools": [
+                        *_skills_for("multi_modal_agent"),
+                        *note_tools,
+                        fs_read,
+                        fs_list,
+                    ],
+                    "prompt_name": "multi_modal",
+                },
+            },
+            planner_llm=planner_llm,
+            checkpointer=checkpointer,
+        )
+        single_agent_graph = compile_v2_single_agent_graph(
+            model=planner_llm,
+            tools=single_agent_tools,
+            synthesize_llm=planner_llm,
+            checkpointer=checkpointer,
+        )
+    else:
+        graph = compile_workforce_graph(
+            workers={
+                "developer_agent": developer_agent,
+                "document_agent": document_agent,
+                "browser_agent": browser_agent,
+                "multi_modal_agent": multi_modal_agent,
+            },
+            checkpointer=checkpointer,
+        )
+        single_agent = create_single_agent(
+            system_prompt=_single_agent_prompt(),
+            model=planner_llm,
+            tools=single_agent_tools,
+        )
+        single_agent_graph = compile_single_agent_graph(
+            single_agent, checkpointer=checkpointer
+        )
 
-    # Eigent Single Agent: one meta-agent with the full tool set (no routing).
-    single_agent_tools = [
-        todo_tool,
-        *_skills_for("single_agent"),
-        *note_tools,
-        fs_read,
-        write_tool,
-        fs_list,
-        single_bash_tool,
-        docx_tool,
-        gongwen_tool,
-        pptx_tool,
-        xlsx_tool,
-        pdf_tool,
-        lark_tool,
-        *mcp_tools,
-    ]
-    single_agent = create_single_agent(
-        system_prompt=_single_agent_prompt(),
-        model=planner_llm,
-        tools=single_agent_tools,
-    )
-    single_agent_graph = compile_single_agent_graph(
-        single_agent, checkpointer=checkpointer
-    )
+    from app.memory.embed import make_embed_config
 
-    long_term = LongTermStore(data_dir / "memory.db")
+    embed_cfg = make_embed_config()
+    if embed_cfg.enabled and embed_cfg.fn is not None:
+        long_term = LongTermStore(
+            data_dir / "memory.db", embed_fn=embed_cfg.fn, dim=embed_cfg.dim
+        )
+        long_term.semantic_enabled = True
+    else:
+        long_term = LongTermStore(data_dir / "memory.db")
+        long_term.semantic_enabled = False
     short_term = ShortTermStore(data_dir / "memory.db")
     task_store = TaskStore(data_dir / "tasks.db")
     metrics = MetricsStore(data_dir / "metrics.db")

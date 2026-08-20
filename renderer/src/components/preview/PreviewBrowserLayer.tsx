@@ -52,9 +52,8 @@ function BrowserWebview({
           "webSecurity=no, allowRunningInsecureContent",
         );
       }
-      el.style.width = "100%";
-      el.style.height = "100%";
-      el.style.border = "none";
+      el.style.cssText =
+        "position:absolute;inset:0;width:100%;height:100%;border:none;display:flex;";
 
       const onNav = () => {
         const wv = el as HTMLElement & {
@@ -79,9 +78,8 @@ function BrowserWebview({
     } else {
       el = document.createElement("iframe");
       (el as HTMLIFrameElement).src = tab.navigation.url || tab.url;
-      el.style.width = "100%";
-      el.style.height = "100%";
-      el.style.border = "none";
+      el.style.cssText =
+        "position:absolute;inset:0;width:100%;height:100%;border:none;display:block;";
     }
 
     host.appendChild(el);
@@ -133,7 +131,7 @@ export function PreviewBrowserLayer() {
   if (!browsers.length) return null;
 
   return (
-    <div className="preview-browser-host" aria-hidden={!open}>
+    <div className="preview-browser-layer" aria-hidden={!open}>
       {browsers.map((tab) => (
         <BrowserWebview
           key={tab.id}

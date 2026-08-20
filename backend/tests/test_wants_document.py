@@ -4,15 +4,24 @@ from app.graphs.routing import (
     document_tools_succeeded,
     has_office_deliverable,
     wants_document,
+    wants_file_document,
+    wants_markdown_file,
     wants_pptx,
+    wants_unspecified_document,
 )
 
 
 def test_wants_document_generation_intent():
     assert wants_document("帮我生成一份旅游攻略PPT")
-    assert wants_document("做成一份报告")
+    assert not wants_document("做成一份报告")
+    assert wants_unspecified_document("做成一份报告")
+    assert wants_file_document("做成一份报告")
     assert wants_document("整理宜昌旅游攻略 word 版本发我")
     assert wants_document("把行程做成word版")
+    assert wants_document("写一份 Word 报告")
+    assert not wants_unspecified_document("写一份 Word 报告")
+    assert wants_unspecified_document("写一份报告")
+    assert not wants_document("写一份报告")
     assert wants_pptx("请做一份 pptx")
 
 
@@ -35,6 +44,17 @@ def test_extract_claimed_office_paths():
     ]
 
 
+def test_extract_claimed_office_paths_ignores_urls():
+    from app.graphs.routing import extract_claimed_office_paths
+
+    text = (
+        "备案材料见 https://www.doc 以及 https://www.document.gov.cn/guide.docx。\n"
+        "也可参考 http://example.com/a.pdf\n"
+    )
+    assert extract_claimed_office_paths(text) == []
+    assert extract_claimed_office_paths("见 //www.doc 说明") == []
+
+
 def test_wants_document_gongwen_regenerate():
     assert wants_document("#official-document-writing 帮我重新生成一份上述内容的公文汇报")
     assert wants_document("帮我重新生成一份上述内容的公文汇报")
@@ -49,6 +69,14 @@ def test_wants_document_not_mere_mention():
     )
     assert not wants_document("这个 pdf 里写了什么")
     assert not wants_document("按公文质量清单检查这份通知初稿，并给出修改建议")
+    assert not wants_document("调研扬州最新购房政策")
+    assert not wants_document("大模型备案是什么流程")
+    assert not wants_document("帮我生成md文档")
+    assert not wants_document("生成一份 markdown")
+    assert not wants_document("写成 .md 文件")
+    assert wants_markdown_file("帮我生成md文档")
+    assert not wants_unspecified_document("帮我生成md文档")
+    assert wants_document("生成md文档再出一份 word 版")
 
 
 def test_document_tools_docx_gen_counts():
@@ -100,6 +128,21 @@ def test_looks_like_workspace_dump():
     assert looks_like_workspace_dump(dump)
     assert looks_like_plan_only("整理宜昌旅游攻略 word 版本发我", dump)
     assert not looks_like_workspace_dump("已生成宜昌旅游攻略.docx，含景点与行程。")
+    jargon = (
+        "基于 transcript 中可见的操作记录完成了 Word。"
+        "出现多次 Heading2 段落（paraId 00100093）。"
+    )
+    assert looks_like_workspace_dump(jargon)
+    delivery = (
+        "已完成。Word 版调研报告已写入：\n"
+        "交付摘要\n文件规格：15 KB · 通过 schema 校验。"
+    )
+    assert looks_like_workspace_dump(delivery)
+    from app.runtime.context import looks_like_process_narration, is_user_facing_answer
+
+    assert looks_like_process_narration("Now let me set up page layout and build the cover page.")
+    assert not is_user_facing_answer("我来调研扬州最新购房政策。先并行搜索几个关键方向。")
+    assert is_user_facing_answer("扬州目前已全面取消限购、限售，门槛处于历史最宽松阶段。")
 
 
 def test_document_tools_officecli_bash_counts():

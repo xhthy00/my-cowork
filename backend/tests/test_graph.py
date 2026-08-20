@@ -68,6 +68,10 @@ class TestInferDefaultWorker:
         assert needs_forced_delegation("生成PPT") is True
         assert infer_default_worker("生成PPT") == "document_agent"
 
+    def test_unspecified_report_goes_to_document_agent(self):
+        assert infer_default_worker("做成一份报告") == "document_agent"
+        assert infer_default_worker("写一份报告") == "document_agent"
+
 
 class TestReadySubtasks:
     def test_dependency_order(self):

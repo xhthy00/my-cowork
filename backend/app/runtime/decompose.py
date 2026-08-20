@@ -8,24 +8,16 @@ from typing import Any
 
 from app.agents.workers import WORKER_IDS, normalize_worker_id
 
-_DECOMPOSE_SYSTEM = """你是 Workforce 任务规划器。把用户目标拆成可并行的自包含子任务。
+_DECOMPOSE_SYSTEM = None
 
-规则：
-- 复杂任务拆成 2–6 个子任务；简单任务可只产出 1 个清晰子任务。
-- 每个子任务必须自包含（执行者不知道父任务全文）。
-- 明确 deliverable；可并行的步骤不要串行（dependencies 留空数组）。
-- assignee 只能是：developer_agent | browser_agent | document_agent | multi_modal_agent
-  - developer_agent: 本地文件/终端/脚本
-  - browser_agent: 搜索/浏览/调研
-  - document_agent: 生成 docx/pptx/xlsx/pdf、写文件、飞书通知
-  - multi_modal_agent: 媒体产物整理、共享笔记协同
-- 只输出 JSON 数组，不要 markdown，不要解释。
-- 用户用中文则 content 用中文。
 
-每项字段：
-{"id":"task_1","content":"...","assignee":"browser_agent","dependencies":[]}
-dependencies 为其他子任务 id 列表。
-"""
+def _decompose_system() -> str:
+    global _DECOMPOSE_SYSTEM
+    if _DECOMPOSE_SYSTEM is None:
+        from app.agents.factory import load_prompt
+
+        _DECOMPOSE_SYSTEM = load_prompt("planner") or ""
+    return _DECOMPOSE_SYSTEM
 
 
 def _is_trivial(text: str) -> bool:
@@ -154,7 +146,7 @@ async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]
         if hasattr(llm, "ainvoke"):
             msg = await llm.ainvoke(
                 [
-                    {"role": "system", "content": _DECOMPOSE_SYSTEM},
+                    {"role": "system", "content": _decompose_system()},
                     {"role": "user", "content": prompt},
                 ]
             )
@@ -168,7 +160,7 @@ async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]
         elif hasattr(llm, "invoke"):
             msg = llm.invoke(
                 [
-                    {"role": "system", "content": _DECOMPOSE_SYSTEM},
+                    {"role": "system", "content": _decompose_system()},
                     {"role": "user", "content": prompt},
                 ]
             )

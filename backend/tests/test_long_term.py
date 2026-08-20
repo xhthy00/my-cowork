@@ -18,6 +18,14 @@ def test_write_query_returns_related(tmp_path: Path):
     store.close()
 
 
+def test_query_disabled_without_semantic_embed(tmp_path: Path):
+    store = LongTermStore(tmp_path / "m-off.db")
+    assert store.semantic_enabled is False
+    store.write("喜欢喝美式咖啡", kind="pref")
+    assert store.query("咖啡偏好", k=3) == []
+    store.close()
+
+
 def test_remember_keyword_extract():
     assert extract_remember_content("请记住 我喜欢用简洁模板") == "我喜欢用简洁模板"
     assert extract_remember_content("写个 PPT") is None
@@ -83,4 +91,8 @@ def test_looks_like_plan_only():
         "大数据集团介入需要注意哪些",
         "需要注意三方面：\n1. 股权比例与一票否决\n2. 数据合规与出境\n3. 合资公司治理与人员派出\n"
         "另外还应关注估值、对赌、退出和关联交易审查。" * 2,
+    )
+    assert not looks_like_plan_only(
+        "Python 里 list 和 tuple 的区别是什么？",
+        "list 可变，tuple 不可变。list 用方括号，tuple 用圆括号。",
     )

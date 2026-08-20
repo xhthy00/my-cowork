@@ -171,8 +171,21 @@ export const useWorkforceStore = create<WorkforceState>((set, get) => ({
         taskRunning,
         taskAssigning: state.taskAssigning.map((a) => {
           if (a.agent_id !== agentId) return a;
-          const tasks = [...a.tasks.filter((t) => t.id !== task.id), task];
-          return { ...a, tasks, status: task.status === "running" ? "running" : a.status };
+          const prev = a.tasks.find((t) => t.id === task.id);
+          const merged: TaskInfo = {
+            ...prev,
+            ...task,
+            terminal:
+              task.terminal && task.terminal.length > 0
+                ? task.terminal
+                : prev?.terminal || task.terminal || [],
+          };
+          const tasks = [...a.tasks.filter((t) => t.id !== task.id), merged];
+          return {
+            ...a,
+            tasks,
+            status: merged.status === "running" ? "running" : a.status,
+          };
         }),
       };
     }),

@@ -1,5 +1,7 @@
 """Tests for Eigent-aligned Progress planner."""
 
+import pytest
+
 from app.runtime.todo_planner import (
     advance_todos,
     apply_todo_write,
@@ -7,6 +9,8 @@ from app.runtime.todo_planner import (
     parse_todos_json,
     pick_todo_for_worker,
     plan_todos,
+    plan_todos_llm,
+    without_office_todos,
 )
 
 
@@ -73,3 +77,64 @@ def test_advance_and_pick_worker():
     running = [t for t in updated if t["status"] == "in_progress"]
     assert len(running) == 1
     assert running[0]["id"] == "todo_2"
+
+
+def test_without_office_todos_drops_docx_steps():
+    todos = normalize_todos(
+        [
+            {"content": "检索备案政策", "active_form": "正在检索备案政策", "status": "pending"},
+            {
+                "content": "调用 officecli 生成 .docx",
+                "active_form": "正在生成文档",
+                "status": "pending",
+            },
+            {"content": "在对话中回答", "active_form": "正在整理回答", "status": "pending"},
+        ]
+    )
+    kept = without_office_todos(todos)
+    assert [t["content"] for t in kept] == ["检索备案政策", "在对话中回答"]
+
+
+@pytest.mark.asyncio
+async def test_plan_todos_llm_rejects_office_on_research_question():
+    import json
+
+    class _LLM:
+        async def ainvoke(self, _messages):
+            return type(
+                "M",
+                (),
+                {
+                    "content": json.dumps(
+                        [
+                            {
+                                "content": "检查 officecli 是否可用",
+                                "active_form": "正在检查 officecli",
+                                "status": "in_progress",
+                            },
+                            {
+                                "content": "调用 officecli 生成 .docx 到 AIS",
+                                "active_form": "正在生成文档",
+                                "status": "pending",
+                            },
+                            {
+                                "content": "核对文件路径与大小",
+                                "active_form": "正在核对文件",
+                                "status": "pending",
+                            },
+                        ],
+                        ensure_ascii=False,
+                    )
+                },
+            )()
+
+    todos = await plan_todos_llm(
+        "大模型备案是什么流程",
+        _LLM(),
+        session_mode="single-agent",
+    )
+    blob = " ".join(t["content"] for t in todos).lower()
+    assert "officecli" not in blob
+    assert ".docx" not in blob
+    assert todos
+    assert any("拆解" in t["content"] or "执行" in t["content"] or "交付" in t["content"] for t in todos)

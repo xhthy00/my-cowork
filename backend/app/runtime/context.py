@@ -36,11 +36,36 @@ _WORKSPACE_DUMP_MARKERS_ZH = (
     "最终产出目录",
     "工作空间约束",
     "过程/临时文件",
+    "操作记录",
+    "交付摘要",
+    "文件规格",
+    "schema 校验",
 )
 _WORKSPACE_DUMP_MARKERS_EN = (
     "working directory",
     "final output directory",
     "preloaded_skill",
+    "page layout",
+    "pagebreakbefore",
+    "fldchar",
+)
+_INTERNAL_TRACE_MARKERS = (
+    "paraId",
+    "para_id",
+    "Heading1",
+    "Heading2",
+    "Heading3",
+    "001000",
+)
+_PROCESS_NARRATION_RE = re.compile(
+    r"(Now let me |Let me (?:add|set|close|build|create|set up)|"
+    r"page layout|pageBreakBefore|fldChar|schema 校验|交付摘要|"
+    r"文件规格|Word 版.{0,16}已写入|通过 schema|"
+    r"我来用\s*officecli|生成正式的\s*Word|生成\s*Word\s*文档)",
+    re.IGNORECASE,
+)
+_PREAMBLE_RE = re.compile(
+    r"(我先搜|先并行搜索|让我(?:再|来|获取|补充)|正在检索|Now let me |Let me )",
 )
 _FOLLOWUP_NOTE = (
     "This is a follow-up in an existing conversation. "
@@ -68,14 +93,41 @@ def strip_think_blocks(content: str) -> str:
 
 
 def looks_like_workspace_dump(text: str) -> bool:
-    """True when the model echoed harness/officecli status instead of a user reply."""
+    """True when the model echoed harness/officecli internals instead of a user reply."""
     blob = text or ""
     if any(marker in blob for marker in _WORKSPACE_DUMP_MARKERS_ZH):
+        return True
+    if any(marker in blob for marker in _INTERNAL_TRACE_MARKERS):
         return True
     low = blob.lower()
     if any(marker in low for marker in _WORKSPACE_DUMP_MARKERS_EN):
         return True
+    if "transcript" in low and any(
+        token in blob for token in ("可见", "操作", "tool", "Heading", "paraId")
+    ):
+        return True
     return "officecli" in low and "is ready" in low
+
+
+def looks_like_process_narration(text: str) -> bool:
+    """True for officecli / layout chatter that must not be the chat answer."""
+    body = strip_think_blocks(text or "")
+    if not body:
+        return False
+    if looks_like_workspace_dump(body):
+        return True
+    return bool(_PROCESS_NARRATION_RE.search(body))
+
+
+def is_user_facing_answer(text: str) -> bool:
+    """True when *text* is a real chat answer, not a tool preamble or file log."""
+    body = strip_think_blocks(text or "")
+    if not body or looks_like_process_narration(body):
+        return False
+    cjk = len(_CJK_RE.findall(body))
+    if _PREAMBLE_RE.search(body) and cjk < 80:
+        return False
+    return bool(body.strip())
 
 
 def looks_like_plan_only(user_text: str, ai_text: str) -> bool:
@@ -89,11 +141,16 @@ def looks_like_plan_only(user_text: str, ai_text: str) -> bool:
     blob = f"{body}\n{ai_text}".lower()
     if any(marker in blob for marker in _PLAN_MARKERS):
         return True
+    # Chinese question answered only in short English (no CJK) is not an answer.
     asked = any(token in (user_text or "") for token in _QUESTION_MARKERS)
-    return asked and cjk < 80
+    if asked and cjk < 20 and body.strip() and not _CJK_RE.search(body):
+        return True
+    return False
 
 
 def last_ai_text(messages: list[Any] | None) -> str:
+    from app.agents.sanitize import strip_model_junk
+
     for msg in reversed(messages or []):
         role = (
             str(msg.get("type") or msg.get("role") or "")
@@ -106,7 +163,8 @@ def last_ai_text(messages: list[Any] | None) -> str:
             str(msg.get("content") or "")
             if isinstance(msg, dict)
             else str(getattr(msg, "content", None) or "")
-        ).strip()
+        )
+        content = strip_model_junk(content).strip()
         if content:
             return content
     return ""
@@ -158,10 +216,11 @@ def inject_memories(
         remember = extract_remember_content(task_text)
         if remember:
             long_term.write(remember, kind="user_note")
-        hits = long_term.query(task_text, k=k)
-        block = format_memory_block(hits)
-        if block:
-            messages.append(SystemMessage(content=block))
+        if getattr(long_term, "semantic_enabled", True):
+            hits = long_term.query(task_text, k=k)
+            block = format_memory_block(hits)
+            if block:
+                messages.append(SystemMessage(content=block))
     hist = _history_messages(history, current_text=task_text)
     if hist:
         messages.append(SystemMessage(content=_FOLLOWUP_NOTE))

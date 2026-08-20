@@ -55,6 +55,7 @@ packages = [
     "app.observability",
     "app.orchestrator",
     "app.runtime",
+    "app.runtime.v2",
     "app.sandbox",
     "app.server",
     "app.server.routes",

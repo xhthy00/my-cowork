@@ -10,6 +10,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.skills import find_skill, format_loaded_skill
+from app.runtime.v2.office_gate import is_office_skill, office_skills_allowed
 from app.skills.config import (
     default_skills_config_path,
     default_skills_root,
@@ -26,8 +27,16 @@ def _visible_skills(
 ) -> list[dict[str, Any]]:
     skills = list_skills_api(root=root, config_path=config_path)
     if agent_id == "single_agent":
-        return [s for s in skills if s.get("enabled", True)]
-    return [s for s in skills if skill_visible_for_agent(s, agent_id)]
+        rows = [s for s in skills if s.get("enabled", True)]
+    else:
+        rows = [s for s in skills if skill_visible_for_agent(s, agent_id)]
+    if office_skills_allowed():
+        return rows
+    return [
+        s
+        for s in rows
+        if not is_office_skill(str(s.get("id") or s.get("name") or ""))
+    ]
 
 
 def make_skill_tools(
@@ -76,6 +85,12 @@ def make_skill_tools(
                     f"[ERROR] Skill {key!r} is not available to agent {agent_id!r}."
                 )
                 continue
+            if is_office_skill(key) and not office_skills_allowed():
+                chunks.append(
+                    "[ERROR] The user asked for a chat answer, not a file. "
+                    "Do not load officecli or document skills."
+                )
+                continue
             meta = find_skill(key, root=skills_root)
             if meta is None:
                 chunks.append(f"[ERROR] Skill {key!r} not found on disk.")
@@ -83,16 +98,12 @@ def make_skill_tools(
             chunks.append(format_loaded_skill(meta))
         return "\n\n---\n\n".join(chunks) if chunks else "[ERROR] No skill name provided."
 
-    catalog = _visible_skills(agent_id, root=skills_root, config_path=cfg_path)
-    catalog_lines = [
-        f"- {s.get('id')}: {s.get('description') or s.get('name')}" for s in catalog
-    ]
-    catalog_block = "\n".join(catalog_lines) if catalog_lines else "(none)"
     load_description = (
         "Load one or more skills by name and return their full instructions. "
         "Call list_skills first when unsure of exact names. "
-        "Follow the returned markdown as the primary plan.\n\n"
-        f"Available skills for this agent:\n{catalog_block}"
+        "Follow the returned markdown as the primary plan. "
+        "Do not load officecli / docx / pptx / xlsx skills unless the user "
+        "specified Word / PPT / Excel / 公文."
     )
 
     return [
@@ -102,7 +113,8 @@ def make_skill_tools(
             description=(
                 "List skills available to you (name, description, path, scope). "
                 "Call this before load_skill when the user references {{skill}} "
-                "or the task matches a skill domain."
+                "or a non-office skill domain. Office/document skills are omitted "
+                "unless the user specified Word / PPT / Excel / 公文."
             ),
         ),
         StructuredTool.from_function(

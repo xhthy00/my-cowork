@@ -1,0 +1,77 @@
+cases:
+  - id: search-policy-miss
+    category: search
+    user: "调研某地最新购房政策"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "调研某地最新购房政策" }
+        - { type: ai, content: "当地限购已经全面取消，首付比例降至 15%。" }
+  - id: search-yangzhou-preamble-miss
+    category: search
+    user: "调研扬州最新购房政策"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "调研扬州最新购房政策" }
+        - { type: ai, content: "我先搜一下扬州最新购房政策的相关信息。" }
+  - id: search-policy-ok
+    category: search
+    user: "调研某地最新购房政策"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "调研某地最新购房政策" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "购房政策" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"政策","url":"https://example.gov/policy","snippet":"限购调整"}]' }
+        - { type: ai, content: "根据检索到的官方通告，限购有所调整。来源：https://example.gov/policy" }
+  - id: search-policy-fetch-ok
+    category: search
+    user: "调研某地最新购房政策"
+    expect: { next: answer, sources_ok: true, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "调研某地最新购房政策" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "某地 购房 限购 政策" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"限购","url":"https://example.gov/policy","snippet":"限购调整"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c2", name: "web_search", args: { query: "某地 首付 贷款 2026" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c2", content: '[{"title":"首付","url":"https://example.gov/loan","snippet":"首付比例"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c3", name: "web_fetch", args: { url: "https://example.gov/policy" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c3", content: "URL: https://example.gov/policy\n\n限购已调整，外地户籍可买。" }
+        - { type: ai, content: "", tool_calls: [{ id: "c4", name: "web_fetch", args: { url: "https://example.gov/loan" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c4", content: "URL: https://example.gov/loan\n\n首套房首付不低于 15%。" }
+        - { type: ai, content: "结论：限购已放宽，外地户籍可购；首套房首付不低于 15%。来源 https://example.gov/policy 与 https://example.gov/loan 。" }
+  - id: search-price-miss
+    category: search
+    user: "现在黄金价格多少"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "现在黄金价格多少" }
+        - { type: ai, content: "大约每克 580 元。" }
+  - id: search-guide-ok
+    category: search
+    user: "恩施旅游攻略，要最新信息"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "恩施旅游攻略，要最新信息" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "恩施旅游" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"攻略","url":"https://example.com/enshi","snippet":"大峡谷"}]' }
+        - { type: ai, content: "建议 3 日：大峡谷、坪坝营。来源 https://example.com/enshi" }
+  - id: search-guide-fetch-ok
+    category: search
+    user: "恩施旅游攻略，要最新信息"
+    expect: { next: answer, sources_ok: true }
+    fixture:
+      messages:
+        - { type: human, content: "恩施旅游攻略，要最新信息" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "恩施 大峡谷 门票 2026" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"大峡谷","url":"https://example.com/enshi-canyon","snippet":"门票"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c2", name: "web_search", args: { query: "恩施 三日 行程 住宿" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c2", content: '[{"title":"行程","url":"https://example.com/enshi-plan","snippet":"三日"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c3", name: "web_fetch", args: { url: "https://example.com/enshi-canyon" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c3", content: "URL: https://example.com/enshi-canyon\n\n大峡谷建议游玩 5 小时。" }
+        - { type: ai, content: "", tool_calls: [{ id: "c4", name: "web_fetch", args: { url: "https://example.com/enshi-plan" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c4", content: "URL: https://example.com/enshi-plan\n\nD1 市区 D2 峡谷 D3 坪坝营。" }
+        - { type: ai, content: "三日行程：D1 市区，D2 大峡谷（约 5 小时），D3 坪坝营。来源 https://example.com/enshi-canyon 与 https://example.com/enshi-plan 。" }

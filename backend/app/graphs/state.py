@@ -37,10 +37,16 @@ class WorkforceState(TypedDict, total=False):
 
     messages: Annotated[list, operator.add]
     task_id: str
+    session_id: str
     session_mode: str
     user_text: str
+    assistant_id: str
+    enabled_skill_ids: list
     subtasks: Annotated[list, merge_subtasks]
     assigned_task_id: Annotated[str | None, _last_value]
+    worker_brief: Annotated[str, _last_value]
+    coord_action: Annotated[str, _last_value]
+    coord_briefs: Annotated[dict, _last_value]
     round: Annotated[int, operator.add]
 
 

@@ -1,6 +1,6 @@
 /**
  * Adapted from eigent: ChatBox/MessageItem/AgentMessageCard + MarkDown.
- * Renders WorkBuddy-style deep-think: each <think> stays next to the step it belongs to.
+ * V1 deep-think: one collapsible summary per assistant bubble, then answers.
  */
 import { useMemo, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
@@ -26,6 +26,20 @@ export type ContentSegment =
   | ThinkSegment
   | { type: "answer"; text: string };
 
+/** Drop unsolicited Word/officecli plans from deep-think (research defaults to Markdown). */
+const OFFICE_THINK_RE =
+  /officecli|生成正式的\s*Word|生成\s*Word\s*文档|写一份\s*Word|正式的\s*Word|page\s*layout|pageBreakBefore/i;
+
+export function sanitizeThinkText(text: string): string {
+  const raw = text || "";
+  const parts = raw.split(/(?<=[。！？\n])/);
+  return parts
+    .filter((part) => part.trim() && !OFFICE_THINK_RE.test(part))
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Split content into think/answer segments in document order. */
 export function parseContentSegments(content: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
@@ -45,11 +59,11 @@ export function parseContentSegments(content: string): ContentSegment[] {
     remaining = remaining.slice(openMatch.index + openMatch[0].length);
     const closeMatch = remaining.match(/<\/think>/i);
     if (!closeMatch || closeMatch.index == null) {
-      const text = remaining.trim();
+      const text = sanitizeThinkText(remaining.trim());
       if (text) segments.push({ type: "think", text, closed: false });
       break;
     }
-    const thinkBody = remaining.slice(0, closeMatch.index).trim();
+    const thinkBody = sanitizeThinkText(remaining.slice(0, closeMatch.index).trim());
     if (thinkBody) {
       segments.push({ type: "think", text: thinkBody, closed: true });
     }
@@ -89,9 +103,16 @@ export function parseThinkBlocks(content: string): {
   };
 }
 
-/** One collapsible WorkBuddy-style think block for a single step. */
-export function ThinkBlock({ think }: { think: ThinkSegment }) {
+/** One collapsible think block (V1: a single summary, not one row per step). */
+export function ThinkBlock({
+  think,
+  label,
+}: {
+  think: ThinkSegment;
+  label?: string;
+}) {
   const live = !think.closed;
+  const title = label ?? (live ? "思考中…" : "深度思考");
   return (
     <details
       className="group deep-think"
@@ -102,7 +123,7 @@ export function ThinkBlock({ think }: { think: ThinkSegment }) {
           <span className="text-ds-text-neutral-subtle-default transition-transform group-open:rotate-90">
             ▸
           </span>
-          {live ? "思考中…" : "深度思考"}
+          {title}
         </span>
       </summary>
       <div className="mt-1.5 border-l-2 border-ds-border-neutral-subtle-default pl-3 text-[13px] leading-[1.65] text-ds-text-neutral-muted-default whitespace-pre-wrap">
@@ -113,16 +134,22 @@ export function ThinkBlock({ think }: { think: ThinkSegment }) {
   );
 }
 
-/** Sequential think blocks — one per step, not a single merged summary. */
+/** Merge every think in the bubble into one V1 summary. */
 export function ThinkSummary({ thinks }: { thinks: ThinkSegment[] }) {
   if (thinks.length === 0) return null;
-  return (
-    <div className="flex w-full min-w-0 flex-col gap-2">
-      {thinks.map((think, i) => (
-        <ThinkBlock key={i} think={think} />
-      ))}
-    </div>
-  );
+  const live = thinks.some((t) => !t.closed);
+  const text = thinks
+    .map((t) => t.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  if (!text && !live) return null;
+  const merged: ThinkSegment = { type: "think", text, closed: !live };
+  const label = live
+    ? "思考中…"
+    : thinks.length > 1
+      ? `已思考 · ${thinks.length} 步`
+      : "深度思考";
+  return <ThinkBlock think={merged} label={label} />;
 }
 
 function cleanAnswerSegment(text: string): string {
@@ -137,11 +164,126 @@ function cleanAnswerSegment(text: string): string {
   return t;
 }
 
-/** Ensure GFM tables have a blank line before them so remark parses reliably. */
+/** Repair GFM so remark can parse blocks the model glued to the previous line. */
+export function normalizeMarkdown(md: string): string {
+  if (!md) return md;
+  return md
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
+    .map((chunk, i) => (i % 2 === 1 ? chunk : normalizeMarkdownProse(chunk)))
+    .join("");
+}
+
+function normalizeMarkdownProse(md: string): string {
+  let out = normalizeMarkdownTableBlocks(md);
+  // `机制### 2. 标题` — ATX h2–h6 must start a line (avoid splitting `C# ` / table cells).
+  out = out.replace(/([^\n|#])(#{2,6}[ \t]+\S)/g, "$1\n\n$2");
+  out = out.replace(
+    /([\u4e00-\u9fff。，；：、！？）】》」』])(#[ \t]+\S)/g,
+    "$1\n\n$2",
+  );
+  out = out.replace(/(#{1,6}[ \t][^\n]*[\u4e00-\u9fff])([-*+] )/g, "$1\n$2");
+  return out;
+}
+
+function isTableSeparator(line: string): boolean {
+  const t = line.trim();
+  return t.includes("|") && /-{3,}/.test(t) && /^[\s|:-]+$/.test(t);
+}
+
+function isTableDataRow(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith("|") && t.includes("|", 1) && !isTableSeparator(t);
+}
+
+function splitRowCells(line: string): string[] {
+  let t = line.trim();
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|")) t = t.slice(0, -1);
+  return t.split("|").map((c) => c.trim());
+}
+
+function joinRow(cells: string[]): string {
+  return `| ${cells.join(" | ")} |`;
+}
+
+function makeSeparator(cols: number): string {
+  return `|${Array.from({ length: cols }, () => "---").join("|")}|`;
+}
+
+function isTitleCell(cell: string): boolean {
+  return /^\s*#{1,6}\s+\S/.test(cell) || /^\s*\d+[.\u3001\uFF0E]\s+\S/.test(cell);
+}
+
+function padRow(cells: string[], cols: number): string[] {
+  const row = cells.slice(0, cols);
+  while (row.length < cols) row.push("");
+  return row;
+}
+
+function rewriteTable(
+  headerLine: string,
+  _sepLine: string,
+  bodyLines: string[],
+): { title: string | null; lines: string[] } {
+  const header = splitRowCells(headerLine);
+  const body = bodyLines.map(splitRowCells);
+  const sepCols = splitRowCells(_sepLine).length;
+  const bodyCols = body[0]?.length ?? sepCols;
+  let title: string | null = null;
+  if (
+    header.length === bodyCols + 1 &&
+    (sepCols === bodyCols || sepCols === header.length) &&
+    header[0] &&
+    isTitleCell(header[0])
+  ) {
+    title = header.shift() ?? null;
+  }
+  const cols = Math.max(header.length, sepCols, bodyCols, 1);
+  return {
+    title,
+    lines: [
+      joinRow(padRow(header, cols)),
+      makeSeparator(cols),
+      ...body.map((row) => joinRow(padRow(row, cols))),
+    ],
+  };
+}
+
+function normalizeMarkdownTableBlocks(md: string): string {
+  if (!md.includes("|")) return md;
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const next = lines[i + 1];
+    if (next !== undefined && isTableSeparator(next) && line.includes("|")) {
+      const body: string[] = [];
+      let j = i + 2;
+      while (j < lines.length && isTableDataRow(lines[j])) {
+        body.push(lines[j]);
+        j++;
+      }
+      const { title, lines: tableLines } = rewriteTable(line, next, body);
+      const prev = out.length ? out[out.length - 1] : "";
+      if (prev.trim() !== "") out.push("");
+      if (title) {
+        out.push(title);
+        out.push("");
+      }
+      out.push(...tableLines);
+      i = j;
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join("\n");
+}
+
+/** @deprecated Use normalizeMarkdown — kept for FilePreview / existing tests. */
 export function normalizeMarkdownTables(md: string): string {
-  if (!md || !md.includes("|")) return md;
-  const flushTable = new RegExp("([^\\n])\\n(\\|[^\\n]+\\|\\s*\\n\\|[-:| \\t]+\\|)", "g");
-  return md.replace(flushTable, "$1\n\n$2");
+  return normalizeMarkdown(md);
 }
 
 const markdownComponents = {
@@ -211,7 +353,7 @@ export default function MessageContent({
     return segments
       .map((seg) => {
         if (seg.type === "think") return seg;
-        const text = normalizeMarkdownTables(cleanAnswerSegment(seg.text));
+        const text = normalizeMarkdown(cleanAnswerSegment(seg.text));
         return text ? ({ type: "answer" as const, text }) : null;
       })
       .filter(Boolean) as ContentSegment[];
@@ -221,22 +363,24 @@ export default function MessageContent({
     ? visible.filter((s) => s.type === "answer")
     : visible;
 
-  if (shown.length === 0) return null;
+  const thinks = shown.filter((s): s is ThinkSegment => s.type === "think");
+  const answers = shown.filter(
+    (s): s is Extract<ContentSegment, { type: "answer" }> => s.type === "answer",
+  );
+
+  if (thinks.length === 0 && answers.length === 0) return null;
 
   return (
     <div className={cn("flex w-full min-w-0 flex-col gap-2", className)}>
-      {shown.map((seg, index) =>
-        seg.type === "think" ? (
-          <ThinkBlock key={`think-${index}`} think={seg} />
-        ) : (
-          <div
-            key={`answer-${index}`}
-            className="w-full min-w-0 [&_.aion-md>p:first-child]:mt-0 [&_.aion-md>p:last-child]:mb-0"
-          >
-            <MarkdownView codeStyle={CODE_STYLE}>{seg.text}</MarkdownView>
-          </div>
-        ),
-      )}
+      {!hideThink ? <ThinkSummary thinks={thinks} /> : null}
+      {answers.map((seg, index) => (
+        <div
+          key={`answer-${index}`}
+          className="w-full min-w-0 [&_.aion-md>p:first-child]:mt-0 [&_.aion-md>p:last-child]:mb-0"
+        >
+          <MarkdownView codeStyle={CODE_STYLE}>{seg.text}</MarkdownView>
+        </div>
+      ))}
     </div>
   );
 }

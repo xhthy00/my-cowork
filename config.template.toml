@@ -7,3 +7,14 @@ args = ["-y", "@playwright/mcp@latest"]
 [mcp.servers.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "~/Desktop"]
+
+# Built-in web search (AionUi-style). Keys may also live in the OS keychain.
+# Provider order: bocha → brave → tavily → exa → searxng → ddgs (no-key fallback).
+[tools.web]
+backend = ""  # optional pin: bocha | brave | tavily | exa | searxng | ddgs
+max_results = 5
+brave_key = ""
+tavily_key = ""
+bocha_key = ""
+exa_key = ""
+searxng_url = ""

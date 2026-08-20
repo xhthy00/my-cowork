@@ -1,0 +1,33 @@
+cases:
+  - id: qa-hello
+    category: qa
+    user: "你好"
+    expect: { next: answer, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "你好" }
+        - { type: ai, content: "你好，我是 MyCowork 助手。今天想先处理哪件事？" }
+  - id: qa-fact
+    category: qa
+    user: "解释 list 和 tuple 的区别"
+    expect: { next: answer, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "Python 里 list 和 tuple 有什么区别？" }
+        - { type: ai, content: "list 可变、tuple 不可变。需要改内容、追加或切片赋值时用 list；做字典键、函数默认参数或固定记录时用 tuple。二者都有序、可索引。日常开发里默认用 list，只有需要哈希或防止误改时才用 tuple。补充：list 支持 append/extend/sort，tuple 一旦创建就不能改其中元素；遍历性能接近，选择标准是「这份数据会不会被改」而不是快慢。" }
+  - id: qa-plan-fail
+    category: qa
+    user: "大数据集团介入需要注意哪些？"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "大数据集团介入需要注意哪些？" }
+        - { type: ai, content: "I will generate a formal consultation analysis report (docx). Plan the task first." }
+  - id: qa-empty-fail
+    category: qa
+    user: "总结一下刚才的结论"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "总结一下刚才的结论" }
+        - { type: ai, content: "" }

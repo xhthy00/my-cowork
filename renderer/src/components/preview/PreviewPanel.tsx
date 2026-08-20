@@ -52,37 +52,37 @@ function ChooserBody() {
   );
 }
 
+function BrowserUrlBar({ tab }: { tab: Extract<SessionPreviewTab, { type: "browser" }> }) {
+  return (
+    <div className="preview-browser-bar">
+      <input
+        className="preview-url"
+        defaultValue={tab.navigation.url || tab.url}
+        key={tab.navigation.url || tab.url}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const v = (e.target as HTMLInputElement).value.trim();
+            if (v) {
+              const url =
+                /^(https?:|localfile:|file:)/i.test(v) ? v : `https://${v}`;
+              usePreviewStore.getState().updateBrowserNav(tab.id, {
+                url,
+                title: url,
+              });
+            }
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 function TabBody({ tab }: { tab: SessionPreviewTab }) {
   const refreshKey = tab.refreshKey ?? 0;
   if (tab.type === "chooser") {
     return <ChooserBody />;
   }
-  if (tab.type === "browser") {
-    return (
-      <div className="preview-browser" key={`browser-body-${tab.id}-${refreshKey}`}>
-        <div className="preview-browser-bar">
-          <input
-            className="preview-url"
-            defaultValue={tab.url}
-            key={tab.navigation.url || tab.url}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const v = (e.target as HTMLInputElement).value.trim();
-                if (v) {
-                  const url = /^https?:\/\//i.test(v) ? v : `https://${v}`;
-                  usePreviewStore.getState().updateBrowserNav(tab.id, {
-                    url,
-                    title: url,
-                  });
-                }
-              }
-            }}
-          />
-        </div>
-        <div className="preview-browser-host" />
-      </div>
-    );
-  }
+  if (tab.type === "browser") return null;
   if (tab.type === "file") {
     return (
       <FilePreview
@@ -276,8 +276,11 @@ export default function PreviewPanel() {
         </Button>
       </div>
       <div className="preview-body relative flex min-h-0 flex-1 flex-col">
-        {active ? <TabBody tab={active} /> : null}
-        <PreviewBrowserLayer />
+        {active?.type === "browser" ? <BrowserUrlBar tab={active} /> : null}
+        <div className="preview-content-slot relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          {active && active.type !== "browser" ? <TabBody tab={active} /> : null}
+          <PreviewBrowserLayer />
+        </div>
       </div>
 
       {ctx && ctxTab

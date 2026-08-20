@@ -9,7 +9,15 @@ from typing import Any
 def _emit_step_delta(text: str) -> None:
     if not text:
         return
+    from app.agents.sanitize import strip_model_junk
     from app.runtime.todo_context import get_todo_runtime
+
+    cleaned = strip_model_junk(text)
+    if not cleaned:
+        # Token streams often emit a lone space/newline; dropping them glues words.
+        if not text.isspace():
+            return
+        cleaned = text
 
     rt = get_todo_runtime()
     if rt is None or rt.bus is None:
@@ -19,7 +27,7 @@ def _emit_step_delta(text: str) -> None:
             "task_id": rt.task_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "step.delta",
-            "delta": text,
+            "delta": cleaned,
         }
     )
 

@@ -6,8 +6,9 @@ import { useSettingsStore } from "../../store/settings";
 import ModelsPanel from "./ModelsPanel";
 import McpConnectorsPanel from "./McpConnectorsPanel";
 import ChannelsPanel from "./channels/ChannelsPanel";
+import SearchPanel from "./SearchPanel";
 
-type TabId = "general" | "model" | "appearance" | "paths" | "channels" | "mcp";
+type TabId = "general" | "model" | "appearance" | "paths" | "channels" | "mcp" | "search";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "general", label: "通用" },
@@ -15,6 +16,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "appearance", label: "外观" },
   { id: "paths", label: "隐私 / 白名单" },
   { id: "mcp", label: "连接器 / MCP" },
+  { id: "search", label: "检索" },
   { id: "channels", label: "远程连接" },
 ];
 
@@ -177,6 +179,7 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
             )}
 
             {!embedded && tab === "mcp" && <McpConnectorsPanel />}
+            {!embedded && tab === "search" && <SearchPanel />}
             {!embedded && tab === "channels" && <ChannelsPanel />}
           </div>
         </div>

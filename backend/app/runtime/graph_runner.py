@@ -29,6 +29,10 @@ from app.runtime.budget_context import (
 from app.runtime.compressor import maybe_compress
 from app.runtime.context import inject_memories, looks_like_workspace_dump
 from app.runtime.decompose import decompose_subtasks, normalize_subtasks
+from app.runtime.memory_context import (
+    reset_long_term_runtime,
+    set_long_term_runtime,
+)
 from app.runtime.notes_context import NotesRuntime, reset_notes_runtime, set_notes_runtime
 from app.runtime.workspace_context import (
     WorkspaceRuntime,
@@ -48,6 +52,11 @@ from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
     plan_todos_llm,
+)
+from app.runtime.v2.flag import is_v2
+from app.runtime.v2.synthesize import (
+    is_process_meta as _is_process_meta,
+    resolve_workforce_end_summary,
 )
 
 _WORKER_NAMES = frozenset(WORKER_IDS)
@@ -78,16 +87,24 @@ def build_initial_state(
     text = getattr(task, "text", "") or ""
     memory_enabled = getattr(task, "memory_enabled", True)
     history = getattr(task, "history", None)
-    messages = inject_memories(
-        text,
-        long_term if memory_enabled else None,
-        history=history,
-    )
+    if is_v2():
+        from langchain_core.messages import HumanMessage
+
+        messages = [HumanMessage(content=text)]
+    else:
+        messages = inject_memories(
+            text,
+            long_term if memory_enabled else None,
+            history=history,
+        )
     state: dict[str, Any] = {
         "messages": messages,
         "task_id": getattr(task, "task_id", ""),
+        "session_id": getattr(task, "session_id", None) or getattr(task, "task_id", ""),
         "session_mode": getattr(task, "session_mode", "workforce") or "workforce",
         "user_text": text,
+        "assistant_id": getattr(task, "assistant_id", None) or "",
+        "enabled_skill_ids": list(getattr(task, "enabled_skill_ids", None) or []),
         "round": 0,
         "assigned_task_id": None,
     }
@@ -199,6 +216,8 @@ def _existing_file(path: str, *, workdir: Path | None = None) -> str | None:
 
 
 def _last_ai_text(messages: list[Any]) -> str:
+    from app.agents.sanitize import strip_model_junk
+
     for msg in reversed(messages or []):
         role = (
             str(msg.get("type") or msg.get("role") or "")
@@ -211,7 +230,8 @@ def _last_ai_text(messages: list[Any]) -> str:
             str(msg.get("content") or "")
             if isinstance(msg, dict)
             else str(getattr(msg, "content", None) or "")
-        ).strip()
+        )
+        content = strip_model_junk(content).strip()
         if content:
             return content
     return ""
@@ -440,57 +460,11 @@ def _subtasks_to_todos(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return todos
 
 
-_SUMMARY_RE = re.compile(r"<summary>(.*?)</summary>", re.IGNORECASE | re.DOTALL)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_PROCESS_META_RE = re.compile(
-    r"^\s*(subtask\s+completed|all\s+tasks?\s+completed|all\s+done|deliverable\s*:|"
-    r"failed\s*:|finished\s+\w+_agent)\b",
-    re.IGNORECASE,
-)
 
 
 def _strip_think(text: str) -> str:
     return _THINK_RE.sub("", text or "").strip()
-
-
-def _is_process_meta(text: str) -> bool:
-    t = _strip_think(text)
-    if not t:
-        return True
-    if _SUMMARY_RE.search(t):
-        return False
-    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-    if not lines:
-        return True
-    if all(
-        _PROCESS_META_RE.match(ln) or (ln.startswith("- ") and "/" in ln)
-        for ln in lines
-    ):
-        return True
-    if _PROCESS_META_RE.match(lines[0]) and not re.search(r"[\u4e00-\u9fff]", t):
-        return True
-    return False
-
-
-def resolve_workforce_end_summary(subtasks: list[dict[str, Any]]) -> str:
-    """Eigent-like end text: prefer <summary>…</summary>, else non-meta results."""
-    parts: list[str] = []
-    for st in subtasks or []:
-        raw = str(st.get("result") or "")
-        tagged = _SUMMARY_RE.search(raw)
-        if tagged:
-            body = tagged.group(1).strip()
-            if body:
-                parts.append(body)
-            continue
-        clean = _strip_think(raw)
-        if clean and not _is_process_meta(clean):
-            parts.append(clean)
-    if not parts:
-        return ""
-    if len(parts) == 1:
-        return parts[0]
-    return "\n\n".join(f"### 子任务 {i}\n{p}" for i, p in enumerate(parts, start=1))
 
 
 async def run_graph(
@@ -524,11 +498,14 @@ async def run_graph(
         return cancel_event is not None and cancel_event.is_set()
 
     notes_token = None
+    memory_token = None
     gongwen_token = None
     if notes_root is not None:
         notes_token = set_notes_runtime(
             NotesRuntime(task_id=task_id, root=Path(notes_root))
         )
+    if getattr(task, "memory_enabled", True) and long_term is not None:
+        memory_token = set_long_term_runtime(long_term)
 
     budget_token = None
     if budget is not None:
@@ -701,7 +678,11 @@ async def run_graph(
                 bus.emit(mem_ev)
                 yield mem_ev
 
-        run_config = {"configurable": {"thread_id": task_id}}
+        run_config = {
+            "configurable": {
+                "thread_id": getattr(task, "session_id", None) or task_id
+            }
+        }
         async for chunk in graph.astream(
             state, config=run_config, stream_mode="updates"
         ):
@@ -917,6 +898,10 @@ async def run_graph(
         can_complete = workers_ran > 0 and (
             not wants_document(plan_ask) or doc_ok or session_mode == "workforce"
         )
+        if is_v2() and session_mode != "workforce" and can_complete:
+            from app.runtime.v2.critic import heuristic_critic
+
+            can_complete = heuristic_critic(plan_ask, run_messages).next == "answer"
         # For workforce, prefer subtask completion over mass-complete.
         if session_mode == "workforce" and todos:
             if all(t.get("status") == "completed" for t in todos):
@@ -963,7 +948,7 @@ async def run_graph(
                 if wants_pptx(plan_ask)
                 else "未生成文档文件。请重试；若弹出写入确认，请点击允许。"
             )
-        elif claimed_missing and not doc_ok:
+        elif wants_document(plan_ask) and claimed_missing and not doc_ok:
             end_status = "error"
             shown = claimed_missing[0]
             end_extra["error"] = (
@@ -971,9 +956,23 @@ async def run_graph(
                 "请重试并真正写入文件；若弹出写入确认，请点击允许。"
             )
         if session_mode == "workforce":
-            summary = resolve_workforce_end_summary(live_subtasks)
+            summary = ""
+            if is_v2():
+                last = _strip_think(_last_ai_text(run_messages))
+                if last and not looks_like_workspace_dump(last):
+                    summary = last
+            if not summary:
+                summary = resolve_workforce_end_summary(live_subtasks)
             if summary:
                 end_extra["summary"] = summary
+        elif is_v2():
+            from app.runtime.v2.synthesize import best_user_facing_text
+
+            last = _strip_think(
+                best_user_facing_text(run_messages) or _last_ai_text(run_messages)
+            )
+            if last and not looks_like_workspace_dump(last):
+                end_extra["summary"] = last
         for ev in _emit_graph_end(
             bus,
             task_id,
@@ -1033,6 +1032,8 @@ async def run_graph(
         reset_todo_runtime(todo_token)
         if notes_token is not None:
             reset_notes_runtime(notes_token)
+        if memory_token is not None:
+            reset_long_term_runtime(memory_token)
         if workspace_token is not None:
             reset_workspace_runtime(workspace_token)
         if budget_token is not None:

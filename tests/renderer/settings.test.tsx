@@ -136,6 +136,11 @@ describe("Settings", () => {
     });
   });
 
+  it("shows 检索 tab", async () => {
+    render(<Settings />);
+    expect(screen.getByRole("button", { name: "检索" })).toBeInTheDocument();
+  });
+
   it("shows 远程连接 tab instead of 飞书远程", async () => {
     render(<Settings />);
     expect(screen.getByRole("button", { name: "远程连接" })).toBeInTheDocument();

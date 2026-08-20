@@ -9,7 +9,8 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.runtime.todo_context import get_todo_runtime
-from app.runtime.todo_planner import apply_todo_write
+from app.runtime.todo_planner import apply_todo_write, without_office_todos
+from app.runtime.v2.office_gate import office_skills_allowed
 
 
 class TodoItemModel(BaseModel):
@@ -59,6 +60,21 @@ def todo_write(todos: list[dict[str, Any]] | list[TodoItemModel]) -> str:
             raw.append(dict(item))  # type: ignore[arg-type]
 
     normalized = apply_todo_write(raw)
+    if not office_skills_allowed():
+        filtered = without_office_todos(normalized)
+        if len(filtered) < len(normalized):
+            if not filtered:
+                return (
+                    "[ERROR] 当前任务是对话回答，不要规划 officecli / Word / 文档文件。"
+                    "请改为检索、核对来源、在对话中回答。"
+                )
+            normalized = filtered
+            runtime.todos = normalized
+            _emit_todo_state(runtime, normalized)
+            return (
+                f"Updated todo list ({len(normalized)} items). "
+                "Office/Word steps were dropped because this is a chat answer."
+            )
     if not normalized:
         return "[ERROR] todo list is empty or invalid"
     runtime.todos = normalized

@@ -39,6 +39,7 @@ class LongTermStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._embed = embed_fn
         self.dim = dim
+        self.semantic_enabled = embed_fn is not None
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.enable_load_extension(True)
         self._conn.load_extension(sqlite_vec.loadable_path())
@@ -72,6 +73,8 @@ class LongTermStore:
     def _vector(self, text: str) -> list[float]:
         if self._embed is not None:
             vec = self._embed(text)
+        elif not self.semantic_enabled:
+            return [0.0] * self.dim
         else:
             from app.llm.gateway import embed
 
@@ -109,6 +112,8 @@ class LongTermStore:
         return rowid
 
     def query(self, text: str, k: int = 3) -> list[dict[str, Any]]:
+        if not self.semantic_enabled:
+            return []
         vec = self._vector(text)
         blob = _pack(vec)
         rows = self._conn.execute(

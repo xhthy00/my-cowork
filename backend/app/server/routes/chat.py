@@ -39,6 +39,7 @@ class ChatRequest(BaseModel):
     workdir_mode: str | None = None
     assistant_id: str | None = None
     enabled_skill_ids: list[str] | None = None
+    session_id: str | None = None
 
 
 class WorkforceStartBody(BaseModel):
@@ -71,6 +72,7 @@ async def _event_stream(
         workdir_mode=req.workdir_mode,
         assistant_id=req.assistant_id,
         enabled_skill_ids=req.enabled_skill_ids,
+        session_id=req.session_id or req.project_id,
     )
     task_id = task_req.task_id or "stream"
     _active_tasks[task_id] = True

@@ -285,6 +285,7 @@ export default function ChatBar({
           ...(enabledMcp.length ? { enabled_mcp: enabledMcp } : {}),
           space_id: space?.id || project?.spaceId || undefined,
           project_id: streamProjectId,
+          session_id: streamProjectId,
           space_root_path: space?.rootPath || undefined,
           workdir_mode: project?.workdirMode || undefined,
           ...(project?.assistantId

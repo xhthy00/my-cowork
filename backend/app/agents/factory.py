@@ -31,6 +31,19 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def load_prompt(name: str, **placeholders: str) -> str:
+    """Load ``prompts/<name>.md`` and substitute ``{key}`` placeholders.
+
+    Uses literal replace (not str.format) so JSON braces in copied Eigent
+    prompts stay intact.
+    """
+    filename = name if name.endswith(".md") else f"{name}.md"
+    text = _load_prompt(filename)
+    for key, value in placeholders.items():
+        text = text.replace("{" + key + "}", str(value))
+    return text
+
+
 def load_worker_prompt(worker_name: str) -> str:
     """Load the system prompt for a named worker."""
     return _load_prompt(_WORKER_PROMPTS.get(worker_name, f"{worker_name}.md"))

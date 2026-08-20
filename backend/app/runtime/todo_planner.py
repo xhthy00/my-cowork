@@ -15,35 +15,23 @@ import json
 import re
 from typing import Any
 
-# Adapted from eigent: backend/app/agent/prompt.py — SINGLE_AGENT_SYS_PROMPT <todo_workflow>
-TODO_WORKFLOW_RULES = """
-<todo_workflow>
-- For any multi-step task, produce a todo list before doing substantial work.
-- Keep todos short and actionable (imperative titles).
-- Mark exactly one todo as in_progress while actively working on it.
-- Mark a todo completed immediately after it is done.
-- Update todos when the plan changes.
-- For simple conversational answers, a todo list is optional (return []).
-</todo_workflow>
+TODO_WORKFLOW_RULES = None
 
-Each todo MUST have:
-- content: brief actionable title (imperative), e.g. "Research filing policy"
-- active_form: present-continuous UI label, e.g. "Researching filing policy"
-- status: one of "pending" | "in_progress" | "completed"
-"""
 
-_PLAN_SYSTEM = f"""你是 Eigent 风格的任务规划器，负责生成右侧 Progress 步骤列表。
-请严格遵循下列规则拆分用户请求：
+def _todo_plan_system() -> str:
+    global TODO_WORKFLOW_RULES
+    if TODO_WORKFLOW_RULES is None:
+        from app.agents.factory import load_prompt
 
-{TODO_WORKFLOW_RULES}
+        TODO_WORKFLOW_RULES = load_prompt("todo_planner") or ""
+    return TODO_WORKFLOW_RULES
 
-输出要求：
-- 只输出 JSON 数组，不要 markdown 代码块，不要解释。
-- **语言强制**：若用户请求含中文，则每条 todo 的 content 与 active_form 必须全部使用简体中文，禁止英文单词作标题。
-- 若用户请求是英文，则用英文。
-- 多步任务通常 3–6 步，短小可执行；简单寒暄可返回 []。
-- active_form 用进行时，例如 content「检索恩施景点」→ active_form「正在检索恩施景点」。
-"""
+
+_PLAN_SYSTEM = None
+
+
+def _plan_system() -> str:
+    return _todo_plan_system()
 
 
 def _is_chinese(text: str) -> bool:
@@ -189,6 +177,38 @@ def fallback_todos(text: str, *, session_mode: str = "workforce") -> list[dict[s
     return normalize_todos(raw)
 
 
+_OFFICE_TODO_RE = re.compile(
+    r"officecli|\.docx|\.pptx|\.xlsx|\bpptx\b|\bdocx\b|"
+    r"生成\s*(?:word|Word)|Word\s*版|"
+    r"输出文档文件|调用\s*officecli",
+    re.IGNORECASE,
+)
+
+
+def without_office_todos(todos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop Word/officecli steps; empty if the whole plan was document-only."""
+    kept: list[dict[str, Any]] = []
+    for item in todos or []:
+        blob = f"{item.get('content') or ''} {item.get('active_form') or ''}"
+        if _OFFICE_TODO_RE.search(blob):
+            continue
+        kept.append(item)
+    return normalize_todos(kept) if kept else []
+
+
+def _drop_office_plan_if_chat(
+    q: str, todos: list[dict[str, Any]], *, session_mode: str
+) -> list[dict[str, Any]]:
+    from app.graphs.routing import wants_document
+
+    if not todos or wants_document(q):
+        return todos
+    filtered = without_office_todos(todos)
+    if len(filtered) < len(todos):
+        return fallback_todos(q, session_mode=session_mode)
+    return todos
+
+
 async def plan_todos_llm(
     text: str,
     llm: Any | None,
@@ -234,7 +254,7 @@ async def plan_todos_llm(
     )
 
     async def _once(extra_system: str = "") -> list[dict[str, Any]]:
-        system = _PLAN_SYSTEM + (("\n" + extra_system) if extra_system else "")
+        system = _plan_system() + (("\n" + extra_system) if extra_system else "")
         if hasattr(llm, "ainvoke"):
             msg = await llm.ainvoke(
                 [
@@ -266,9 +286,9 @@ async def plan_todos_llm(
                 "上次输出语言错误。请用简体中文重写全部 content/active_form，不要出现英文步骤标题。"
             )
         if todos and _todos_match_user_language(todos, q):
-            return todos
+            return _drop_office_plan_if_chat(q, todos, session_mode=session_mode)
         if todos and not _is_chinese(q):
-            return todos
+            return _drop_office_plan_if_chat(q, todos, session_mode=session_mode)
     except Exception:
         pass
     return fallback_todos(q, session_mode=session_mode)

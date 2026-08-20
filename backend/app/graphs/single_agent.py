@@ -41,22 +41,29 @@ def _make_single_agent_node(agent: Any):
         before = list(state.get("messages") or [])
         invoke_messages = before
         user_text = _latest_user_text(state) or str(state.get("user_text") or "")
+        from app.runtime.v2.flag import is_v2
+
         need_doc = wants_document(user_text)
         need_pptx = wants_pptx(user_text)
-        if need_doc and not document_tools_succeeded(state, require_pptx=need_pptx):
+        if (
+            not is_v2()
+            and need_doc
+            and not document_tools_succeeded(state, require_pptx=need_pptx)
+        ):
             nudge = _PPTX_NUDGE if need_pptx else _DOC_NUDGE
             invoke_messages = [*before, SystemMessage(content=nudge)]
         messages = await astream_agent_messages(agent, invoke_messages)
-        if need_doc and not document_tools_succeeded(
-            {"messages": messages}, require_pptx=need_pptx
-        ):
-            messages = await astream_agent_messages(
-                agent, [*messages, SystemMessage(content=_DOC_RETRY_NUDGE)]
-            )
-        elif looks_like_plan_only(user_text, last_ai_text(messages)):
-            messages = await astream_agent_messages(
-                agent, [*messages, SystemMessage(content=_ANSWER_RETRY_NUDGE)]
-            )
+        if not is_v2():
+            if need_doc and not document_tools_succeeded(
+                {"messages": messages}, require_pptx=need_pptx
+            ):
+                messages = await astream_agent_messages(
+                    agent, [*messages, SystemMessage(content=_DOC_RETRY_NUDGE)]
+                )
+            elif looks_like_plan_only(user_text, last_ai_text(messages)):
+                messages = await astream_agent_messages(
+                    agent, [*messages, SystemMessage(content=_ANSWER_RETRY_NUDGE)]
+                )
         delta = _message_delta(invoke_messages, messages)
         return {
             "messages": delta,

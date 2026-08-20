@@ -1,0 +1,67 @@
+cases:
+  - id: research-ok
+    category: research
+    user: "调研宜昌旅游并给出可执行行程"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "调研宜昌旅游并给出可执行行程" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "宜昌旅游" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"三峡","url":"https://example.com/yc","snippet":"两坝一峡"}]' }
+        - { type: ai, content: "三日行程：D1 两坝一峡，D2 清江画廊，D3 市区博物馆。来源 https://example.com/yc" }
+  - id: research-no-source-fail
+    category: research
+    user: "对比两款笔记本的最新价格"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "对比两款笔记本的最新价格" }
+        - { type: ai, content: "A 款 6999，B 款 7299，建议买 A。" }
+  - id: research-fetch-ok
+    category: research
+    user: "检索并摘要这份政策原文要点"
+    expect: { next: answer, sources_ok: true }
+    fixture:
+      messages:
+        - { type: human, content: "检索并摘要这份政策原文要点" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "政策 通知 原文 要点" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"通知","url":"https://example.gov/n","snippet":"要点"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c2", name: "web_search", args: { query: "政策 生效日期 例外条款" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c2", content: '[{"title":"细则","url":"https://example.gov/n2","snippet":"例外"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c3", name: "web_fetch", args: { url: "https://example.gov/n" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c3", content: "URL: https://example.gov/n\n\n第一条适用范围……" }
+        - { type: ai, content: "", tool_calls: [{ id: "c4", name: "web_fetch", args: { url: "https://example.gov/n2" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c4", content: "URL: https://example.gov/n2\n\n例外条款与生效日期。" }
+        - { type: ai, content: "要点：适用范围、生效日期、例外条款。来源 https://example.gov/n 与 https://example.gov/n2 。" }
+  - id: research-deep-ok
+    category: research
+    user: "调研宜昌旅游并给出可执行行程"
+    expect: { next: answer, sources_ok: true, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "调研宜昌旅游并给出可执行行程" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "宜昌 三峡 两坝一峡 门票" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"三峡","url":"https://example.com/yc-sx","snippet":"两坝一峡"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c2", name: "web_search", args: { query: "宜昌 三日 行程 清江画廊" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c2", content: '[{"title":"清江","url":"https://example.com/yc-qj","snippet":"画廊"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c3", name: "web_fetch", args: { url: "https://example.com/yc-sx" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c3", content: "URL: https://example.com/yc-sx\n\n两坝一峡建议半天到一天。" }
+        - { type: ai, content: "", tool_calls: [{ id: "c4", name: "web_fetch", args: { url: "https://example.com/yc-qj" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c4", content: "URL: https://example.com/yc-qj\n\n清江画廊可安排次日。" }
+        - { type: ai, content: "三日行程：D1 两坝一峡，D2 清江画廊，D3 市区博物馆。来源 https://example.com/yc-sx 与 https://example.com/yc-qj 。" }
+  - id: research-complete-chat
+    category: research
+    user: "调研宜昌旅游并给出可执行行程"
+    expect: { next: answer, sources_ok: true, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "调研宜昌旅游并给出可执行行程" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "web_search", args: { query: "宜昌 三峡 两坝一峡 门票" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c1", content: '[{"title":"三峡","url":"https://example.com/yc-sx","snippet":"两坝一峡"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c2", name: "web_search", args: { query: "宜昌 三日 行程 清江画廊" } }] }
+        - { type: tool, name: "web_search", tool_call_id: "c2", content: '[{"title":"清江","url":"https://example.com/yc-qj","snippet":"画廊"}]' }
+        - { type: ai, content: "", tool_calls: [{ id: "c3", name: "web_fetch", args: { url: "https://example.com/yc-sx" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c3", content: "URL: https://example.com/yc-sx\n\n两坝一峡建议半天到一天。" }
+        - { type: ai, content: "", tool_calls: [{ id: "c4", name: "web_fetch", args: { url: "https://example.com/yc-qj" } }] }
+        - { type: tool, name: "web_fetch", tool_call_id: "c4", content: "URL: https://example.com/yc-qj\n\n清江画廊可安排次日。" }
+        - { type: ai, content: "三日行程如下。D1 两坝一峡（半天到一天）。D2 清江画廊。D3 市区博物馆与沿江步道。门票与开放时间以景区当日公示为准。来源 https://example.com/yc-sx 与 https://example.com/yc-qj 。" }

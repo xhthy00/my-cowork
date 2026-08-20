@@ -54,8 +54,13 @@ def make_llm_summarize(
             kwargs["base_url"] = base_url
         llm = create_model(prov, mod, key, **kwargs)
         blob = "\n".join(_message_text(m) for m in old_messages if _message_text(m))[:12000]
+        from app.agents.factory import load_prompt
+
+        compact_sys = load_prompt("compact", blob=blob) or (
+            "用简体中文把下列对话压缩成一段精炼摘要，保留关键事实与决策。"
+        )
         prompt = [
-            SystemMessage(content="用简体中文把下列对话压缩成一段精炼摘要，保留关键事实与决策。"),
+            SystemMessage(content=compact_sys),
             HumanMessage(content=blob or "(empty)"),
         ]
         result = await llm.ainvoke(prompt)

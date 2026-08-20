@@ -65,7 +65,11 @@ interface PreviewState {
   addChooser: () => string;
   openBrowser: (url: string, title?: string) => string;
   openFile: (path: string, title?: string) => string;
-  openTerminal: (agentId?: string, taskId?: string) => string;
+  openTerminal: (
+    agentId?: string,
+    taskId?: string,
+    opts?: { focus?: boolean },
+  ) => string;
   closeTab: (id: string) => void;
   closeOtherTabs: (id: string) => void;
   closeAllTabs: () => void;
@@ -239,7 +243,26 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
     return firstId;
   },
 
-  openTerminal: (agentId, taskId) => {
+  openTerminal: (agentId, taskId, opts) => {
+    // One live tab per agent: every bash/exec.bash emits preview.open.
+    const existing = get().tabs.find(
+      (t) =>
+        t.type === "terminal" &&
+        (agentId ? t.agentId === agentId : !t.agentId),
+    );
+    if (existing && existing.type === "terminal") {
+      const focus = opts?.focus ?? true;
+      set((s) => ({
+        open: true,
+        tabs: s.tabs.map((t) =>
+          t.id === existing.id && t.type === "terminal"
+            ? { ...t, taskId: taskId ?? t.taskId }
+            : t,
+        ),
+        activeTabId: focus ? existing.id : s.activeTabId,
+      }));
+      return existing.id;
+    }
     const id = newTabId("terminal");
     set((s) => ({
       open: true,
@@ -337,6 +360,7 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
         get().openTerminal(
           payload.agent_id ? String(payload.agent_id) : undefined,
           assignId,
+          { focus: false },
         );
       }
     } else if (type === "artifact.screenshot" && payload.path) {

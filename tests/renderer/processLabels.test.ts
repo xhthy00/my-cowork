@@ -79,4 +79,42 @@ describe("processLabels", () => {
     expect(labels).toContain("列出技能");
     expect(labels).toContain("任务协调");
   });
+
+  it("pairs tool.start with tool.result and keeps repeat calls", () => {
+    const steps = buildWorkLogSteps(
+      [
+        {
+          id: "s1",
+          type: "tool.start",
+          payload: {
+            call_id: "c1",
+            tool: "bash",
+            preview: "officecli create a.docx",
+            timestamp: "2026-08-19T15:00:00.000Z",
+          },
+        },
+        {
+          id: "s2",
+          type: "tool.result",
+          payload: { call_id: "c1", tool: "bash", preview: "officecli create a.docx" },
+        },
+        {
+          id: "s3",
+          type: "tool.start",
+          payload: {
+            call_id: "c2",
+            tool: "bash",
+            preview: "officecli add a.docx",
+            timestamp: "2026-08-19T15:01:00.000Z",
+          },
+        },
+      ],
+      [],
+    );
+    const tools = steps.filter((s) => s.kind === "tool");
+    expect(tools).toHaveLength(2);
+    expect(tools[0].status).toBe("done");
+    expect(tools[1].status).toBe("running");
+    expect(tools[1].preview).toContain("officecli add");
+  });
 });

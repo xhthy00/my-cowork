@@ -144,6 +144,28 @@ async function injectLarkEnv(env: Record<string, string>): Promise<void> {
   if (encryptKey) env.LARK_ENCRYPT_KEY = encryptKey;
 }
 
+export const SEARCH_PROVIDER_ACCOUNT = "search:provider";
+export const SEARCH_BOCHA_ACCOUNT = "search:bocha";
+export const SEARCH_BRAVE_ACCOUNT = "search:brave";
+export const SEARCH_TAVILY_ACCOUNT = "search:tavily";
+export const SEARCH_EXA_ACCOUNT = "search:exa";
+export const SEARCH_SEARXNG_ACCOUNT = "search:searxng";
+
+async function injectSearchEnv(env: Record<string, string>): Promise<void> {
+  const provider = (await getKey(SERVICE, SEARCH_PROVIDER_ACCOUNT))?.trim();
+  const bocha = (await getKey(SERVICE, SEARCH_BOCHA_ACCOUNT))?.trim();
+  const brave = (await getKey(SERVICE, SEARCH_BRAVE_ACCOUNT))?.trim();
+  const tavily = (await getKey(SERVICE, SEARCH_TAVILY_ACCOUNT))?.trim();
+  const exa = (await getKey(SERVICE, SEARCH_EXA_ACCOUNT))?.trim();
+  const searxng = (await getKey(SERVICE, SEARCH_SEARXNG_ACCOUNT))?.trim();
+  if (provider) env.MY_COWORK_SEARCH_PROVIDER = provider;
+  if (bocha) env.BOCHA_API_KEY = bocha;
+  if (brave) env.BRAVE_API_KEY = brave;
+  if (tavily) env.TAVILY_API_KEY = tavily;
+  if (exa) env.EXA_API_KEY = exa;
+  if (searxng) env.SEARXNG_URL = searxng;
+}
+
 async function injectWeixinEnv(env: Record<string, string>): Promise<void> {
   const token = (await getKey(SERVICE, WEIXIN_BOT_TOKEN_ACCOUNT))?.trim();
   const accountId = (await getKey(SERVICE, WEIXIN_ACCOUNT_ID_ACCOUNT))?.trim();
@@ -170,6 +192,7 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
     }
     await injectLarkEnv(env);
     await injectWeixinEnv(env);
+    await injectSearchEnv(env);
     return env;
   }
 
@@ -179,5 +202,6 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
   }
   await injectLarkEnv(env);
   await injectWeixinEnv(env);
+  await injectSearchEnv(env);
   return env;
 }

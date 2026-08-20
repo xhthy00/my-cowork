@@ -1,0 +1,29 @@
+cases:
+  - id: followup-expand
+    category: followup
+    user: "把刚才第三点展开"
+    expect: { next: answer, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "写三点合作建议" }
+        - { type: ai, content: "1. 对等持股 2. 数据隔离 3. 退出条款" }
+        - { type: human, content: "把刚才第三点展开" }
+        - { type: ai, content: "第三点退出条款应写清触发条件、对赌期、回购定价与争议解决，避免口头约定。" }
+  - id: followup-rewrite
+    category: followup
+    user: "改得更正式一点"
+    expect: { next: answer, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "给客户回一封感谢邮件" }
+        - { type: ai, content: "谢谢支持，下次再合作。" }
+        - { type: human, content: "改得更正式一点" }
+        - { type: ai, content: "感谢贵司长期以来的信任与支持。我们已收悉相关反馈，并将在后续交付中落实。" }
+  - id: followup-no-redo-plan
+    category: followup
+    user: "把刚才第三点展开"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "把刚才第三点展开" }
+        - { type: ai, content: "Plan the task first. I will generate a longer outline." }

@@ -16,7 +16,7 @@ import {
   humanizeAssignContent,
   humanizeTool,
 } from "@/lib/processLabels";
-import { buildWorkLogSteps } from "@/lib/progressFromTrace";
+import { buildWorkLogSteps, findInFlightTool } from "@/lib/progressFromTrace";
 import { cn } from "@/lib/utils";
 import { usePageTabStore } from "@/store/pageTab";
 import { usePreviewStore } from "@/store/preview";
@@ -87,7 +87,14 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
     [trace, artifactNames],
   );
 
+  const inflight = useMemo(() => findInFlightTool(trace), [trace]);
+
   const liveLabel = useMemo(() => {
+    if (inflight) {
+      const bits = [humanizeTool(inflight.tool)];
+      if (inflight.preview) bits.push(inflight.preview);
+      return bits.join(" · ");
+    }
     const runningTodo =
       taskInfo.find((t) => t.status === "running") ||
       taskRunning[0] ||
@@ -116,17 +123,23 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
     }
     if (steps.some((s) => s.kind === "prep")) return "正在准备智能体…";
     return "思考中…";
-  }, [taskInfo, taskRunning, trace, steps]);
+  }, [inflight, taskInfo, taskRunning, trace, steps]);
+
+  const liveElapsed =
+    runStatus === "running" && inflight?.startedAtMs
+      ? formatSplittingElapsed(now - inflight.startedAtMs)
+      : null;
 
   const phaseHint = useMemo(() => {
     // Confirm must win over pendingArtifacts — approved docgen leaves
     // artifacts pending until graph.end, which wrongly looked like "等待写文件".
     if (confirmQueue.length > 0) return "等待你确认工具调用";
+    if (inflight) return "工具执行中";
     if (pendingArtifacts.length > 0) return "文件已生成，任务收尾中";
     if (trace.some((e) => e.type === "todo_state")) return "按计划执行中";
     if (trace.some((e) => e.type === "graph.start")) return "已连接后端";
     return "正在启动任务";
-  }, [trace, pendingArtifacts.length, confirmQueue.length]);
+  }, [inflight, trace, pendingArtifacts.length, confirmQueue.length]);
 
   if (runStatus === "idle") return null;
   if (runStatus !== "running" && steps.length === 0 && elapsedMs < 1000) return null;
@@ -227,13 +240,18 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ duration: 0.18 }}
-                      className="min-w-0"
+                      className="flex min-w-0 items-baseline gap-1.5"
                     >
                       <ShinyText
                         text={liveLabel}
                         speed={2.4}
-                        className="max-w-full truncate text-body-sm"
+                        className="min-w-0 truncate text-body-sm"
                       />
+                      {liveElapsed ? (
+                        <span className="shrink-0 tabular-nums text-[11px] text-ds-text-neutral-subtle-default">
+                          已 {liveElapsed}
+                        </span>
+                      ) : null}
                     </motion.div>
                   </AnimatePresence>
                   <span className="text-[11px] text-ds-text-neutral-subtle-default">
@@ -254,8 +272,11 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
               ) : null}
 
               <AnimatePresence initial={false}>
-                {steps.map((step, idx) => {
-                  const isLatest = running && idx === steps.length - 1 && step.kind !== "file";
+                {steps.map((step) => {
+                  const isRunning = running && step.status === "running";
+                  const line = step.preview
+                    ? `${step.label} · ${step.preview}`
+                    : formatWorkLogLine(step.label, step.detail);
                   if (step.kind === "file") {
                     return (
                       <motion.button
@@ -301,21 +322,21 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                       <span
                         className={cn(
                           "h-1.5 w-1.5 shrink-0 rounded-full",
-                          isLatest
+                          isRunning
                             ? "bg-[var(--colors-green-default,#22c55e)] shadow-[0_0_0_3px_rgba(34,197,94,0.2)]"
                             : "bg-ds-border-neutral-default-default",
                         )}
                         aria-hidden
                       />
                       <span className="min-w-0 truncate">
-                        {isLatest ? (
+                        {isRunning ? (
                           <ShinyText
-                            text={formatWorkLogLine(step.label, step.detail)}
+                            text={line}
                             speed={2.6}
                             className="truncate text-body-sm"
                           />
                         ) : (
-                          formatWorkLogLine(step.label, step.detail)
+                          line
                         )}
                       </span>
                     </motion.div>

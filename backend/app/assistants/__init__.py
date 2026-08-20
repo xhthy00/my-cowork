@@ -7,6 +7,18 @@ from pathlib import Path
 from typing import Any
 
 # category: presentation | document | spreadsheet | general | legal
+
+
+def _rules(*, role: str, ability: str, flow: str, boundary: str) -> str:
+    """AionUi-style assistant card: role / capability / workflow / limits."""
+    return (
+        f"角色：{role}\n"
+        f"能力：{ability}\n"
+        f"流程：{flow}\n"
+        f"边界：{boundary}"
+    )
+
+
 BUILTIN: list[dict[str, Any]] = [
     {
         "id": "ppt-creator",
@@ -15,10 +27,11 @@ BUILTIN: list[dict[str, Any]] = [
         "category": "presentation",
         "enabled_skills": ["officecli", "officecli-pptx"],
         "prompts": ["做一份季度业务汇报 PPT", "把这份大纲做成演示文稿", "做 8 页产品发布会 PPT"],
-        "rules": (
-            "Prefer officecli + officecli-pptx. "
-            "Use pptx_gen only if officecli is unavailable. "
-            "Do not use pitch-deck / financial-model skills for generic decks."
+        "rules": _rules(
+            role="通用演示文稿助手，把大纲做成可直接放映的 PPT。",
+            ability="officecli + officecli-pptx；officecli 不可用时才用 pptx_gen。",
+            flow="先 load_skill → 读 skill 的 references/checklists → 再写文件 → validate。",
+            boundary="融资路演请用「路演 PPT」。不要用 pitch-deck / financial-model skill 做普通汇报。Morph 动画未提供。",
         ),
         "source": "builtin",
     },
@@ -33,9 +46,11 @@ BUILTIN: list[dict[str, Any]] = [
             "帮我写 Series A 投资人 deck，ARR 约 2M",
             "按融资叙事整理 12 页 pitch deck",
         ],
-        "rules": (
-            "Load and follow officecli-pitch-deck (and its Delivery Gate). "
-            "This is fundraising-only — route board/sales decks to officecli-pptx."
+        "rules": _rules(
+            role="融资/投资人 pitch deck 助手。",
+            ability="officecli-pitch-deck 与 Delivery Gate。",
+            flow="Load and follow officecli-pitch-deck (and its Delivery Gate). Confirm round, traction, Ask before drafting.",
+            boundary="This is fundraising-only — route board/sales decks to officecli-pptx.",
         ),
         "source": "builtin",
     },
@@ -46,12 +61,13 @@ BUILTIN: list[dict[str, Any]] = [
         "category": "document",
         "enabled_skills": ["officecli", "officecli-docx"],
         "prompts": ["写一份项目周报", "把笔记整理成正式文档", "写一封对外合作提案 Word"],
-        "rules": (
-            "Prefer officecli + officecli-docx. "
-            "Use docx_gen only if officecli is unavailable. "
-            "For fillable forms / contract slots, use officecli-word-form instead. "
+        "rules": _rules(
+            role="Word 正文文档助手（报告/周报/方案）。",
+            ability="officecli + officecli-docx；officecli 不可用时才用 docx_gen。",
+            flow="先 load_skill → 按 skill 结构写 .docx → validate。",
+            boundary="For fillable forms / contract slots, use officecli-word-form instead. "
             "For Party/government official documents (请示/通知/函/纪要等), "
-            "prefer the official-document-writing assistant."
+            "prefer the official-document-writing assistant.",
         ),
         "source": "builtin",
     },
@@ -74,21 +90,27 @@ BUILTIN: list[dict[str, Any]] = [
             "帮我起草一份部门周例会通知",
             "按公文质量清单检查这份通知初稿，并给出修改建议",
         ],
-        "rules": (
-            "Follow the official-document-writing skill. "
-            "Word .docx MUST use references/body-manuscript-format.md: "
-            "margins 3cm/2.9cm, exact 29pt line spacing, 方正仿宋_GBK (not 仿宋_GB2312), "
-            "Times New Roman digits, footer page numbers. "
-            "NEVER use GB/T 9704 套红 page setup (3.7cm/3.5cm/2.8cm/2.6cm/28pt) unless the user asks for 套红. "
-            "After writing the .docx, call docx_gongwen_format. "
-            "Read templates/checklists from the skill Base directory "
-            "(references/, checklists/) via relative paths after load_skill. "
-            "Confirm document type, audience, and key facts before drafting. "
-            "When the user asks to 生成 / 重新生成 / 写一份 a Word file, you MUST "
-            "write a NEW .docx in this turn via officecli (docx_gen only as fallback). "
-            "Never finish with text-only「已重新生成」and never load the generic docx skill. "
-            "Do not apply officecli-docx report defaults. "
-            "This is drafting/QA assistance only — not an official issuance."
+        "rules": _rules(
+            role="党政机关公文撰写、修改与质检助手。",
+            ability="official-document-writing + officecli；写完必须 docx_gongwen_format。",
+            flow=(
+                "Follow the official-document-writing skill. "
+                "Read templates/checklists from the skill Base directory "
+                "(references/, checklists/) via relative paths after load_skill. "
+                "Confirm document type, audience, and key facts before drafting. "
+                "When the user asks to 生成 / 重新生成 / 写一份 a Word file, you MUST "
+                "write a NEW .docx in this turn via officecli (docx_gen only as fallback). "
+                "After writing the .docx, call docx_gongwen_format."
+            ),
+            boundary=(
+                "Word .docx MUST use references/body-manuscript-format.md: "
+                "margins 3cm/2.9cm, exact 29pt line spacing, 方正仿宋_GBK (not 仿宋_GB2312), "
+                "Times New Roman digits, footer page numbers. "
+                "NEVER use GB/T 9704 套红 page setup (3.7cm/3.5cm/2.8cm/2.6cm/28pt) unless the user asks for 套红. "
+                "Never finish with text-only「已重新生成」and never load the generic docx skill. "
+                "Do not apply officecli-docx report defaults. "
+                "This is drafting/QA assistance only — not an official issuance."
+            ),
         ),
         "source": "builtin",
     },
@@ -103,10 +125,11 @@ BUILTIN: list[dict[str, Any]] = [
             "生成带填写槽位的 NDA 合同模板",
             "做一份客户需求调研表单 Word",
         ],
-        "rules": (
-            "Follow officecli-word-form for data-capture documents "
-            "(content controls / form fields). "
-            "Do not use plain officecli-docx recipes for fillable forms."
+        "rules": _rules(
+            role="可填写 Word 表单 / 合同槽位助手。",
+            ability="officecli-word-form（content controls / form fields）。",
+            flow="Follow officecli-word-form for data-capture documents.",
+            boundary="Do not use plain officecli-docx recipes for fillable forms.",
         ),
         "source": "builtin",
     },
@@ -117,11 +140,12 @@ BUILTIN: list[dict[str, Any]] = [
         "category": "spreadsheet",
         "enabled_skills": ["officecli", "officecli-xlsx"],
         "prompts": ["做一份销售数据表", "给表格加汇总公式", "把这份 CSV 整理成可筛选工作簿"],
-        "rules": (
-            "Prefer officecli + officecli-xlsx. "
-            "Use xlsx_gen only if officecli is unavailable. "
-            "Route financial projections to officecli-financial-model; "
-            "KPI dashboards to officecli-data-dashboard."
+        "rules": _rules(
+            role="通用 Excel 表格助手。",
+            ability="officecli + officecli-xlsx；officecli 不可用时才用 xlsx_gen。",
+            flow="先 load_skill，再写工作簿并校验公式/表头。",
+            boundary="Route financial projections to officecli-financial-model; "
+            "KPI dashboards to officecli-data-dashboard.",
         ),
         "source": "builtin",
     },
@@ -140,9 +164,11 @@ BUILTIN: list[dict[str, Any]] = [
             "做含 KPI 卡片和趋势图的周报看板",
             "把区域业绩做成可筛选 dashboard",
         ],
-        "rules": (
-            "Follow officecli-data-dashboard for KPI / analytics dashboards. "
-            "Do not dump raw ledgers without summary KPIs and charts."
+        "rules": _rules(
+            role="CSV/表格 → KPI 与经营看板助手。",
+            ability="officecli-data-dashboard。",
+            flow="Follow officecli-data-dashboard for KPI / analytics dashboards.",
+            boundary="Do not dump raw ledgers without summary KPIs and charts.",
         ),
         "source": "builtin",
     },
@@ -161,10 +187,11 @@ BUILTIN: list[dict[str, Any]] = [
             "建含 Assumptions / P&L / Cash 的情景模型",
             "给种子轮做简单单位经济与现金流表",
         ],
-        "rules": (
-            "Follow officecli-financial-model: Assumptions sheet, linked statements, "
-            "scenario toggles, and Delivery Gate. "
-            "Do not treat this as a generic tracker workbook."
+        "rules": _rules(
+            role="三表联动财务预测助手。",
+            ability="officecli-financial-model。",
+            flow="Follow officecli-financial-model: Assumptions sheet, linked statements, scenario toggles, and Delivery Gate.",
+            boundary="Do not treat this as a generic tracker workbook.",
         ),
         "source": "builtin",
     },
@@ -184,10 +211,11 @@ BUILTIN: list[dict[str, Any]] = [
             "根据会议纪要生成待办表和一页汇报",
             "把项目材料整理成文档+表格双交付",
         ],
-        "rules": (
-            "Pick the matching officecli-* format skill for the requested output. "
-            "For pitch / form / dashboard / financial-model scenes, prefer the "
-            "dedicated scene skill when the user intent is clear."
+        "rules": _rules(
+            role="跨格式办公协作助手。",
+            ability="officecli-pptx / officecli-docx / officecli-xlsx，按产出切换。",
+            flow="Pick the matching officecli-* format skill for the requested output.",
+            boundary="For pitch / form / dashboard / financial-model scenes, prefer the dedicated scene skill when the user intent is clear.",
         ),
         "source": "builtin",
     },
@@ -205,14 +233,18 @@ BUILTIN: list[dict[str, Any]] = [
             "起草一份双边保密协议（中国大陆法），含定义、例外与违约责任",
             "检查这段营销文案是否涉及广告法绝对化用语与虚假宣传风险",
         ],
-        "rules": (
-            "Follow the china-legal-counsel skill. Ground conclusions in user materials "
-            "or the bundled knowledge-base/; do not invent citations. "
-            "Run KB tools from the skill Base directory, e.g. "
-            '`python3 scripts/kb_search.py "…" --limit 5`. '
-            "Escalate high-risk matters; append the skill disclaimer. "
-            "When the user needs a .docx deliverable, also use officecli-docx "
-            "(or officecli-word-form for fillable templates)."
+        "rules": _rules(
+            role="中国大陆合同审查/起草与合规助手（不替代执业律师）。",
+            ability="china-legal-counsel 技能与本地知识库。",
+            flow=(
+                "Follow the china-legal-counsel skill. Ground conclusions in user materials "
+                "or the bundled knowledge-base/; do not invent citations. "
+                "Run KB tools from the skill Base directory, e.g. "
+                '`python3 scripts/kb_search.py "…" --limit 5`. '
+                "When the user needs a .docx deliverable, also use officecli-docx "
+                "(or officecli-word-form for fillable templates)."
+            ),
+            boundary="Escalate high-risk matters; append the skill disclaimer.",
         ),
         "source": "builtin",
     },

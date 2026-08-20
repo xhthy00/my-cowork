@@ -1,0 +1,37 @@
+cases:
+  - id: ppt-ok
+    category: ppt
+    user: "做一份季度业务汇报 PPT"
+    expect: { next: answer, deliverable_ok: true, not_plan_only: true }
+    fixture:
+      messages:
+        - { type: human, content: "做一份季度业务汇报 PPT" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "pptx_gen", args: {} }] }
+        - { type: tool, name: "pptx_gen", tool_call_id: "c1", content: "Wrote presentation with 8 slides." }
+        - { type: ai, content: "已生成 8 页季度汇报，含业绩、风险与下一步，可直接用于例会。" }
+  - id: ppt-title-only-fail
+    category: ppt
+    user: "做一份季度业务汇报 PPT"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "做一份季度业务汇报 PPT" }
+        - { type: ai, content: "我将先规划大纲，稍后再生成文件。" }
+  - id: gongwen-ok
+    category: gongwen
+    user: "写一份关于增加项目经费的请示"
+    expect: { next: answer, deliverable_ok: true }
+    fixture:
+      messages:
+        - { type: human, content: "写一份关于增加项目经费的请示" }
+        - { type: ai, content: "", tool_calls: [{ id: "c1", name: "docx_gen", args: {} }] }
+        - { type: tool, name: "docx_gen", tool_call_id: "c1", content: "Wrote 请示 body." }
+        - { type: ai, content: "请示已起草：事由、依据、请求事项齐全，正文可直接送核。" }
+  - id: gongwen-text-only-fail
+    category: gongwen
+    user: "写一份关于增加项目经费的请示"
+    expect: { next: act }
+    fixture:
+      messages:
+        - { type: human, content: "写一份关于增加项目经费的请示" }
+        - { type: ai, content: "已重新生成请示全文如下（未落盘）：……" }

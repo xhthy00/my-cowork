@@ -74,6 +74,7 @@ class TaskRequest:
     workdir_mode: str | None = None
     assistant_id: str | None = None
     enabled_skill_ids: list[str] | None = None
+    session_id: str | None = None
 
 
 @dataclass
@@ -91,6 +92,7 @@ class _Task:
     workdir_mode: str | None = None
     assistant_id: str | None = None
     enabled_skill_ids: list[str] | None = None
+    session_id: str | None = None
 
 
 class TaskManager:
@@ -234,6 +236,7 @@ class TaskManager:
             source = "user"
             assistant_id = None
             enabled_skill_ids: list[str] = []
+            session_id = None
             req_obj = TaskRequest(text=text, task_id=task_id)
         else:
             text = task_req.text
@@ -247,6 +250,7 @@ class TaskManager:
             source = task_req.source
             assistant_id = task_req.assistant_id
             enabled_skill_ids = list(task_req.enabled_skill_ids or [])
+            session_id = task_req.session_id or task_req.project_id
             req_obj = task_req
 
         # When an assistant is selected but skills omitted, use its defaults.
@@ -257,9 +261,12 @@ class TaskManager:
             if a:
                 enabled_skill_ids = list(a.get("enabled_skills") or [])
 
-        prefix = _assistant_skill_prefix(assistant_id, enabled_skill_ids or None)
-        if prefix:
-            text = prefix + text
+        from app.runtime.v2.flag import is_v2
+
+        if not is_v2():
+            prefix = _assistant_skill_prefix(assistant_id, enabled_skill_ids or None)
+            if prefix:
+                text = prefix + text
 
         if self.confirm_hub is not None and hasattr(
             self.confirm_hub, "clear_officecli_auto"
@@ -280,6 +287,7 @@ class TaskManager:
             workdir_mode=workdir_mode,
             assistant_id=assistant_id if not isinstance(task_req, str) else None,
             enabled_skill_ids=enabled_skill_ids or None,
+            session_id=session_id,
         )
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         budget = self._new_budget()

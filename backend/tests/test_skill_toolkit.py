@@ -110,6 +110,29 @@ def test_single_agent_sees_enabled_skills(tmp_path: Path):
     assert any(row["name"] == "demo" for row in listed)
 
 
+def test_list_skills_hides_office_when_gate_off(tmp_path: Path):
+    from app.runtime.v2.office_gate import office_skills_scope
+
+    office = tmp_path / "officecli-docx"
+    office.mkdir()
+    (office / "skill.yaml").write_text(
+        "id: officecli-docx\nname: Docx\ndescription: Word files\nprompt: WRITE DOCX\n",
+        encoding="utf-8",
+    )
+    _write_yaml_skill(tmp_path, "demo")
+    cfg = tmp_path / "skills-config.json"
+    save_skills_config({"version": 1, "skills": {}}, cfg)
+    tools = {
+        t.name: t
+        for t in make_skill_tools("single_agent", root=tmp_path, config_path=cfg)
+    }
+    with office_skills_scope(False):
+        listed = json.loads(tools["list_skills"].invoke({}))
+    names = {row["name"] for row in listed}
+    assert "demo" in names
+    assert "officecli-docx" not in names
+
+
 def test_find_skill_by_name(tmp_path: Path):
     _write_md_skill(tmp_path)
     assert find_skill("md-skill", root=tmp_path) is not None

@@ -139,15 +139,15 @@ describe("buildPythonEnv", () => {
     expect(env.LARK_ENCRYPT_KEY).toBe("enc_test");
   });
 
-  it("injects Weixin credentials from keychain", async () => {
+  it("injects search credentials from keychain", async () => {
     initKeychain(tmp);
-    await setKey("my-cowork", "weixin:bot_token", "wx-token");
-    await setKey("my-cowork", "weixin:account_id", "wx-account");
-    await setKey("my-cowork", "weixin:base_url", "https://ilinkai.weixin.qq.com");
+    await setKey("my-cowork", "search:provider", "bocha");
+    await setKey("my-cowork", "search:bocha", "bocha-key");
+    await setKey("my-cowork", "search:brave", "brave-key");
 
     const env = await buildPythonEnv();
-    expect(env.WEIXIN_BOT_TOKEN).toBe("wx-token");
-    expect(env.WEIXIN_ACCOUNT_ID).toBe("wx-account");
-    expect(env.WEIXIN_BASE_URL).toBe("https://ilinkai.weixin.qq.com");
+    expect(env.MY_COWORK_SEARCH_PROVIDER).toBe("bocha");
+    expect(env.BOCHA_API_KEY).toBe("bocha-key");
+    expect(env.BRAVE_API_KEY).toBe("brave-key");
   });
 });

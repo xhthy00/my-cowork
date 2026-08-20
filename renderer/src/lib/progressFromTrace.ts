@@ -105,8 +105,37 @@ export type WorkLogStep = {
   id: string;
   label: string;
   detail?: string;
+  preview?: string;
   kind: "prep" | "tool" | "file";
+  status?: "running" | "done";
 };
+
+export function findInFlightTool(trace: TraceEvent[]): {
+  tool: string;
+  preview: string;
+  startedAtMs: number | null;
+} | null {
+  const done = new Set<string>();
+  for (let i = trace.length - 1; i >= 0; i--) {
+    const ev = trace[i];
+    const callId = String(ev.payload.call_id ?? ev.payload.id ?? "");
+    if (ev.type === "tool.result") {
+      if (callId) done.add(callId);
+      continue;
+    }
+    if (ev.type !== "tool.start" && ev.type !== "tool.confirm_request") continue;
+    if (callId && done.has(callId)) continue;
+    const tool = String(ev.payload.tool ?? "").trim();
+    if (!tool) continue;
+    const ts = Date.parse(String(ev.payload.timestamp ?? ""));
+    return {
+      tool,
+      preview: String(ev.payload.preview ?? "").trim(),
+      startedAtMs: Number.isFinite(ts) ? ts : null,
+    };
+  }
+  return null;
+}
 
 /** Steps shown under "Worked for …" in the chat column. */
 export function buildWorkLogSteps(
@@ -129,7 +158,7 @@ export function buildWorkLogSteps(
     });
   }
 
-  const seenTools = new Set<string>();
+  const toolIndex = new Map<string, number>();
   const seenAssign = new Set<string>();
   for (const ev of trace) {
     if (ev.type === "agent.assign") {
@@ -137,7 +166,6 @@ export function buildWorkLogSteps(
       const agent = String(ev.payload.agent_id ?? "agent");
       if (!content) continue;
       const localized = humanizeAssignContent(content, agent);
-      // Same plan line assigned to multiple workers → one WorkLog row.
       const dedupeKey = localized.toLowerCase();
       if (seenAssign.has(dedupeKey)) continue;
       seenAssign.add(dedupeKey);
@@ -146,26 +174,51 @@ export function buildWorkLogSteps(
         label: localized,
         detail: agent,
         kind: "tool",
+        status: "done",
       });
-    } else if (ev.type === "tool.confirm_request" || ev.type === "tool.result") {
+    } else if (
+      ev.type === "tool.start" ||
+      ev.type === "tool.confirm_request" ||
+      ev.type === "tool.result"
+    ) {
       const tool = String(ev.payload.tool ?? "").trim();
-      if (!tool || seenTools.has(tool)) continue;
-      seenTools.add(tool);
+      if (!tool) continue;
+      const callId = String(ev.payload.call_id ?? ev.payload.id ?? "");
+      const preview = String(ev.payload.preview ?? "").trim();
+      const status = ev.type === "tool.result" ? "done" : "running";
+      const key = callId || `name:${tool}`;
+      const idx = toolIndex.get(key);
+      if (idx != null) {
+        const prev = steps[idx];
+        steps[idx] = {
+          ...prev,
+          preview: preview || prev.preview,
+          status,
+        };
+        continue;
+      }
+      if (!callId && ev.type === "tool.result" && toolIndex.has(`name:${tool}`)) {
+        continue;
+      }
+      toolIndex.set(key, steps.length);
       steps.push({
-        id: String(ev.payload.call_id ?? ev.payload.id ?? ev.id),
+        id: key,
         label: humanizeTool(tool),
+        preview: preview || undefined,
         kind: "tool",
+        status,
       });
     } else if (ev.type === "graph.step") {
       const node = String(ev.payload.node ?? "");
       if (!node || NOISE_NODES.has(node) || node === "supervisor") continue;
       const key = `node:${node}`;
-      if (seenTools.has(key)) continue;
-      seenTools.add(key);
+      if (toolIndex.has(key)) continue;
+      toolIndex.set(key, steps.length);
       steps.push({
         id: String(ev.payload.id ?? ev.id),
         label: humanizeAgent(node),
         kind: "tool",
+        status: "done",
       });
     }
   }

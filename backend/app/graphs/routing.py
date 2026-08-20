@@ -52,8 +52,8 @@ _DOC_VERB = (
 )
 _DOC_NOUN = (
     r"(?:pptx?|docx?|xlsx|xls|pdf|excel|幻灯片|演示文稿|"
-    r"报告|汇报|白皮书|表格|电子表格|工作簿|文档|公文|公函|函件|"
-    r"请示|通知|纪要|方案|意见|通报|决定|决议|公告|通告|批复|议案|"
+    r"公文|公函|函件|"
+    r"请示|通知|纪要|通报|决定|决议|公告|通告|批复|议案|"
     r"估算表|明细表|预算表|测算表|台账|估算)"
 )
 _DOC_GEN_RE = re.compile(
@@ -105,14 +105,66 @@ def _latest_user_text(state: dict[str, Any]) -> str:
     return str(state.get("user_text") or "")
 
 
+_MD_FILE_RE = re.compile(
+    r"(?:markdown|\.md\b|md\s*文档|md文档|md\s*文件|"
+    r"markdown\s*(?:文档|文件)|生成\s*md|写成?\s*md|输出\s*md|"
+    r"帮我生成md)",
+    re.IGNORECASE,
+)
+_OFFICE_FORMAT_RE = re.compile(
+    r"\b(?:docx?|xlsx|pptx?|pdf|word)\b|word\s*版|word\s*文档|excel|"
+    r"幻灯片|演示文稿|公文|请示|\.docx\b|\.pptx\b|\.xlsx\b",
+    re.IGNORECASE,
+)
+
+
+def wants_markdown_file(user_text: str) -> bool:
+    """True when the user asked for Markdown / .md, not Word."""
+    q = (user_text or "").strip()
+    return bool(q and _MD_FILE_RE.search(q))
+
+
+_UNSPECIFIED_DOC_RE = re.compile(
+    _DOC_VERB
+    + r".{0,32}"
+    + r"(?:报告|文档|方案|白皮书|论文|paper|report)"
+    + r"|"
+    + r"(?:报告|文档|方案|白皮书|论文|paper|report)"
+    + r".{0,16}"
+    + r"(?:重新生成|再生成|生成|创建|撰写|起草|导出|输出|制作)",
+    re.IGNORECASE,
+)
+
+
+def wants_unspecified_document(user_text: str) -> bool:
+    """Eigent Document Agent: document/report/paper with no format → HTML file."""
+    q = (user_text or "").strip()
+    if not q or wants_markdown_file(q) or wants_document(q):
+        return False
+    return bool(_UNSPECIFIED_DOC_RE.search(q))
+
+
+def wants_file_document(user_text: str) -> bool:
+    """Any file artifact: office, markdown, or unspecified HTML report."""
+    return (
+        wants_document(user_text)
+        or wants_markdown_file(user_text)
+        or wants_unspecified_document(user_text)
+    )
+
+
 def wants_document(user_text: str) -> bool:
     """True when the user asked to *generate* an office document (not merely mention one)."""
     q = (user_text or "").strip()
     if not q:
         return False
+    if wants_markdown_file(q) and not _OFFICE_FORMAT_RE.search(q):
+        return False
     if _DOC_GEN_RE.search(q):
         return True
     if _DOC_SKILL_RE.search(q) and any(v in q for v in _GEN_HINTS):
+        return True
+    if _OFFICE_FORMAT_RE.search(q) and any(v in q for v in _GEN_HINTS):
         return True
     if re.search(r"word\s*版", q, re.IGNORECASE):
         return True
@@ -274,13 +326,31 @@ _CLAIMED_OFFICE_RE = re.compile(
 )
 
 
+def _is_plausible_office_fs_path(raw: str) -> bool:
+    """Reject URL remnants such as ``https://www.doc`` → ``//www.doc``."""
+    p = (raw or "").strip()
+    if not p:
+        return False
+    lower = p.lower()
+    if lower.startswith(("http://", "https://", "ftp://")):
+        return False
+    unix = p.replace("\\", "/")
+    if unix.startswith("//"):
+        return False
+    name = unix.rsplit("/", 1)[-1]
+    stem = name.rsplit(".", 1)[0].lower()
+    if stem in {"www", "http", "https"} or stem.startswith("www."):
+        return False
+    return True
+
+
 def extract_claimed_office_paths(text: str) -> list[str]:
     """Absolute office paths the model listed in a user-facing reply."""
     out: list[str] = []
     seen: set[str] = set()
     for match in _CLAIMED_OFFICE_RE.finditer(text or ""):
         raw = match.group("path").rstrip(".,;:)")
-        if not raw or raw in seen:
+        if not raw or raw in seen or not _is_plausible_office_fs_path(raw):
             continue
         seen.add(raw)
         out.append(raw)
@@ -424,7 +494,7 @@ def needs_forced_delegation(user_text: str) -> bool:
 def infer_default_worker(user_text: str) -> str:
     q = user_text or ""
     ql = q.lower()
-    if wants_document(q):
+    if wants_file_document(q):
         return "document_agent"
     if any(k in q for k in ("飞书", "lark", "slack", "消息", "通知")):
         return "document_agent"
