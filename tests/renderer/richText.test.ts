@@ -26,4 +26,14 @@ describe("richText", () => {
     expect(html).toContain("#my-skill");
     expect(html).toMatch(/text-ds-text-(success|warning|terminal|document)-default-default/);
   });
+
+  it("tokenizes @connector and URL in a sent-style user message", () => {
+    const segs = tokenizeRichPlainText(
+      "@fetch 帮我获取该网页内容形成md文档，https://www.jianshu.com/p/ccb88e69c3c6",
+    );
+    expect(segs[0]).toEqual({ type: "connector", text: "@fetch" });
+    expect(segs.some((s) => s.type === "url" && s.text.includes("jianshu.com"))).toBe(
+      true,
+    );
+  });
 });

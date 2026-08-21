@@ -18,6 +18,31 @@ from app.skills.config import (
     skill_visible_for_agent,
 )
 
+_LEGACY_OFFICE = {
+    "docx": "officecli-docx",
+    "doc": "officecli-docx",
+    "pptx": "officecli-pptx",
+    "ppt": "officecli-pptx",
+    "xlsx": "officecli-xlsx",
+}
+
+
+def _drop_legacy_office(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hide Anthropic docx/pptx/xlsx skills when officecli-* is available."""
+    ids = {str(s.get("id") or s.get("name") or "") for s in rows}
+    drop = {
+        legacy
+        for legacy, modern in _LEGACY_OFFICE.items()
+        if legacy in ids and modern in ids
+    }
+    if not drop:
+        return rows
+    return [
+        s
+        for s in rows
+        if str(s.get("id") or s.get("name") or "") not in drop
+    ]
+
 
 def _visible_skills(
     agent_id: str,
@@ -31,7 +56,7 @@ def _visible_skills(
     else:
         rows = [s for s in skills if skill_visible_for_agent(s, agent_id)]
     if office_skills_allowed():
-        return rows
+        return _drop_legacy_office(rows)
     return [
         s
         for s in rows

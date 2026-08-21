@@ -41,7 +41,7 @@ Workspace: chat, task list, deliverable cards, and a live document preview on on
 
 ## What it does
 
-- **Writes to disk locally**: Outputs land in your workspace (default like `~/Documents/AIS`), not a cloud draft. When a task finishes, `_scratch/` intermediates are cleaned up; nothing outside the workspace is touched.
+- **Writes to disk locally**: Outputs land in your workspace (default like `~/Documents/AIS`), not a cloud draft. Process notes stay out of the sidebar; nothing outside the workspace is touched.
 - **Two execution modes**
   - **Single agent**: one ReAct agent runs the whole job — lightweight, good for a single document or Q&A.
   - **Multi-agent (Workforce)**: a planner splits the work → you confirm subtasks → a coordinator fans out document / browser / developer workers by dependency, and can replan on failure.

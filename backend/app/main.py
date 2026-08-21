@@ -303,13 +303,21 @@ def _seed_mcp_json_from_toml(mcp_json_path: Path, toml_path: Path) -> None:
         return
     servers: dict[str, Any] = {}
     for s in parse_mcp_servers(toml_path):
-        servers[s.name] = {
-            "command": s.command,
-            "args": s.args,
-            "env": s.env,
+        entry: dict[str, Any] = {
             "description": s.description,
             "enabled": s.enabled,
         }
+        if s.url:
+            entry["url"] = s.url
+            if s.headers:
+                entry["headers"] = s.headers
+            if s.transport and s.transport != "http":
+                entry["type"] = s.transport
+        else:
+            entry["command"] = s.command
+            entry["args"] = s.args
+            entry["env"] = s.env
+        servers[s.name] = entry
     if servers:
         save_mcp_json({"mcpServers": servers}, mcp_json_path)
 

@@ -58,6 +58,8 @@ describe("Settings", () => {
       stopTunnel: vi.fn(),
       getTunnelUrl: vi.fn().mockResolvedValue(null),
       checkForUpdates: vi.fn(),
+      getKeepAwake: vi.fn().mockResolvedValue({ enabled: false, supported: true }),
+      setKeepAwake: vi.fn().mockResolvedValue({ ok: true, enabled: true }),
     };
   });
 
@@ -147,9 +149,15 @@ describe("Settings", () => {
     expect(screen.queryByRole("button", { name: "飞书远程" })).not.toBeInTheDocument();
   });
 
-  it("switches appearance and persists the choice", async () => {
+  it("does not duplicate 连接器 / MCP or 外观 tabs", () => {
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "外观" }));
+    expect(screen.queryByRole("button", { name: "连接器 / MCP" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "外观" })).not.toBeInTheDocument();
+  });
+
+  it("switches appearance from the general tab and persists the choice", async () => {
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
     await userEvent.click(screen.getByRole("button", { name: "深色" }));
 
     expect(useSettingsStore.getState().appearance).toBe("dark");
@@ -161,5 +169,39 @@ describe("Settings", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "跟随系统" }));
     expect(useSettingsStore.getState().appearance).toBe("system");
+  });
+
+  it("renders keep-awake on the general tab and toggles it", async () => {
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+
+    const toggle = await screen.findByRole("switch", { name: "保持唤醒" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByText(/阻止因空闲休眠/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    await waitFor(() => {
+      expect(window.api.setKeepAwake).toHaveBeenCalledWith({ enabled: true });
+    });
+  });
+
+  it("opens API / 模型 when navigating to models", async () => {
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    expect(screen.getByRole("switch", { name: "保持唤醒" })).toBeInTheDocument();
+
+    window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }));
+
+    expect(await screen.findByLabelText("API 密钥")).toBeInTheDocument();
+  });
+
+  it("shows 定时任务 in the settings nav", async () => {
+    render(<Settings />);
+    expect(screen.getByRole("button", { name: "定时任务" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "定时任务" }));
+    expect(await screen.findByRole("button", { name: "刷新" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建" })).toBeInTheDocument();
   });
 });

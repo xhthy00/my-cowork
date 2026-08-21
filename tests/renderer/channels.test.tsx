@@ -184,8 +184,18 @@ describe("ChannelsPanel", () => {
     );
   });
 
+  it("keeps 飞书 collapsed until expanded", async () => {
+    render(<ChannelsPanel />);
+    await screen.findByText("飞书");
+    expect(screen.queryByLabelText("飞书 App ID")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "展开飞书" }));
+    expect(await screen.findByLabelText("飞书 App ID")).toBeInTheDocument();
+  });
+
   it("shows inline error next to 测试并连接 when secret is missing", async () => {
     render(<ChannelsPanel />);
+    await screen.findByText("飞书");
+    await userEvent.click(screen.getByRole("button", { name: "展开飞书" }));
     await screen.findByLabelText("飞书 App ID");
     await userEvent.type(screen.getByLabelText("飞书 App ID"), "cli_abc");
     await userEvent.click(screen.getByRole("button", { name: "测试并连接" }));
@@ -199,6 +209,8 @@ describe("ChannelsPanel", () => {
 
   it("calls test then enable on 测试并连接", async () => {
     render(<ChannelsPanel />);
+    await screen.findByText("飞书");
+    await userEvent.click(screen.getByRole("button", { name: "展开飞书" }));
     await screen.findByLabelText("飞书 App ID");
     await userEvent.type(screen.getByLabelText("飞书 App ID"), "cli_abc");
     await userEvent.type(screen.getByLabelText("飞书 App Secret"), "sec_abc");

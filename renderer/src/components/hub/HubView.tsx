@@ -11,7 +11,6 @@ import { HistoryTabsNav } from "@/components/hub/HistoryTabsNav";
 import SkillsView from "@/components/skills/SkillsView";
 import MemoryView from "@/components/memory/MemoryView";
 import Settings from "@/components/settings/Settings";
-import ModelsPanel from "@/components/settings/ModelsPanel";
 import McpConnectorsPanel from "@/components/settings/McpConnectorsPanel";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -35,7 +34,6 @@ function AgentsHub() {
   const section = usePageTabStore((s) => s.agentsSection);
   const setSection = usePageTabStore((s) => s.setAgentsSection);
   const items = [
-    ["models", "模型"],
     ["skills", "技能"],
     ["sub-agents", "办公助手"],
     ["memory", "记忆"],
@@ -60,18 +58,6 @@ function AgentsHub() {
       <div className="flex h-auto w-full min-w-0 flex-1 flex-col">
         {section === "skills" && <SkillsView />}
         {section === "memory" && <MemoryView />}
-        {section === "models" && (
-          <div className="m-auto flex h-auto w-full flex-1 flex-col">
-            <div className="flex w-full items-center justify-between px-6 pb-6 pt-8">
-              <div className="text-heading-sm font-bold text-ds-text-neutral-default-default">
-                模型
-              </div>
-            </div>
-            <div className="mb-12 w-full px-6">
-              <ModelsPanel embedded />
-            </div>
-          </div>
-        )}
         {section === "sub-agents" && <AssistantsView />}
       </div>
     </Tabs>
@@ -80,13 +66,7 @@ function AgentsHub() {
 
 function ConnectorsHub() {
   return (
-    <div className="w-full py-6">
-      <h2 className="mb-1 text-xl font-semibold text-ds-text-neutral-default-default">
-        连接器
-      </h2>
-      <p className="mb-6 text-sm text-ds-text-neutral-muted-default">
-        本地 MCP 连接器（自定义 MCP；无 Hosted OAuth）。
-      </p>
+    <div className="m-auto flex h-auto w-full flex-1 flex-col">
       <McpConnectorsPanel />
     </div>
   );
@@ -271,172 +251,6 @@ function BrowserHub() {
   );
 }
 
-function ScheduleHub() {
-  const [jobs, setJobs] = useState<
-    Array<{ id: string; skill_id: string; schedule: string; enabled: boolean }>
-  >([]);
-  const [status, setStatus] = useState("");
-  const [skillId, setSkillId] = useState("");
-  const [cron, setCron] = useState("every 1 hours");
-
-  async function load() {
-    const backendUrl = await window.api.getBackendUrl();
-    if (!backendUrl) {
-      setStatus("后端离线");
-      return;
-    }
-    const res = await fetch(`${backendUrl}/api/schedule/jobs`);
-    if (!res.ok) {
-      setStatus(`加载失败 ${res.status}`);
-      return;
-    }
-    const data = (await res.json()) as { jobs: typeof jobs };
-    setJobs(data.jobs || []);
-    setStatus("");
-  }
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  return (
-    <div className="w-full py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-semibold">定时任务</h2>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          刷新
-        </Button>
-      </div>
-      {status && <p className="mb-3 text-xs text-ds-text-neutral-subtle-default">{status}</p>}
-      <div className="mb-4 flex flex-wrap items-end gap-2 rounded-2xl bg-ds-bg-neutral-default-default p-3">
-        <label className="text-xs text-ds-text-neutral-subtle-default">
-          技能 ID
-          <input
-            className="mt-1 block rounded-lg border border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default px-2 py-1.5 text-sm outline-none"
-            value={skillId}
-            onChange={(e) => setSkillId(e.target.value)}
-            placeholder="我的技能"
-          />
-        </label>
-        <label className="text-xs text-ds-text-neutral-subtle-default">
-          调度表达式
-          <input
-            className="mt-1 block min-w-[180px] rounded-lg border border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default px-2 py-1.5 text-sm outline-none"
-            value={cron}
-            onChange={(e) => setCron(e.target.value)}
-          />
-        </label>
-        <Button
-          size="sm"
-          onClick={async () => {
-            const backendUrl = await window.api.getBackendUrl();
-            if (!backendUrl || !skillId.trim()) return;
-            const res = await fetch(`${backendUrl}/api/schedule/jobs`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ skill_id: skillId.trim(), schedule: cron.trim() }),
-            });
-            setStatus(res.ok ? "已创建" : `失败 ${res.status}`);
-            await load();
-          }}
-        >
-          创建
-        </Button>
-      </div>
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-ds-border-neutral-subtle-default text-ds-text-neutral-subtle-default">
-            <th className="py-2">任务</th>
-            <th>Cron</th>
-            <th>状态</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((j) => (
-            <tr key={j.id} className="border-b border-ds-border-neutral-subtle-default">
-              <td className="py-2 font-medium">{j.skill_id}</td>
-              <td className="font-mono text-xs">{j.schedule}</td>
-              <td>{j.enabled ? "开启" : "关闭"}</td>
-              <td className="space-x-2 py-2 text-right">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    const backendUrl = await window.api.getBackendUrl();
-                    if (!backendUrl) return;
-                    await fetch(
-                      `${backendUrl}/api/schedule/jobs/${encodeURIComponent(j.id)}/run`,
-                      { method: "POST" },
-                    );
-                  }}
-                >
-                  运行
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={async () => {
-                    const backendUrl = await window.api.getBackendUrl();
-                    if (!backendUrl) return;
-                    await fetch(
-                      `${backendUrl}/api/schedule/jobs/${encodeURIComponent(j.id)}`,
-                      {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ enabled: !j.enabled }),
-                      },
-                    );
-                    await load();
-                  }}
-                >
-                  {j.enabled ? "暂停" : "恢复"}
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {!jobs.length && (
-        <p className="mt-4 text-sm text-ds-text-neutral-subtle-default">
-          暂无定时任务。可在上方创建，或在 skill.yaml 中声明 schedule。
-        </p>
-      )}
-    </div>
-  );
-}
-
-function SettingsHub() {
-  const [tab, setTab] = useState<"settings" | "schedule">("settings");
-  return (
-    <div className="flex w-full flex-col">
-      <div className="mb-4 flex gap-2">
-        {(
-          [
-            ["settings", "设置"],
-            ["schedule", "定时任务"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-semibold",
-              tab === id
-                ? "bg-ds-bg-neutral-default-default text-ds-text-neutral-default-default shadow-sm"
-                : "text-ds-text-neutral-muted-default opacity-70 hover:bg-ds-bg-neutral-default-default hover:opacity-100",
-            )}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === "settings" ? <Settings /> : <ScheduleHub />}
-    </div>
-  );
-}
-
 export default function HubView() {
   const hubTab = usePageTabStore((s) => s.hubTab);
   const setHubTab = usePageTabStore((s) => s.setHubTab);
@@ -512,7 +326,9 @@ export default function HubView() {
                 className={hubTab === "settings" ? "contents" : "hidden"}
                 aria-hidden={hubTab !== "settings"}
               >
-                <SettingsHub />
+                <div className="w-full pt-8">
+                  <Settings />
+                </div>
               </div>
             )}
           </div>

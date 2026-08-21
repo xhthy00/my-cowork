@@ -7,6 +7,7 @@ from app.runtime.v2.compact import compact_messages, split_keep_recent
 from app.runtime.v2.critic import (
     TaskAnalysisResult,
     analyze_task,
+    collect_evidence,
     evidence_gate,
     finalize_worker_result,
     heuristic_critic,
@@ -90,6 +91,35 @@ def _research_ok_messages(user: str, answer: str) -> list:
         ToolMessage(content=f"URL: {u2}\n\n正文乙", tool_call_id="c4", name="web_fetch"),
         AIMessage(content=answer + f" 来源 {u1} {u2}"),
     ]
+
+
+def test_mcp_fetch_counts_toward_evidence_floor():
+    from app.runtime.v2.critic import evidence_floor_met
+
+    msgs = [
+        HumanMessage(content="调研扬州购房政策"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "s1", "name": "web_search", "args": {"query": "扬州 限购 官方"}},
+                {"id": "s2", "name": "web_search", "args": {"query": "扬州 限购 细则"}},
+            ],
+        ),
+        ToolMessage(content='[{"url":"https://a.example/1"}]', tool_call_id="s1", name="web_search"),
+        ToolMessage(content='[{"url":"https://a.example/2"}]', tool_call_id="s2", name="web_search"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "f1", "name": "mcp_fetch_fetch", "args": {"url": "https://a.example/1"}},
+                {"id": "f2", "name": "mcp_fetch_fetch", "args": {"url": "https://a.example/2"}},
+            ],
+        ),
+        ToolMessage(content="URL: https://a.example/1\nok", tool_call_id="f1", name="mcp_fetch_fetch"),
+        ToolMessage(content="URL: https://a.example/2\nok", tool_call_id="f2", name="mcp_fetch_fetch"),
+    ]
+    inv = collect_evidence(msgs)
+    assert len(inv.fetch_urls) >= 2
+    assert evidence_floor_met(inv)
 
 
 def test_critic_rejects_search_without_fetch():
@@ -261,13 +291,13 @@ async def test_analyze_skips_llm_when_floor_fails():
 
 
 @pytest.mark.asyncio
-async def test_analyze_research_does_not_fail_open():
+async def test_analyze_research_skips_llm_when_floor_passes():
     class BoomLLM:
         async def ainvoke(self, *_args, **_kwargs):
-            raise RuntimeError("no structured output")
+            raise AssertionError("research floor pass must not call critic LLM")
 
     user = "调研扬州最新购房政策"
-    msgs = _research_ok_messages(user, "限购已放宽。")
+    msgs = _research_ok_messages(user, "限购已放宽。来源 https://example.gov/a")
     result = await analyze_task(
         user,
         "限购已放宽。来源 https://example.gov/a https://example.gov/b",
@@ -275,8 +305,8 @@ async def test_analyze_research_does_not_fail_open():
         user_text=user,
         messages=msgs,
     )
-    assert result.quality_score == 0
-    assert result.recovery_strategy == "retry"
+    assert result.quality_score >= 60
+    assert result.recovery_strategy is None
 
 
 @pytest.mark.asyncio
@@ -368,6 +398,31 @@ def test_finalize_retry_then_halt_at_max():
         max_retries=3,
     )
     assert halted["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_coordinate_skips_llm_when_all_waiting():
+    from app.graphs.coordinator import coordinate
+
+    class BoomLLM:
+        async def ainvoke(self, *_args, **_kwargs):
+            raise AssertionError("obvious dispatch must not call coordinator LLM")
+
+    decision = await coordinate(
+        "调研扬州购房政策",
+        [
+            {
+                "id": "t1",
+                "status": "waiting",
+                "content": "检索政策",
+                "assignee": "browser_agent",
+                "dependencies": [],
+            }
+        ],
+        llm=BoomLLM(),
+    )
+    assert decision["action"] == "dispatch"
+    assert decision["assignments"][0]["id"] == "t1"
 
 
 @pytest.mark.asyncio
@@ -578,6 +633,27 @@ async def test_compose_workforce_keeps_worker_summary():
     )
     assert "限购" in text
     assert "扬建房" in text
+
+
+@pytest.mark.asyncio
+async def test_compose_workforce_synthesizes_multiple_worker_summaries():
+    from app.runtime.v2.synthesize import compose_workforce_answer
+
+    class Cap:
+        async def ainvoke(self, *_args, **_kwargs):
+            return AIMessage(content="综合结论：限购已取消，机构偏好成长股。")
+
+    text = await compose_workforce_answer(
+        "调研投资机构偏好",
+        subtasks=[
+            {"id": "task_1", "result": "<summary>" + ("浏览器发现很长。" * 20) + "</summary>"},
+            {"id": "task_2", "result": "<summary>" + ("文档智能体也很长。" * 20) + "</summary>"},
+        ],
+        messages=[],
+        llm=Cap(),
+    )
+    assert "综合结论" in text
+    assert "浏览器发现很长" not in text
 
 
 @pytest.mark.asyncio

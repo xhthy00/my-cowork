@@ -1,45 +1,41 @@
 /**
- * Deliverable-vs-process file classification (mirror of backend
- * app/workspace/output_files.py). Regression: agent probe files such as
- * t_nf_0.0.xlsx must never surface in the 交付成果 panel.
+ * Eigent-style visible agent file filter (runtime-only dirs + task roots).
  */
 import { describe, expect, it } from "vitest";
 
-import { isDeliverableOutputPath } from "../../renderer/src/lib/outputFiles";
+import {
+  isAgentTaskRootEntry,
+  isVisibleAgentPath,
+} from "../../renderer/src/lib/outputFiles";
 
-const PROBES = [
-  "t_nf_0.0.xlsx",
-  "t_comb1.xlsx",
-  "t_h2.xlsx",
-  "tC.xlsx",
-  "t_nf_#,##0.0.xlsx",
-  "t_nf_0.0%.xlsx",
-  "t_nf_$#,##0.xlsx",
-  "x1_check.xlsx",
-  "tmp_build.xlsx",
-  "demo.pptx",
-];
-
-const REALS = [
-  "发货单列表2025_12.xlsx",
-  "2025年12月发货单_销售与财务分析.xlsx",
-  "table_销售.xlsx",
-  "checklist.xlsx",
-  "report.docx",
-  "趋势图.png",
-];
-
-describe("outputFiles probe heuristics", () => {
-  it.each(PROBES)("filters probe file %s", (name) => {
-    expect(isDeliverableOutputPath(`/tmp/proj/${name}`)).toBe(false);
+describe("isVisibleAgentPath", () => {
+  it("shows write-tool deliverables including md/json/png", () => {
+    expect(isVisibleAgentPath("/tmp/proj/report.docx")).toBe(true);
+    expect(isVisibleAgentPath("/tmp/proj/summary.md")).toBe(true);
+    expect(isVisibleAgentPath("/tmp/proj/data.json")).toBe(true);
+    expect(isVisibleAgentPath("/tmp/proj/现货黄金近期波动折线图.png")).toBe(true);
+    expect(isVisibleAgentPath("/tmp/proj/script.py")).toBe(true);
   });
 
-  it.each(REALS)("keeps real deliverable %s", (name) => {
-    expect(isDeliverableOutputPath(`/tmp/proj/${name}`)).toBe(true);
+  it("hides camel_logs and .venv", () => {
+    expect(
+      isVisibleAgentPath(
+        "/Users/test/.eigent/user/project_p/task_1/camel_logs/events.jsonl",
+      ),
+    ).toBe(false);
+    expect(isVisibleAgentPath("/tmp/proj/.venv/lib/file.py")).toBe(false);
   });
 
-  it("still filters scratch dir and process extensions", () => {
-    expect(isDeliverableOutputPath("/tmp/proj/_scratch/report.docx")).toBe(false);
-    expect(isDeliverableOutputPath("/tmp/proj/script.py")).toBe(false);
+  it("hides task root directory names", () => {
+    expect(
+      isAgentTaskRootEntry({
+        name: "task_1784197841790-917",
+        path: "/Users/test/.eigent/user/project_p/task_1784197841790-917",
+        relativePath: "task_1784197841790-917",
+      }),
+    ).toBe(true);
+    expect(
+      isVisibleAgentPath("/Users/test/.eigent/user/project_p/task_1/index.html"),
+    ).toBe(true);
   });
 });

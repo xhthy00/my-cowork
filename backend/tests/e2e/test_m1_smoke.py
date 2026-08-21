@@ -94,7 +94,6 @@ class TestM1Smoke:
 
         single_model = FakeChatModel(
             responses=[
-                make_ai(content="[]"),  # plan_todos_llm
                 make_ai(
                     content="",
                     tool_calls=[

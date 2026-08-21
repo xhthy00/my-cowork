@@ -48,10 +48,11 @@ _RESULT_FAIL_MARKERS = (
 _DOC_VERB = (
     r"(?:重新生成|再生成|重新写|重新做|再写一份|再出一份|再做一份|"
     r"生成|创建|撰写|起草|写出|导出|输出|制作|"
-    r"做一份|做成|出一份|写一份|帮我做|帮我写)"
+    r"做一份|做成|出一份|写一份|帮我做|帮我写|形成|转成|转为)"
 )
 _DOC_NOUN = (
     r"(?:pptx?|docx?|xlsx|xls|pdf|excel|幻灯片|演示文稿|"
+    r"word|Word文档|"
     r"公文|公函|函件|"
     r"请示|通知|纪要|通报|决定|决议|公告|通告|批复|议案|"
     r"估算表|明细表|预算表|测算表|台账|估算)"
@@ -67,10 +68,25 @@ _DOC_GEN_RE = re.compile(
     re.IGNORECASE,
 )
 _DOC_SKILL_RE = re.compile(
-    r"(?:#\s*)?official-document-writing",
+    r"(?:#\s*|\{\{)?\s*"
+    r"(?:official-document-writing|officecli(?:-docx|-pptx|-xlsx|-pitch-deck|-word-form)?)"
+    r"\s*(?:\}\})?",
     re.IGNORECASE,
 )
-_GEN_HINTS = ("生成", "撰写", "起草", "写一份", "做一份", "制作", "导出", "写出")
+_GEN_HINTS = (
+    "生成",
+    "撰写",
+    "起草",
+    "写一份",
+    "做一份",
+    "制作",
+    "导出",
+    "写出",
+    "形成",
+    "转成",
+    "转为",
+    "做成",
+)
 
 
 def _msg_role(msg: Any) -> str:
@@ -106,9 +122,15 @@ def _latest_user_text(state: dict[str, Any]) -> str:
 
 
 _MD_FILE_RE = re.compile(
-    r"(?:markdown|\.md\b|md\s*文档|md文档|md\s*文件|"
-    r"markdown\s*(?:文档|文件)|生成\s*md|写成?\s*md|输出\s*md|"
+    r"(?:markdown|\.md\b|md\s*文档|md文档|md\s*文件|md格式|"
+    r"markdown\s*(?:文档|文件)|生成\s*md|写成?\s*md|做成?\s*md|形成\s*md|"
+    r"输出\s*md|转成\s*md|转为\s*md|只要\s*md|指定.{0,12}md|"
     r"帮我生成md)",
+    re.IGNORECASE,
+)
+_HTML_FILE_RE = re.compile(
+    r"(?:\.html?\b|\bhtml\b|html\s*(?:文档|文件|报告|页面|页)|"
+    r"生成\s*html|写成?\s*html|输出\s*html|整合成?\s*.{0,12}html)",
     re.IGNORECASE,
 )
 _OFFICE_FORMAT_RE = re.compile(
@@ -118,10 +140,46 @@ _OFFICE_FORMAT_RE = re.compile(
 )
 
 
+def _asks_office_too(user_text: str) -> bool:
+    """True when Markdown was requested *and* the user also asked for Office.
+
+    Ignore Word/docx mentions in pasted article bodies (``转成md`` then later
+    the word ``Word`` must not flip the task into officecli).
+    """
+    q = (user_text or "").strip()
+    if not q:
+        return False
+    if _DOC_SKILL_RE.search(q):
+        return True
+    if re.search(r"word\s*版", q, re.IGNORECASE):
+        return True
+    return bool(
+        re.search(
+            r"(?:再出一份|再生成一份|再生成|同时(?:生成|导出|输出)?|以及|还要|也要).{0,16}"
+            r"(?:word|docx|pptx?|xlsx|excel|ppt|幻灯片)",
+            q,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _intent_text(user_text: str) -> str:
+    """Drop injected workspace constraints so 'docx' in the hint cannot flip format."""
+    q = user_text or ""
+    cut = q.find("[工作空间约束]")
+    return (q[:cut] if cut >= 0 else q).strip()
+
+
 def wants_markdown_file(user_text: str) -> bool:
     """True when the user asked for Markdown / .md, not Word."""
-    q = (user_text or "").strip()
+    q = _intent_text(user_text)
     return bool(q and _MD_FILE_RE.search(q))
+
+
+def wants_html_file(user_text: str) -> bool:
+    """True when the user asked for an HTML page / .html file."""
+    q = _intent_text(user_text)
+    return bool(q and _HTML_FILE_RE.search(q))
 
 
 _UNSPECIFIED_DOC_RE = re.compile(
@@ -138,31 +196,32 @@ _UNSPECIFIED_DOC_RE = re.compile(
 
 def wants_unspecified_document(user_text: str) -> bool:
     """Eigent Document Agent: document/report/paper with no format → HTML file."""
-    q = (user_text or "").strip()
-    if not q or wants_markdown_file(q) or wants_document(q):
+    q = _intent_text(user_text)
+    if not q or wants_markdown_file(q) or wants_html_file(q) or wants_document(q):
         return False
     return bool(_UNSPECIFIED_DOC_RE.search(q))
 
 
 def wants_file_document(user_text: str) -> bool:
-    """Any file artifact: office, markdown, or unspecified HTML report."""
+    """Any file artifact: office, markdown, HTML, or unspecified HTML report."""
     return (
         wants_document(user_text)
         or wants_markdown_file(user_text)
+        or wants_html_file(user_text)
         or wants_unspecified_document(user_text)
     )
 
 
 def wants_document(user_text: str) -> bool:
     """True when the user asked to *generate* an office document (not merely mention one)."""
-    q = (user_text or "").strip()
+    q = _intent_text(user_text)
     if not q:
         return False
-    if wants_markdown_file(q) and not _OFFICE_FORMAT_RE.search(q):
+    if wants_markdown_file(q) and not _asks_office_too(q):
         return False
     if _DOC_GEN_RE.search(q):
         return True
-    if _DOC_SKILL_RE.search(q) and any(v in q for v in _GEN_HINTS):
+    if _DOC_SKILL_RE.search(q):
         return True
     if _OFFICE_FORMAT_RE.search(q) and any(v in q for v in _GEN_HINTS):
         return True
@@ -182,8 +241,13 @@ def wants_document(user_text: str) -> bool:
     )
 
 
+def markdown_only(user_text: str) -> bool:
+    """User asked for .md and did not also ask for Word/PPT/Excel."""
+    return wants_markdown_file(user_text) and not wants_document(user_text)
+
+
 def wants_pptx(user_text: str) -> bool:
-    q = (user_text or "").strip()
+    q = _intent_text(user_text)
     if not q:
         return False
     ql = q.lower()

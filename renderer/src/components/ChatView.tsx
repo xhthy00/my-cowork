@@ -3,7 +3,7 @@
  * Empty: welcome hero · title · composer · Recent runs
  * Active: message list + follow-up composer
  */
-import { ArrowRight, CheckCircle2, ChevronDown, Copy, Eye, Loader2, Sparkles, Square, SquareArrowOutUpRight, Users } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, Copy, Eye, Loader2, Sparkles, Square, SquareArrowOutUpRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import welcomeHero from "@/assets/welcome/chat-welcome-hero.webp";
@@ -15,25 +15,24 @@ import ChatBar from "./chat/ChatBar";
 import ChatConfirmCard, { ChatConfirmRecordGroup } from "./chat/ChatConfirmCard";
 import WorkspaceOverlaysBar from "./workspace/WorkspaceOverlaysBar";
 import MessageContent from "./chat/MessageContent";
-import ContextUsageIndicator from "./chat/ContextUsageIndicator";
+import { UserMessageRichContent } from "./chat/UserMessageRichContent";
 import PlanTaskBox from "./chat/PlanTaskBox";
-import ThoughtDisplay from "./chat/ThoughtDisplay";
 import WorkLogAccordion from "./chat/WorkLogAccordion";
+import ComposerLiveStatus from "./chat/ComposerLiveStatus";
 import FileTypeIcon, { extOfPath, fileTypeMeta } from "./files/FileTypeIcon";
 import { Button } from "./ui/button";
 import type { FileArtifact, Message } from "../store/session";
-import { useSessionStore } from "../store/session";
+import { resolveEndMessageText, useSessionStore } from "../store/session";
 import { dispatchProjectEvent, getProjectTaskId } from "../store/livePark";
-import { isDeliverableOutputPath } from "@/lib/outputFiles";
+import { getProjectRuntime } from "../store/projectRuntime";
+import { isVisibleAgentPath } from "@/lib/outputFiles";
 import { fileBasename, isCorruptBasename, normalizeFsPath } from "@/lib/fsPath";
 import { cn } from "@/lib/utils";
 import { usePreviewStore } from "../store/preview";
 import { usePageTabStore } from "../store/pageTab";
 import { useSessionsStore } from "../store/sessions";
 import { useWorkforceStore } from "../store/workforce";
-import { WorkforcePanel } from "./workforce/WorkforceSidePanel";
 import { planTodosFromQuery } from "../lib/planTodos";
-import { formatTokenCount } from "@/lib/formatTokens";
 import {
   displayTitleFromUserContent,
   fileNameFromPath,
@@ -101,6 +100,9 @@ function UserMessageBubble({ content }: { content: string }) {
     () => parseUserAttachments(content),
     [content],
   );
+  const openBrowser = usePreviewStore((s) => s.openBrowser);
+  const openPreviewFoldSide = usePageTabStore((s) => s.openPreviewFoldSide);
+  const setPreviewOpen = usePageTabStore((s) => s.setPreviewOpen);
   if (!text && paths.length === 0) return null;
   return (
     <div className="msg user">
@@ -114,7 +116,14 @@ function UserMessageBubble({ content }: { content: string }) {
         ) : null}
         {text ? (
           <div className="bubble whitespace-pre-wrap text-[16px] leading-[1.65] text-ds-text-neutral-default-default">
-            {text}
+            <UserMessageRichContent
+              content={text}
+              onOpenUrl={(url) => {
+                openBrowser(url);
+                openPreviewFoldSide();
+                setPreviewOpen(true);
+              }}
+            />
           </div>
         ) : null}
       </div>
@@ -225,7 +234,7 @@ function mergeAssistantContent(assistants: Message[]): {
     const text = m.content?.trim();
     if (text) parts.push(text);
     for (const a of m.artifacts ?? []) {
-      if (!isDeliverableOutputPath(a.path) && !isDeliverableOutputPath(normalizeFsPath(a.path))) {
+      if (!isVisibleAgentPath(a.path) && !isVisibleAgentPath(normalizeFsPath(a.path))) {
         continue;
       }
       const path = normalizeFsPath(a.path) || a.path;
@@ -252,7 +261,7 @@ function collectArtifacts(
   const artifacts: FileArtifact[] = [];
   const seen = new Set<string>();
   const push = (a: FileArtifact) => {
-    if (!isDeliverableOutputPath(a.path) && !isDeliverableOutputPath(normalizeFsPath(a.path))) {
+    if (!isVisibleAgentPath(a.path) && !isVisibleAgentPath(normalizeFsPath(a.path))) {
       return;
     }
     const path = normalizeFsPath(a.path) || a.path;
@@ -269,12 +278,20 @@ function collectArtifacts(
   return artifacts;
 }
 
-function AssistantBody({ content }: { content: string }) {
-  if (!content.trim()) return null;
+function AssistantBody({ content, streaming }: { content: string; streaming?: boolean }) {
+  const text = resolveEndMessageText(content) || content.trim();
+  if (!text) return null;
   return (
     <div className="msg assistant w-full">
       <div className="flex w-full min-w-0 flex-col overflow-hidden">
-        <MessageContent content={content} role="assistant" />
+        <MessageContent content={text} role="assistant" hideThink verbatim />
+        {streaming ? (
+          <span
+            aria-hidden
+            className="mt-1 inline-block h-[1.05em] w-[2px] translate-y-px bg-ds-text-neutral-primary-default align-text-bottom"
+            style={{ animation: "pulse 1s ease-in-out infinite" }}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -282,8 +299,10 @@ function AssistantBody({ content }: { content: string }) {
 
 function AssistantTimeline({
   assistants,
+  streaming,
 }: {
   assistants: Message[];
+  streaming?: boolean;
 }) {
   const nodes: ReactNode[] = [];
   let i = 0;
@@ -308,7 +327,9 @@ function AssistantTimeline({
       for (const m of group) {
         const text = m.content?.trim();
         if (!text) continue;
-        nodes.push(<AssistantBody key={`${m.id}-body`} content={text} />);
+        nodes.push(
+          <AssistantBody key={`${m.id}-body`} content={text} streaming={streaming} />,
+        );
       }
       continue;
     }
@@ -316,14 +337,18 @@ function AssistantTimeline({
       nodes.push(<ChatConfirmCard key={msg.id} confirm={msg.confirm} />);
       const leaked = msg.content?.trim();
       if (leaked) {
-        nodes.push(<AssistantBody key={`${msg.id}-body`} content={leaked} />);
+        nodes.push(
+          <AssistantBody key={`${msg.id}-body`} content={leaked} streaming={streaming} />,
+        );
       }
       i++;
       continue;
     }
     const content = msg.content?.trim();
     if (content) {
-      nodes.push(<AssistantBody key={msg.id} content={content} />);
+      nodes.push(
+        <AssistantBody key={msg.id} content={content} streaming={streaming} />,
+      );
     }
     i++;
   }
@@ -351,15 +376,20 @@ function bindChatHandlers(
       }
     },
     onSend: (text: string) => {
-      addUserMessage(text);
-      beginRun();
-      useWorkforceStore.getState().seedPlan(planTodosFromQuery(text));
       if (activeId) {
+        const rt = getProjectRuntime(activeId);
+        rt.session.getState().addUserMessage(text);
+        rt.session.getState().beginRun();
+        rt.workforce.getState().seedPlan(planTodosFromQuery(text));
         touchSession(activeId, {
           title: displayTitleFromUserContent(text),
           status: "running",
         });
+        return;
       }
+      addUserMessage(text);
+      beginRun();
+      useWorkforceStore.getState().seedPlan(planTodosFromQuery(text));
     },
   };
 }
@@ -377,13 +407,7 @@ export default function ChatView() {
   const beginRun = useSessionStore((s) => s.beginRun);
   const handleEvent = useSessionStore((s) => s.handleEvent);
   const runStatus = useSessionStore((s) => s.runStatus);
-  const budgetTokens = useSessionStore((s) => s.budgetTokens);
-  const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
-  const contextLimit = useSessionStore((s) => s.contextLimit);
-  const inputTokens = useSessionStore((s) => s.inputTokens);
-  const outputTokens = useSessionStore((s) => s.outputTokens);
   const pendingArtifacts = useSessionStore((s) => s.pendingArtifacts);
-  const thinking = useSessionStore((s) => s.thinking);
   const previewOpen = usePageTabStore((s) => s.previewOpen);
   const openPreviewFoldSide = usePageTabStore((s) => s.openPreviewFoldSide);
   const setPreviewOpen = usePageTabStore((s) => s.setPreviewOpen);
@@ -397,7 +421,6 @@ export default function ChatView() {
   const setActive = useSessionsStore((s) => s.setActive);
   const sessionMode = useWorkforceStore((s) => s.sessionMode);
   const [stopping, setStopping] = useState(false);
-  const [workforcePanelOpen, setWorkforcePanelOpen] = useState(false);
 
   useEffect(() => {
     // AionUi behavior: only auto-follow the stream while the user is near the bottom.
@@ -566,6 +589,8 @@ export default function ChatView() {
                   showFooter
                   modeInteractive
                   disabled={runStatus === "running"}
+                  stopping={stopping}
+                  onStop={() => void stopTask()}
                 />
               </div>
             </div>
@@ -612,16 +637,6 @@ export default function ChatView() {
     <section className="main relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="chat-header">
         <div className="tags flex-1" />
-        {sessionMode === SessionMode.WORKFORCE && (
-          <Button
-            size="icon"
-            variant={workforcePanelOpen ? "secondary" : "ghost"}
-            title="智能体团队"
-            onClick={() => setWorkforcePanelOpen((v) => !v)}
-          >
-            <Users className="h-4 w-4" />
-          </Button>
-        )}
         <Button
           size="icon"
           variant={previewOpen ? "secondary" : "ghost"}
@@ -652,15 +667,6 @@ export default function ChatView() {
         </Button>
       </div>
 
-      {workforcePanelOpen && sessionMode === SessionMode.WORKFORCE && (
-        <div
-          className="absolute right-0 top-0 z-[90] flex h-full flex-col border-l border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default shadow-lg"
-          style={{ width: 320 }}
-        >
-          <WorkforcePanel onClose={() => setWorkforcePanelOpen(false)} />
-        </div>
-      )}
-
       <div className="messages chat-surface-container" ref={messagesScrollRef} onScroll={handleMessagesScroll}>
         {turns.map((turn, idx) => {
           const isLast = idx === turns.length - 1;
@@ -671,8 +677,12 @@ export default function ChatView() {
           );
           const lastWithContent = [...turn.assistants]
             .reverse()
-            .find((m) => m.content?.trim());
-          const hasContent = turn.assistants.some((m) => m.content?.trim() || m.confirm);
+            .find((m) => !m.confirm && m.content.trim());
+          const hasConfirm = turn.assistants.some((m) => m.confirm);
+          const hasAnswer = turn.assistants.some(
+            (m) => !m.confirm && Boolean(m.content.trim()),
+          );
+          const hasContent = hasConfirm || hasAnswer;
           return (
             <div key={turn.user.id} className="group chat-surface-fluid flex w-full min-w-0 flex-col gap-1">
               {turn.user.content.trim() ? (
@@ -697,7 +707,7 @@ export default function ChatView() {
               {(hasContent || turnArtifacts.length > 0) && (
                 <div className="flex w-full min-w-0 flex-col gap-2.5">
                   {hasContent ? (
-                    <AssistantTimeline assistants={turn.assistants} />
+                    <AssistantTimeline assistants={turn.assistants} streaming={streaming} />
                   ) : null}
                   {turnArtifacts.length > 0 && (
                     <div className="flex flex-wrap gap-2">
@@ -743,52 +753,15 @@ export default function ChatView() {
       <div className="composer-wrap chat-surface-container">
         <div className="chat-surface-fluid w-full min-w-0">
           <WorkspaceOverlaysBar />
-          {runStatus === "running" ? (
-            <>
-              <div className="mb-2 flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-ds-bg-neutral-subtle-default px-3 py-2 text-[12px] text-ds-text-neutral-muted-default">
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <ContextUsageIndicator
-                    budgetTokens={budgetTokens}
-                    budgetMaxTokens={budgetMaxTokens}
-                    contextLimit={contextLimit}
-                    inputTokens={inputTokens}
-                    outputTokens={outputTokens}
-                  />
-                  <span
-                    className="truncate tabular-nums text-ds-text-neutral-subtle-default"
-                    title={`本轮累计约 ${formatTokenCount(budgetTokens)} / ${formatTokenCount(budgetMaxTokens)} tokens（估算）`}
-                  >
-                    {formatTokenCount(budgetTokens)} tokens
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-[var(--danger)] hover:underline"
-                  disabled={stopping}
-                  onClick={() => void stopTask()}
-                >
-                  停止
-                </button>
-              </div>
-              <ThoughtDisplay
-                thought={
-                  thinking
-                    ? { subject: thinking.subject, description: thinking.description }
-                    : undefined
-                }
-                running
-                startedAtMs={thinking?.startedAtMs ?? null}
-                externalElapsedSource
-                statusText={thinking?.subject ? undefined : "任务执行中"}
-              />
-            </>
-          ) : null}
+          <ComposerLiveStatus />
           <ChatBar
             {...handlers}
             placeholder={runStatus === "running" ? "任务进行中，完成后可继续追问…" : "继续追问…"}
             showFooter
             modeInteractive={false}
             disabled={runStatus === "running"}
+            stopping={stopping}
+            onStop={() => void stopTask()}
           />
         </div>
       </div>

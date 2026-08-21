@@ -19,6 +19,7 @@ from app.graphs.routing import (
 )
 from app.graphs.state import WorkforceState
 from app.runtime.agent_stream import astream_agent_messages
+from app.runtime.todo_context import todo_agent_scope
 
 _DOC_NUDGE = (
     "CRITICAL: The user asked for a real document file. In this turn you MUST "
@@ -28,6 +29,7 @@ _DOC_NUDGE = (
     "For 党政公文 / 重新生成公文: load_skill(\"official-document-writing\") "
     "(NOT the generic \"docx\" skill), then officecli, then docx_gongwen_format. "
     "Fallback: docx_gen / pptx_gen / xlsx_gen / pdf_gen. "
+    "Do NOT convert HTML/Markdown with pandoc. "
     "Do NOT only load_skill. Do NOT invent a path under Documents/AIS or elsewhere. "
     "Never list a file in 交付文件 unless a write tool returned that path. "
     "If the user said 重新生成, write a new file — existing files are not done."
@@ -134,7 +136,7 @@ def _make_coordinator_node():
         return {
             "subtasks": subtasks,
             "assigned_task_id": None,
-            "round": 1,
+            "round": int(state.get("round") or 0) + 1,
             "messages": [],
         }
 
@@ -147,7 +149,7 @@ def _make_worker_node(worker_agent: Any, name: str):
         task_id = state.get("assigned_task_id")
         task = _find_subtask(subtasks, task_id)
         if task is None:
-            return {"messages": [], "round": 0}
+            return {"messages": []}
 
         user_text = str(state.get("user_text") or "")
         prompt = _PROCESS_PROMPT.format(
@@ -161,7 +163,8 @@ def _make_worker_node(worker_agent: Any, name: str):
             nudge = _PPTX_NUDGE if wants_pptx(user_text) else _DOC_NUDGE
             invoke_messages = [SystemMessage(content=nudge), *invoke_messages]
 
-        result_messages = await astream_agent_messages(worker_agent, invoke_messages)
+        with todo_agent_scope(name):
+            result_messages = await astream_agent_messages(worker_agent, invoke_messages)
         messages = list(result_messages)
         summary = _last_ai_text(messages)
         failed = _parse_failed(summary)
@@ -187,7 +190,6 @@ def _make_worker_node(worker_agent: Any, name: str):
             "messages": messages,
             "subtasks": [patch],
             "assigned_task_id": None,
-            "round": 0,
         }
 
     worker_node.__name__ = f"{name}_node"

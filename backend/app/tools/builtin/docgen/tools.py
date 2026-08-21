@@ -139,6 +139,10 @@ async def _confirm(
 
 def _guarded_out_path(guard: PathGuard, out_path: str) -> str:
     """Return resolved write path, or an ``[ERROR] …`` string on failure."""
+    from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
+
+    if office_writes_blocked():
+        return OFFICE_WRITE_REFUSE
     try:
         target = str(resolve_write_path(out_path))
         guard.check_path(target)

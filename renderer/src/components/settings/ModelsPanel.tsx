@@ -72,7 +72,7 @@ function dotToneFor(
   return "muted";
 }
 
-export default function ModelsPanel({ embedded = false }: { embedded?: boolean }) {
+export default function ModelsPanel() {
   const [models, setModels] = useState<ModelsState>({ profiles: [], activeId: null });
   const [selectedTab, setSelectedTab] = useState<SidebarTab>("byok-anthropic");
   const [apiKey, setApiKey] = useState("");
@@ -653,17 +653,6 @@ export default function ModelsPanel({ embedded = false }: { embedded?: boolean }
       </div>
     </div>
   );
-
-  if (embedded) {
-    return (
-      <div className="flex w-full flex-col items-start justify-between rounded-2xl bg-ds-bg-neutral-default-default px-3 py-2">
-        <div className="text-body-base sticky top-[48px] z-10 mb-4 w-full border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default bg-ds-bg-neutral-default-default px-3 py-2 pb-2 font-bold text-ds-text-neutral-default-default">
-          模型配置
-        </div>
-        <div className="w-full px-3">{panel}</div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex w-full flex-col items-start justify-between">

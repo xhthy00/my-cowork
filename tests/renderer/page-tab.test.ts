@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { usePageTabStore } from "../../renderer/src/store/pageTab";
+import { migratePageTabState, usePageTabStore } from "../../renderer/src/store/pageTab";
 
 describe("pageTab Eigent UE rules", () => {
   it("openPreviewFoldSide folds side panel and opens preview", () => {
@@ -23,5 +23,11 @@ describe("pageTab Eigent UE rules", () => {
     const s = usePageTabStore.getState();
     expect(s.workspaceView).toBe("hub");
     expect(s.hubTab).toBe("browser");
+  });
+
+  it("treats a persisted models agentsSection as skills", () => {
+    expect(
+      migratePageTabState({ agentsSection: "models", hubTab: "agents" }),
+    ).toMatchObject({ agentsSection: "skills", hubTab: "agents" });
   });
 });

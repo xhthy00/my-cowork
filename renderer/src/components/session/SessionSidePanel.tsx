@@ -30,7 +30,7 @@ import {
   buildContextItems,
   buildProgressItems,
 } from "@/lib/progressFromTrace";
-import { isDeliverableOutputPath } from "@/lib/outputFiles";
+import { isVisibleAgentPath } from "@/lib/outputFiles";
 import {
   decodeUnicodeEscapes,
   fileBasename,
@@ -118,7 +118,7 @@ export default function SessionSidePanel() {
         .filter(Boolean);
       for (const p of lines) {
         const decoded = decodeUnicodeEscapes(p);
-        if (!decoded || seen.has(decoded) || !isDeliverableOutputPath(decoded)) {
+        if (!decoded || seen.has(decoded) || !isVisibleAgentPath(decoded)) {
           continue;
         }
         seen.add(decoded);
@@ -236,7 +236,6 @@ export default function SessionSidePanel() {
 
             <AccordionBox
               title="执行上下文"
-              defaultOpen={mode === SessionMode.SINGLE_AGENT}
             >
               {contextItems.length === 0 ? (
                 <div className="px-1 py-1 text-body-sm text-ds-text-neutral-subtle-default opacity-60">

@@ -123,6 +123,13 @@ const MarkdownView: React.FC<MarkdownViewProps> = ({
           <a {...anchorProps} target="_blank" rel="noreferrer" onClick={handleLinkClick} />
         );
       },
+      table({ node: _node, ...tableProps }) {
+        return (
+          <div className="md-table-wrap">
+            <table {...tableProps} />
+          </div>
+        );
+      },
       img({ node: _node, ...imgProps }) {
         const src = imgProps.src || "";
         if (isLocalFilePath(src)) {

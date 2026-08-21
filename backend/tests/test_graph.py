@@ -19,7 +19,12 @@ from app.graphs.routing import (
 from app.graphs.state import WorkforceState
 from app.graphs.workforce import compile_workforce_graph
 from app.observability.trace import TraceBus
-from app.runtime.graph_runner import _emit_graph_end, run_graph
+from app.runtime.graph_runner import (
+    _emit_graph_end,
+    _maybe_preview_events,
+    _tool_result_events,
+    run_graph,
+)
 from tests.conftest import FakeChatModel, make_ai
 
 
@@ -225,6 +230,13 @@ class TestRouteAfterCoordinator:
         )
         assert isinstance(nxt, list)
         assert nxt[0].node == "browser_agent"
+
+
+def test_round_reducer_new_turn_wins():
+    from app.graphs.state import _last_value
+
+    assert _last_value(16, 0) == 0
+    assert _last_value(0, 1) == 1
 
 
 class TestGraphRunner:
@@ -435,6 +447,51 @@ class TestSingleAgentGraph:
             end.get("error") or ""
         )
 
+    @pytest.mark.asyncio
+    async def test_single_agent_does_not_preplan_word_todos(self):
+        from app.agents.factory import create_single_agent
+        from app.graphs.single_agent import compile_single_agent_graph
+
+        planner = FakeChatModel(
+            responses=[
+                make_ai(
+                    content=(
+                        '[{"content":"创建 Word 文档并搭建标题与元信息",'
+                        '"active_form":"正在创建 Word 文档","status":"in_progress"}]'
+                    )
+                )
+            ]
+        )
+        graph = compile_single_agent_graph(
+            create_single_agent(
+                "prompt",
+                FakeChatModel(responses=[make_ai(content="ok")]),
+                tools=[],
+            )
+        )
+        bus = TraceBus()
+        events = []
+        async for ev in run_graph(
+            _Task(
+                task_id="sa-no-preplan",
+                text="帮我将内容转成md文件",
+                session_mode="single-agent",
+            ),
+            graph,
+            bus,
+            planner_llm=planner,
+        ):
+            events.append(ev)
+
+        blob = " ".join(
+            str(t.get("content") or "")
+            for e in events
+            if e.get("type") == "todo_state"
+            for t in (e.get("todos") or [])
+        )
+        assert "Word" not in blob
+        assert "docx" not in blob.lower()
+
 
 class _CollectBus:
     def __init__(self) -> None:
@@ -444,7 +501,7 @@ class _CollectBus:
         self.events.append(event)
 
 
-def test_graph_end_emits_untracked_deliverable(tmp_path: Path):
+def test_graph_end_does_not_scan_or_cleanup(tmp_path: Path):
     workdir = tmp_path / "work"
     workdir.mkdir()
     report = workdir / "方案对比综合评审报告.docx"
@@ -454,12 +511,117 @@ def test_graph_end_emits_untracked_deliverable(tmp_path: Path):
         bus,
         "t-docx",
         "error",
-        workdir=workdir,
         written_paths=set(),
-        min_mtime=time.time() - 10,
         error="LARK_APP_ID missing",
     )
     arts = [e for e in events if e.get("type") == "artifact.file"]
-    assert any(str(report) in str(e.get("path")) for e in arts)
+    assert arts == []
+    assert not any(e.get("type") == "artifact.cleanup" for e in events)
     assert events[-1]["type"] == "graph.end"
     assert events[-1]["status"] == "error"
+    assert "cleaned_paths" not in events[-1]
+    assert report.exists()
+
+
+def test_fs_write_emits_artifact_file(tmp_path: Path):
+    md = tmp_path / "out.md"
+    md.write_text("hi", encoding="utf-8")
+    bus = _CollectBus()
+    events = _tool_result_events(
+        bus,
+        "t-write",
+        {
+            "messages": [
+                {
+                    "type": "tool",
+                    "name": "fs_write",
+                    "content": f"Wrote 2 characters to {md}",
+                }
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=set(),
+        min_mtime=time.time() - 10,
+    )
+    arts = [e for e in events if e.get("type") == "artifact.file"]
+    assert any(str(md) in str(e.get("path")) for e in arts)
+
+
+def test_bash_ls_does_not_emit_py_artifact(tmp_path: Path):
+    py = tmp_path / "script.py"
+    py.write_text("print(1)", encoding="utf-8")
+    bus = _CollectBus()
+    events = _tool_result_events(
+        bus,
+        "t-ls",
+        {
+            "messages": [
+                {"type": "tool", "name": "bash", "content": f"{py}\n"}
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=set(),
+        min_mtime=time.time() - 10,
+    )
+    assert not any(e.get("type") == "artifact.file" for e in events)
+
+
+def test_create_note_does_not_emit_artifact():
+    bus = _CollectBus()
+    events = _tool_result_events(
+        bus,
+        "t-note",
+        {
+            "messages": [
+                {
+                    "type": "tool",
+                    "name": "create_note",
+                    "content": "Created note shared_files",
+                }
+            ]
+        },
+        written_paths=set(),
+    )
+    assert not any(e.get("type") == "artifact.file" for e in events)
+
+
+def test_bash_officecli_emits_docx(tmp_path: Path):
+    docx = tmp_path / "report.docx"
+    docx.write_bytes(b"PK")
+    bus = _CollectBus()
+    events = _tool_result_events(
+        bus,
+        "t-office",
+        {
+            "messages": [
+                {
+                    "type": "tool",
+                    "name": "bash",
+                    "content": f"officecli wrote {docx}",
+                }
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=set(),
+        min_mtime=time.time() - 10,
+    )
+    arts = [e for e in events if e.get("type") == "artifact.file"]
+    assert any(str(docx) in str(e.get("path")) for e in arts)
+
+
+def test_preview_events_do_not_open_png_tabs(tmp_path: Path):
+    img = tmp_path / "plot.png"
+    img.write_bytes(b"PNG")
+    bus = _CollectBus()
+    events = _maybe_preview_events(
+        bus,
+        "t-png",
+        "single_agent",
+        {"messages": [{"content": f"Saved {img} as a chart"}]},
+        workdir=tmp_path,
+        min_mtime=time.time() - 10,
+    )
+    assert not any(e.get("type") == "artifact.screenshot" for e in events)
+    assert not any(
+        e.get("type") == "preview.open" and e.get("kind") == "file" for e in events
+    )

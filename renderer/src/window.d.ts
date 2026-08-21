@@ -103,6 +103,12 @@ export interface ElectronAPI {
   removeCdpBrowser?(id: string): Promise<{ success: boolean; error?: string }>;
   onCdpPoolChanged?(cb: (browsers: CdpBrowserInfo[]) => void): () => void;
   checkForUpdates?(): Promise<{ ok: boolean; message: string }>;
+  getKeepAwake?(): Promise<{ enabled: boolean; supported: boolean }>;
+  setKeepAwake?(input: { enabled: boolean }): Promise<{
+    ok: boolean;
+    enabled: boolean;
+    error?: string;
+  }>;
 }
 
 declare global {

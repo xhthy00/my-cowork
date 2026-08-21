@@ -14,7 +14,6 @@ import { usePageTabStore } from "./store/pageTab";
 import { useSessionStore } from "./store/session";
 import {
   ensureActiveSession,
-  liveBoundId,
   useSessionsStore,
 } from "./store/sessions";
 
@@ -32,16 +31,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Persist live transcript only while bound to the active session
-    // (createSession/setActive clear liveBoundId mid-switch to avoid cross-writes).
-    return useSessionStore.subscribe((s) => {
-      const id = useSessionsStore.getState().activeId;
-      if (!id || id !== liveBoundId) return;
-      useSessionsStore.getState().saveMessages(id, s.messages);
-    });
-  }, []);
-
-  useEffect(() => {
     const onNav = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === "skills") {
@@ -52,9 +41,12 @@ export default function App() {
         usePageTabStore.getState().setAgentsSection("memory");
       } else if (detail === "settings") {
         usePageTabStore.getState().setHubTab("settings");
+      } else if (detail === "settings-general") {
+        usePageTabStore.getState().setHubTab("settings");
+      } else if (detail === "settings-schedule") {
+        usePageTabStore.getState().setHubTab("settings");
       } else if (detail === "models") {
-        usePageTabStore.getState().setHubTab("agents");
-        usePageTabStore.getState().setAgentsSection("models");
+        usePageTabStore.getState().setHubTab("settings");
       } else if (detail === "browser") {
         usePageTabStore.getState().setHubTab("browser");
       } else if (detail === "connectors") {

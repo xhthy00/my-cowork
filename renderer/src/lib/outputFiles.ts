@@ -1,54 +1,64 @@
 /**
- * Side-panel "输出文件夹" / chat artifact chips: final deliverables only.
+ * Visible agent files (aligned with eigent src/lib/agentFileFilters.ts).
+ * Write-tool artifacts show as-is; hide runtime-only dirs and task roots.
  */
 
-const DELIVERABLE_EXT =
-  /\.(png|jpe?g|webp|gif|svg|bmp|pdf|docx?|pptx?|xlsx|csv|html?|md)$/i;
+type AgentFileLike = {
+  path?: string;
+  relativePath?: string;
+  name?: string;
+  source?: string;
+  isFolder?: boolean;
+};
 
-/** Plain .txt / .json are almost always agent scratch fragments. */
-const SCRATCH_EXT = /\.(txt|json|py|sh|bash|js|mjs|cjs|ts|tsx|log|tmp)$/i;
+const RUNTIME_ONLY_DIRS = new Set(["camel_logs", ".venv"]);
+const TASK_ROOT_NAME_PATTERN =
+  /^task_(?:task_)?(?:\d{10,}(?:-\d+)?|[0-9a-f]{12,}(?:-[0-9a-f]{4,})*)$/i;
 
-const PROCESS_NAME =
-  /^(requirements\.txt|pyproject\.toml|package\.json|uv\.lock|\.gitignore|skill\.md)$/i;
-
-/** Intermediate build pieces (html_part1, skeleton, script2, …). */
-const INTERMEDIATE_NAME =
-  /(^|[_-])(part\d*|skeleton|wrapper|head|style|script\d*|script_b64|test|tmp|temp|draft|chart_data|with_data|html_head|html_script|html_part)([._-]|$)/i;
-
-/**
- * Throwaway probe/test file names agents create while experimenting
- * (t_nf_0.0.xlsx, tC.xlsx, x1_check.xlsx, tmp_build.xlsx, …).
- * Multi-letter keywords need a separator/end after them (checklist.xlsx stays);
- * single letters (t/x/z) REQUIRE a separator so table_销售.xlsx survives.
- */
-const PROBE_NAME =
-  /^(?:(?:tmp|temp|test|try|probe|chk|check|demo|sample)\d*(?=[_-]|$)|(?:[txz]\d*)[_-])/i;
-
-/** Excel number-format tokens (#,##0 / 0.0% / $#,##0) baked into probe names. */
-const FORMAT_TOKEN = /[#%]|\$#/;
-
-function looksLikeProbeBasename(stem: string): boolean {
-  // Ultra-short throwaway stems: tC, x2, z9 …
-  if (stem.length <= 3 && /^[txzTXZ][A-Z0-9]/.test(stem)) return true;
-  const match = stem.match(PROBE_NAME);
-  if (!match) return false;
-  // Only treat as probe when the remainder is short (a tag, not a real title).
-  return stem.slice(match[0].length).length <= 8;
+function pathSegments(value: string | undefined): string[] {
+  return (value || "").replace(/\\/g, "/").split("/").filter(Boolean);
 }
 
-export function isDeliverableOutputPath(filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, "/");
-  if (normalized.includes("/_scratch/") || normalized.includes("/.venv/")) {
-    return false;
-  }
-  const name = normalized.split("/").pop() || "";
-  if (!name || name.startsWith(".")) return false;
-  if (PROCESS_NAME.test(name)) return false;
-  if (SCRATCH_EXT.test(name)) return false;
-  if (INTERMEDIATE_NAME.test(name)) return false;
-  if (FORMAT_TOKEN.test(name)) return false;
-  const dot = name.lastIndexOf(".");
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  if (looksLikeProbeBasename(stem)) return false;
-  return DELIVERABLE_EXT.test(name);
+function basename(value: string | undefined): string {
+  const segments = pathSegments(value);
+  return segments[segments.length - 1] || "";
+}
+
+export function isRuntimeOnlyAgentFile(file: AgentFileLike): boolean {
+  if (file.source === "camel_log") return true;
+
+  const segments = [
+    ...pathSegments(file.relativePath),
+    ...pathSegments(file.path),
+    file.name || "",
+  ];
+
+  return segments.some((segment) => RUNTIME_ONLY_DIRS.has(segment));
+}
+
+export function isAgentTaskRootEntry(file: AgentFileLike): boolean {
+  const name = file.name || basename(file.path);
+  if (!TASK_ROOT_NAME_PATTERN.test(name)) return false;
+
+  const relativeSegments = pathSegments(file.relativePath);
+  if (relativeSegments.length === 0) return basename(file.path) === name;
+
+  return relativeSegments.length === 1 && relativeSegments[0] === name;
+}
+
+export function isVisibleAgentFile(file: AgentFileLike): boolean {
+  return (
+    !file.isFolder &&
+    !isRuntimeOnlyAgentFile(file) &&
+    !isAgentTaskRootEntry(file)
+  );
+}
+
+export function isVisibleAgentPath(filePath: string): boolean {
+  return isVisibleAgentFile({ path: filePath });
+}
+
+/** Image files that should not auto-open as mid-run preview tabs. */
+export function isPreviewImagePath(filePath: string): boolean {
+  return /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(filePath.replace(/\\/g, "/"));
 }

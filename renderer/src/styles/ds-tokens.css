@@ -116,7 +116,7 @@
   --radius-lg: var(--borderRadius-xl, 16px);
   --titlebar-h: 40px;
   --rail-w: 48px;
-  --sidebar-w: 240px;
+  --sidebar-w: 280px;
   --trace-w: 300px;
   --preview-w: 360px;
   --hub-gutter: clamp(24px, 6vw, 72px);

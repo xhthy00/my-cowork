@@ -20,7 +20,7 @@ import {
 } from "@/components/session/sessionSidePanelLayout";
 import { usePageTabStore } from "@/store/pageTab";
 
-const SIDEBAR_LAYOUT_KEY = "my-cowork-workspace-shell-layout";
+const SIDEBAR_LAYOUT_KEY = "my-cowork-workspace-shell-layout-v2";
 
 /** Sidebar stays usable between these bounds but is no longer capped at 360px. */
 const SIDEBAR_MIN_WIDTH_PX = 160;
@@ -75,7 +75,7 @@ export default function WorkspaceShell({
     return (
       <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-row overflow-hidden">
         <div
-          className="box-border mr-1 flex h-full shrink-0 flex-col overflow-hidden"
+          className="box-border flex h-full shrink-0 flex-col overflow-hidden pr-1"
           style={{ width: PROJECT_SIDEBAR_RAIL_WIDTH_PX }}
         >
           {sidebar}
@@ -102,9 +102,9 @@ export default function WorkspaceShell({
         minSize={SIDEBAR_MIN_WIDTH_PX}
         maxSize={SIDEBAR_MAX_WIDTH}
         groupResizeBehavior="preserve-pixel-size"
-        className="min-h-0 min-w-0"
+        className="min-h-0 min-w-0 overflow-hidden"
       >
-        <div className="box-border mr-1 flex h-full min-h-0 w-full flex-col overflow-hidden">
+        <div className="box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden pr-1">
           {sidebar}
         </div>
       </Panel>

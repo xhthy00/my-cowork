@@ -13,11 +13,23 @@ from app.observability.trace import TraceBus
 from app.runtime.budget import Budget
 from app.runtime.budget_context import (
     BudgetRuntime,
+    context_window_limit,
     get_budget_runtime,
     record_llm_tokens,
     reset_budget_runtime,
     set_budget_runtime,
 )
+
+
+class TestContextWindowLimit:
+    def test_prefers_budget_max(self):
+        budget = Budget(max_steps=10, max_total_tokens=192_000)
+        assert context_window_limit(budget) == 192_000
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("MY_COWORK_CONTEXT_LIMIT", "131072")
+        budget = Budget(max_steps=10, max_total_tokens=200_000)
+        assert context_window_limit(budget) == 131072
 
 
 class TestRecordLlmTokens:
@@ -33,7 +45,9 @@ class TestRecordLlmTokens:
             record_llm_tokens(1200)
             assert budget.tokens == 1200
             assert any(
-                e.get("type") == "budget.update" and e.get("tokens") == 1200
+                e.get("type") == "budget.update"
+                and e.get("tokens") == 1200
+                and e.get("context_limit") == 100_000
                 for e in events
             )
         finally:
@@ -97,6 +111,9 @@ class TestBudgetTokenCallback:
             )
             cb.on_llm_end(result, run_id=run_id)
             assert budget.tokens == 42
+            ctx = next(e for e in events if e.get("type") == "budget.update")
+            assert ctx["context_limit"] == 100_000
+            assert ctx["context_tokens"] > 0
         finally:
             reset_budget_runtime(token)
 

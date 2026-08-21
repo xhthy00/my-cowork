@@ -1,7 +1,9 @@
 /**
  * Adapted from eigent: src/store/chatStore.ts (taskAssigning / sessionMode fields).
  */
-import { create } from "zustand";
+import { createStore } from "zustand";
+
+import { registerAndBindWorkforce } from "./projectRuntime";
 
 import {
   SessionMode,
@@ -13,7 +15,7 @@ import {
   type WorkerType,
 } from "../types/workforce";
 
-interface WorkforceState {
+export interface WorkforceState {
   sessionMode: SessionModeType;
   taskAssigning: WorkforceAgent[];
   taskInfo: TaskInfo[];
@@ -79,7 +81,8 @@ export function isBaseWorkforceAgent(agentId: string): boolean {
   return BASE_WORKFORCE_AGENT_IDS.has(agentId);
 }
 
-export const useWorkforceStore = create<WorkforceState>((set, get) => ({
+export function createWorkforceStore() {
+  return createStore<WorkforceState>()((set, get) => ({
   sessionMode: SessionMode.SINGLE_AGENT,
   taskAssigning: BASE_AGENTS.map((a) => ({ ...a, tasks: [] })),
   taskInfo: [],
@@ -414,4 +417,7 @@ export const useWorkforceStore = create<WorkforceState>((set, get) => ({
       );
     }
   },
-}));
+  }));
+}
+
+export const useWorkforceStore = registerAndBindWorkforce(createWorkforceStore);

@@ -14,11 +14,12 @@ export interface SSEvent {
 
 export function normalizeSSEvent(raw: Record<string, unknown>): SSEvent {
   const type = String(raw.type ?? "unknown");
-  if (raw.payload && typeof raw.payload === "object" && !Array.isArray(raw.payload)) {
-    return { type, payload: raw.payload as Record<string, unknown> };
-  }
-  const { type: _t, ...rest } = raw;
-  return { type, payload: rest };
+  const { type: _t, payload, ...rest } = raw;
+  const nested =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+  return { type, payload: { ...rest, ...nested } };
 }
 
 export function subscribeSSE(url: string, onEvent: (event: SSEvent) => void): EventSource {

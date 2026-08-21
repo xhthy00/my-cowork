@@ -17,6 +17,20 @@ export type ProgressItem = {
 };
 
 const NOISE_NODES = new Set(["__start__", "__end__", "start", "end"]);
+const AGENT_STEP_NODES = new Set([
+  "single_agent",
+  "synthesize",
+  "coordinator",
+  "supervisor",
+  "developer_agent",
+  "browser_agent",
+  "document_agent",
+  "multi_modal_agent",
+  "file_worker",
+  "doc_worker",
+  "web_worker",
+  "msg_worker",
+]);
 
 const WORKER_NOISE =
   /^(Running|Finished)\s+(developer_agent|browser_agent|document_agent|multi_modal_agent|file_worker|doc_worker|web_worker|msg_worker|supervisor|coordinator|single_agent)\s*$/i;
@@ -108,6 +122,7 @@ export type WorkLogStep = {
   preview?: string;
   kind: "prep" | "tool" | "file";
   status?: "running" | "done";
+  agentId?: string;
 };
 
 export function findInFlightTool(trace: TraceEvent[]): {
@@ -159,24 +174,8 @@ export function buildWorkLogSteps(
   }
 
   const toolIndex = new Map<string, number>();
-  const seenAssign = new Set<string>();
   for (const ev of trace) {
-    if (ev.type === "agent.assign") {
-      const content = String(ev.payload.content ?? "").trim();
-      const agent = String(ev.payload.agent_id ?? "agent");
-      if (!content) continue;
-      const localized = humanizeAssignContent(content, agent);
-      const dedupeKey = localized.toLowerCase();
-      if (seenAssign.has(dedupeKey)) continue;
-      seenAssign.add(dedupeKey);
-      steps.push({
-        id: String(ev.payload.assign_id ?? ev.payload.sub_task_id ?? ev.id),
-        label: localized,
-        detail: agent,
-        kind: "tool",
-        status: "done",
-      });
-    } else if (
+    if (
       ev.type === "tool.start" ||
       ev.type === "tool.confirm_request" ||
       ev.type === "tool.result"
@@ -207,10 +206,17 @@ export function buildWorkLogSteps(
         preview: preview || undefined,
         kind: "tool",
         status,
+        agentId: String(ev.payload.agent_id ?? "") || undefined,
       });
     } else if (ev.type === "graph.step") {
       const node = String(ev.payload.node ?? "");
-      if (!node || NOISE_NODES.has(node) || node === "supervisor") continue;
+      if (
+        !node ||
+        NOISE_NODES.has(node) ||
+        AGENT_STEP_NODES.has(node)
+      ) {
+        continue;
+      }
       const key = `node:${node}`;
       if (toolIndex.has(key)) continue;
       toolIndex.set(key, steps.length);
@@ -219,6 +225,7 @@ export function buildWorkLogSteps(
         label: humanizeAgent(node),
         kind: "tool",
         status: "done",
+        agentId: node,
       });
     }
   }

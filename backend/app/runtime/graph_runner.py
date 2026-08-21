@@ -14,6 +14,7 @@ from app.graphs.routing import (
     document_tools_succeeded,
     extract_claimed_office_paths,
     has_office_deliverable,
+    markdown_only,
     wants_document,
     wants_pptx,
 )
@@ -23,12 +24,21 @@ from app.runtime.attachments import stage_attachments_for_task
 from app.runtime.budget import BudgetExhausted
 from app.runtime.budget_context import (
     BudgetRuntime,
+    context_window_limit,
     reset_budget_runtime,
     set_budget_runtime,
 )
 from app.runtime.compressor import maybe_compress
-from app.runtime.context import inject_memories, looks_like_workspace_dump
-from app.runtime.decompose import decompose_subtasks, normalize_subtasks
+from app.runtime.context import (
+    inject_memories,
+    looks_like_workspace_dump,
+    strip_think_blocks,
+)
+from app.runtime.decompose import (
+    align_subtasks_to_user_format,
+    decompose_subtasks,
+    normalize_subtasks,
+)
 from app.runtime.memory_context import (
     reset_long_term_runtime,
     set_long_term_runtime,
@@ -45,36 +55,44 @@ from app.tools.builtin.docgen.gongwen_format import (
     reset_gongwen_format,
     task_wants_gongwen_format,
 )
-from app.workspace.output_files import cleanup_process_files, list_new_deliverables
+from app.workspace.output_files import list_new_office_files
 from app.workspace.resolver import get_workspace_resolver
 from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
 from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
-    plan_todos_llm,
 )
 from app.runtime.v2.flag import is_v2
 from app.runtime.v2.synthesize import (
+    extract_worker_summary,
     is_process_meta as _is_process_meta,
     resolve_workforce_end_summary,
 )
 
 _WORKER_NAMES = frozenset(WORKER_IDS)
 _AGENT_NODES = _WORKER_NAMES | {"single_agent"}
-_SCREENSHOT_RE = re.compile(
-    r"(?P<path>(?:[A-Za-z]:)?[^\s\"']+\.(?:png|jpe?g|webp|gif))",
-    re.IGNORECASE,
-)
 _WROTE_PATH_RE = re.compile(
     r"Wrote\s+\d+\s+characters\s+to\s+(?P<path>.+)$",
     re.IGNORECASE | re.MULTILINE,
 )
-_ABS_FILE_RE = re.compile(
+_OFFICE_ABS_FILE_RE = re.compile(
     r"(?P<path>(?:/(?:Users|home|tmp|var|private|Volumes)[^\s\"'`，。；]+"
     r"|[A-Za-z]:\\[^\s\"'`，。；]+)"
-    r"\.(?:md|txt|csv|json|html?|docx?|pptx?|xlsx|pdf|png|jpe?g|webp|gif))",
+    r"\.(?:docx?|pptx?|xlsx|pdf))",
     re.IGNORECASE,
 )
+_WRITE_TOOLS = frozenset(
+    {
+        "docx_gen",
+        "pptx_gen",
+        "xlsx_gen",
+        "pdf_gen",
+        "fs.write",
+        "fs_write",
+    }
+)
+_BASH_TOOLS = frozenset({"bash", "exec.bash"})
+_OFFICE_SUFFIXES = (".pptx", ".docx", ".xlsx", ".ppt", ".doc", ".xls", ".pdf")
 
 
 def build_initial_state(
@@ -107,6 +125,7 @@ def build_initial_state(
         "enabled_skill_ids": list(getattr(task, "enabled_skill_ids", None) or []),
         "round": 0,
         "assigned_task_id": None,
+        "coord_action": "",
     }
     if subtasks is not None:
         state["subtasks"] = normalize_subtasks(subtasks)
@@ -247,6 +266,16 @@ def _missing_claimed_office_files(
     return missing
 
 
+def _hide_office_artifact(path: str) -> bool:
+    """Markdown-only tasks must not surface Word/PPT/Excel chips."""
+    from app.runtime.todo_context import get_todo_runtime
+
+    rt = get_todo_runtime()
+    if rt is None or not markdown_only(rt.user_text):
+        return False
+    return Path(path).suffix.lower() in {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
+
+
 def _emit_artifact_file(
     bus: Any,
     task_id: str,
@@ -270,6 +299,8 @@ def _emit_artifact_file(
                 return None
         except OSError:
             return None
+    if _hide_office_artifact(existing):
+        return None
     _track_path(written_paths, existing, workdir=workdir)
     art = _event(task_id, "artifact.file", path=existing, agent_id=agent_id)
     bus.emit(art)
@@ -291,6 +322,8 @@ def _maybe_preview_events(
     if not blob:
         return events
 
+    # Eigent: only write_to_file-family results become user-visible files.
+    # fs_write success text may appear in the agent blob; scrape that only.
     seen_paths: set[str] = set()
     for m in _WROTE_PATH_RE.finditer(blob):
         path = m.group("path").strip().rstrip("`'\"")
@@ -307,47 +340,11 @@ def _maybe_preview_events(
             )
             if art:
                 events.append(art)
-    for m in _ABS_FILE_RE.finditer(blob):
-        path = m.group("path").strip().rstrip("`'\".,;:)")
-        if path and path not in seen_paths:
-            seen_paths.add(path)
-            art = _emit_artifact_file(
-                bus,
-                task_id,
-                agent_id,
-                path,
-                workdir=workdir,
-                written_paths=written_paths,
-                min_mtime=min_mtime,
-            )
-            if art:
-                events.append(art)
 
-    for m in _SCREENSHOT_RE.finditer(blob):
-        path = m.group("path")
-        if "screenshot" in path.lower() or path.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-            existing = _existing_file(path, workdir=workdir)
-            if not existing:
-                continue
-            if min_mtime is not None:
-                try:
-                    if Path(existing).stat().st_mtime < min_mtime - 5.0:
-                        continue
-                except OSError:
-                    continue
-            _track_path(written_paths, existing, workdir=workdir)
-            shot = _event(task_id, "artifact.screenshot", path=existing, agent_id=agent_id)
-            bus.emit(shot)
-            events.append(shot)
-            preview = _event(
-                task_id,
-                "preview.open",
-                kind="file",
-                path=existing,
-                agent_id=agent_id,
-            )
-            bus.emit(preview)
-            events.append(preview)
+    # Do not emit artifact.screenshot / preview.open for every png mentioned
+    # in tool output — that stacks intermediate plot/browser dumps in the
+    # preview pane. Images still surface as artifact.file; the UI opens only
+    # the final deliverable at graph.end.
 
     # Terminal preview is emitted from _tool_result_events for bash / exec.bash.
     return events
@@ -358,75 +355,52 @@ def _emit_graph_end(
     task_id: str,
     status: str,
     *,
-    workdir: Path | None,
     written_paths: set[str],
-    min_mtime: float | None = None,
-    extra_scan_roots: list[Path] | None = None,
     **extra: Any,
 ) -> list[dict[str, Any]]:
-    """Cleanup process files then emit artifact.file for leftovers + graph.end."""
+    """Apply late formatting then emit graph.end (Eigent: no disk cleanup)."""
     events: list[dict[str, Any]] = []
     for path in list(written_paths):
         maybe_apply_gongwen_format(path)
-    cleaned: list[str] = []
-    rescued: list[str] = []
-    already: set[str] = set(written_paths)
-    if workdir is not None:
-        try:
-            cleaned, rescued = cleanup_process_files(workdir, written_paths)
-        except Exception:
-            cleaned, rescued = [], []
-        already.update(rescued)
-        for path in rescued:
-            maybe_apply_gongwen_format(path)
-            rescue_ev = _event(task_id, "artifact.file", path=path)
-            bus.emit(rescue_ev)
-            events.append(rescue_ev)
-    scan_dirs: list[Path] = []
-    if workdir is not None:
-        scan_dirs.append(workdir)
-    for root in extra_scan_roots or []:
-        if root is None:
-            continue
-        scan_dirs.append(Path(root))
-    if min_mtime is not None:
-        seen_extra: set[str] = set()
-        for root in scan_dirs:
-            try:
-                extras = list_new_deliverables(
-                    root, min_mtime=min_mtime, already=already
-                )
-            except Exception:
-                extras = []
-            for path in extras:
-                if path in seen_extra:
-                    continue
-                seen_extra.add(path)
-                already.add(path)
-                maybe_apply_gongwen_format(path)
-                extra_ev = _event(task_id, "artifact.file", path=path)
-                bus.emit(extra_ev)
-                events.append(extra_ev)
-    if cleaned:
-        cleanup_ev = _event(
-            task_id,
-            "artifact.cleanup",
-            paths=cleaned[:50],
-            count=len(cleaned),
-        )
-        bus.emit(cleanup_ev)
-        events.append(cleanup_ev)
-    end_event = _event(
-        task_id,
-        "graph.end",
-        status=status,
-        cleaned_paths=cleaned[:50],
-        cleaned_count=len(cleaned),
-        **extra,
-    )
+    extra.pop("workdir", None)
+    extra.pop("min_mtime", None)
+    extra.pop("extra_scan_roots", None)
+    end_event = _event(task_id, "graph.end", status=status, **extra)
     bus.emit(end_event)
     events.append(end_event)
     return events
+
+
+def _deliverable_constraint(plan_ask: str) -> str:
+    """Format-specific workspace hint — do not advertise docx when the user asked for md."""
+    from app.graphs.routing import wants_html_file
+
+    notes = (
+        "- 过程发现、草稿路径写入笔记（`create_note` / "
+        "`append_note(\"shared_files\", …)`），不要当作最终交付。\n"
+    )
+    if markdown_only(plan_ask):
+        return (
+            "- 最终交付必须是 Markdown（`.md`），写在最终产出目录下。\n"
+            f"{notes}"
+            "- **禁止**生成 .docx/.pptx/.xlsx，禁止调用 officecli。\n"
+        )
+    if wants_html_file(plan_ask) and not wants_document(plan_ask):
+        return (
+            "- 最终交付必须是 HTML（`.html`），写在最终产出目录下。\n"
+            f"{notes}"
+            "- **禁止**生成 Word/PPT/Excel。\n"
+        )
+    if wants_document(plan_ask):
+        return (
+            "- 最终交付（docx/pptx/xlsx/pdf/图等）必须写在最终产出目录下。\n"
+            f"{notes}"
+        )
+    return (
+        "- 最终交付必须写在最终产出目录下。\n"
+        f"{notes}"
+        "- 未指定格式的报告写 HTML，不要擅自生成 Word。\n"
+    )
 
 
 def _subtasks_to_todos(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -460,11 +434,16 @@ def _subtasks_to_todos(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return todos
 
 
-_THINK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-
-
 def _strip_think(text: str) -> str:
-    return _THINK_RE.sub("", text or "").strip()
+    return strip_think_blocks(text or "")
+
+
+def _end_card_summary(text: str) -> str:
+    """Eigent END card: think/summary-tag stripped; keep the remaining body."""
+    body = extract_worker_summary(text or "")
+    if not body or _is_process_meta(body):
+        return ""
+    return body.strip()
 
 
 async def run_graph(
@@ -549,18 +528,15 @@ async def run_graph(
             user_ask = stage_attachments_for_task(
                 user_ask, frozen.working_directory, guard
             )
-            scratch = frozen.working_directory / "_scratch"
-            scratch.mkdir(parents=True, exist_ok=True)
             user_ask = (
                 f"{user_ask.rstrip()}\n\n"
                 f"[工作空间约束]\n"
                 f"- 最终产出目录: `{frozen.working_directory}`\n"
-                f"- 过程/临时文件目录: `{scratch}`\n"
-                f"- 最终交付（docx/pptx/xlsx/pdf/图等）必须写在最终产出目录下，"
-                f"**禁止**放在 `_scratch/`；任务结束会清空 `_scratch`。\n"
+                f"- 过程发现写入笔记（`create_note` / "
+                f"`append_note(\"shared_files\", …)`），不要当作最终交付。\n"
+                f"{_deliverable_constraint(plan_ask)}"
                 f"- 除非用户明确要求桌面，否则不要写入 Desktop/桌面。\n"
-                f"- 最终交付只保留完整成品（报告/图/文档），不要把 part/skeleton/"
-                f"script 等中间文件当作最终结果。"
+                f"- 用 `fs_write`（及 office 写工具）只写用户要的那一个交付文件。\n"
             )
             # Keep task.text in sync for build_initial_state / planners.
             try:
@@ -574,10 +550,11 @@ async def run_graph(
         workspace_token = None
         frozen = None
 
-    todo_rt = TodoRuntime(task_id=task_id, bus=bus, agent_id=agent_id)
+    todo_rt = TodoRuntime(task_id=task_id, bus=bus, agent_id=agent_id, user_text=plan_ask)
     todo_token = set_todo_runtime(todo_rt)
     workers_ran = 0
     run_messages: list[Any] = []
+    last_graph_node = ""
     todos: list[dict[str, Any]] = []
     confirmed: list[dict[str, Any]] | None = None
     live_subtasks: list[dict[str, Any]] = []
@@ -621,6 +598,7 @@ async def run_graph(
                     bus.emit(to_sub)
                     yield to_sub
                     confirmed = subtasks
+                confirmed = align_subtasks_to_user_format(plan_ask, confirmed)
                 live_subtasks = list(confirmed)
                 todos = _subtasks_to_todos(confirmed)
                 todo_rt.todos = todos
@@ -632,24 +610,16 @@ async def run_graph(
                     bus,
                     task_id,
                     "ok",
-                    workdir=workdir,
                     written_paths=written_paths,
-                    min_mtime=run_started_at,
                 ):
                     yield ev
                 return
         else:
-            todos = await plan_todos_llm(
-                plan_ask,
-                planner_llm,
-                session_mode=session_mode,
-                history=getattr(task, "history", None),
-            )
+            # Eigent Single Agent: Progress is written by todo_write during
+            # the act loop (ObservableTodoToolkit). A separate planner LLM
+            # invents Word/officecli pipelines for md-only asks.
+            todos = []
             todo_rt.todos = todos
-            if todos:
-                plan_ev = _event(task_id, "todo_state", agent_id=agent_id, todos=todos)
-                bus.emit(plan_ev)
-                yield plan_ev
 
         state = build_initial_state(
             task,
@@ -679,10 +649,13 @@ async def run_graph(
                 yield mem_ev
 
         run_config = {
+            # One checkpoint per task run. Reusing session/project id caused
+            # the next question to inherit round>=16 and skip workers.
             "configurable": {
-                "thread_id": getattr(task, "session_id", None) or task_id
+                "thread_id": task_id,
             }
         }
+        last_graph_node = ""
         async for chunk in graph.astream(
             state, config=run_config, stream_mode="updates"
         ):
@@ -691,13 +664,12 @@ async def run_graph(
                     bus,
                     task_id,
                     "cancelled",
-                    workdir=workdir,
                     written_paths=written_paths,
-                    min_mtime=run_started_at,
                 ):
                     yield ev
                 return
             for node, update in (chunk or {}).items():
+                last_graph_node = str(node or "")
                 if isinstance(update, dict):
                     extra_msgs = update.get("messages") or []
                     if extra_msgs:
@@ -841,17 +813,19 @@ async def run_graph(
                     budget.consume_step()
                     # Live totals come from BudgetTokenCallback during LLM calls.
                     # Fallback: count node messages when no callback fired (e.g. tests).
+                    ctx_n = _tokens_from_update(update)
                     if budget.tokens == 0:
-                        n = _tokens_from_update(update)
-                        if n:
-                            budget.consume_tokens(n)
-                    budget_event = _event(
-                        task_id,
-                        "budget.update",
-                        tokens=budget.tokens,
-                        max_tokens=budget.max_total_tokens,
-                        steps=budget.steps,
-                    )
+                        if ctx_n:
+                            budget.consume_tokens(ctx_n)
+                    extra: dict[str, Any] = {
+                        "tokens": budget.tokens,
+                        "max_tokens": budget.max_total_tokens,
+                        "steps": budget.steps,
+                        "context_limit": context_window_limit(budget),
+                    }
+                    if ctx_n:
+                        extra["context_tokens"] = ctx_n
+                    budget_event = _event(task_id, "budget.update", **extra)
                     bus.emit(budget_event)
                     yield budget_event
 
@@ -885,7 +859,7 @@ async def run_graph(
             for root in scan_roots:
                 try:
                     extras.extend(
-                        list_new_deliverables(
+                        list_new_office_files(
                             root, min_mtime=run_started_at, already=written_paths
                         )
                     )
@@ -957,30 +931,28 @@ async def run_graph(
             )
         if session_mode == "workforce":
             summary = ""
-            if is_v2():
-                last = _strip_think(_last_ai_text(run_messages))
-                if last and not looks_like_workspace_dump(last):
-                    summary = last
+            # Prefer synthesize node's compose; never use a worker last-AI dump.
+            if is_v2() and last_graph_node == "synthesize":
+                summary = _end_card_summary(_last_ai_text(run_messages))
             if not summary:
-                summary = resolve_workforce_end_summary(live_subtasks)
+                summary = _end_card_summary(
+                    resolve_workforce_end_summary(live_subtasks)
+                )
             if summary:
                 end_extra["summary"] = summary
         elif is_v2():
             from app.runtime.v2.synthesize import best_user_facing_text
 
-            last = _strip_think(
+            last = _end_card_summary(
                 best_user_facing_text(run_messages) or _last_ai_text(run_messages)
             )
-            if last and not looks_like_workspace_dump(last):
+            if last:
                 end_extra["summary"] = last
         for ev in _emit_graph_end(
             bus,
             task_id,
             end_status,
-            workdir=workdir,
             written_paths=written_paths,
-            min_mtime=run_started_at,
-            extra_scan_roots=scan_roots[1:],
             **end_extra,
         ):
             yield ev
@@ -998,9 +970,7 @@ async def run_graph(
             bus,
             task_id,
             "error",
-            workdir=workdir,
             written_paths=written_paths,
-            min_mtime=run_started_at,
             error=str(exc),
         ):
             yield ev
@@ -1011,9 +981,7 @@ async def run_graph(
                 bus,
                 task_id,
                 "cancelled",
-                workdir=workdir,
                 written_paths=written_paths,
-                min_mtime=run_started_at,
             ):
                 yield ev
             return
@@ -1021,9 +989,7 @@ async def run_graph(
             bus,
             task_id,
             "error",
-            workdir=workdir,
             written_paths=written_paths,
-            min_mtime=run_started_at,
             error=str(exc),
         ):
             yield ev
@@ -1099,32 +1065,24 @@ def _tool_result_events(
         if written_paths is not None:
             for m in _WROTE_PATH_RE.finditer(result_text):
                 _track_path(written_paths, m.group("path"), workdir=workdir)
-            for m in _ABS_FILE_RE.finditer(result_text):
-                _track_path(written_paths, m.group("path"), workdir=workdir)
-        # Successful docgen / write tools return a concrete path — surface as artifact
-        # only when the file actually exists (avoid phantom chips from failed gens).
+            if tool_name in _BASH_TOOLS:
+                for m in _OFFICE_ABS_FILE_RE.finditer(result_text):
+                    _track_path(written_paths, m.group("path"), workdir=workdir)
+        # Eigent FileToolkit / pptx toolkit: only write-family tools surface
+        # files. officecli via bash is the Word/PPT/Excel equivalent.
         candidate_paths: list[str] = []
-        if tool_name in {
-            "docx_gen",
-            "pptx_gen",
-            "xlsx_gen",
-            "pdf_gen",
-            "fs.write",
-        } or result_text.strip().endswith(
-            (".docx", ".pptx", ".xlsx", ".pdf", ".md", ".csv", ".html")
-        ):
-            candidate_paths.append(
-                result_text.strip().splitlines()[-1]
-                if result_text.strip()
-                else result_text
-            )
-        # officecli via bash returns JSON; scrape absolute office paths from stdout.
-        if tool_name in {"bash", "exec.bash"}:
-            for m in _ABS_FILE_RE.finditer(result_text):
+        write_name = tool_name.lower()
+        is_write = write_name in _WRITE_TOOLS or write_name.endswith("fs_write")
+        if is_write:
+            for m in _WROTE_PATH_RE.finditer(result_text):
+                candidate_paths.append(m.group("path").strip())
+            last = result_text.strip().splitlines()[-1] if result_text.strip() else ""
+            if last:
+                candidate_paths.append(last)
+        if tool_name in _BASH_TOOLS:
+            for m in _OFFICE_ABS_FILE_RE.finditer(result_text):
                 p = m.group("path").strip().rstrip("`'\".,;:)")
-                if p.lower().endswith(
-                    (".pptx", ".docx", ".xlsx", ".ppt", ".doc", ".xls", ".pdf")
-                ):
+                if p.lower().endswith(_OFFICE_SUFFIXES):
                     candidate_paths.append(p)
 
         seen_art: set[str] = set()

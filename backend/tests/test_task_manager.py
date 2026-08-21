@@ -93,6 +93,61 @@ class TestTaskManagerHandle:
         )
 
 
+class TestTaskManagerIsolation:
+    @pytest.mark.asyncio
+    async def test_concurrent_handles_do_not_mix_events(self):
+        from app.agents.factory import create_single_agent
+        from app.graphs.single_agent import compile_single_agent_graph
+        from tests.conftest import FakeChatModel, make_ai
+
+        sa_model = FakeChatModel(responses=[make_ai(content="solo a"), make_ai(content="solo b")])
+        sa_graph = compile_single_agent_graph(
+            create_single_agent("prompt", sa_model, tools=[])
+        )
+        tm = TaskManager(
+            graph=_make_graph(),
+            tools=[],
+            bus=TraceBus(),
+            single_agent_graph=sa_graph,
+        )
+
+        async def collect(task_id: str) -> list[dict]:
+            return [
+                ev
+                async for ev in tm.handle(
+                    TaskRequest(
+                        text="hello",
+                        task_id=task_id,
+                        session_mode="single-agent",
+                    )
+                )
+            ]
+
+        a, b = await asyncio.gather(collect("task-a"), collect("task-b"))
+        assert [ev["type"] for ev in a].count("graph.start") == 1
+        assert [ev["type"] for ev in b].count("graph.start") == 1
+        assert not any(ev.get("task_id") == "task-b" for ev in a)
+        assert not any(ev.get("task_id") == "task-a" for ev in b)
+
+    @pytest.mark.asyncio
+    async def test_handle_drops_foreign_bus_events(self):
+        bus = TraceBus()
+        tm = TaskManager(graph=_make_graph(), tools=[], bus=bus)
+        leaked = {"type": "step.delta", "task_id": "foreign", "delta": "leak"}
+
+        events = []
+        async for ev in tm.handle(TaskRequest(text="hello", task_id="task-a")):
+            events.append(ev)
+            if ev["type"] == "graph.start":
+                bus.emit(leaked)
+
+        assert events[0]["type"] == "graph.start"
+        assert events[-1]["type"] == "graph.end"
+        assert not any(
+            ev.get("task_id") == "foreign" or ev.get("delta") == "leak" for ev in events
+        )
+
+
 class TestTaskManagerStatus:
     @pytest.mark.asyncio
     async def test_status_missing_task_raises(self):

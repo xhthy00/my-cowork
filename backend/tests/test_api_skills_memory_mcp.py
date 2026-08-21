@@ -101,5 +101,56 @@ async def test_mcp_servers_put_get(app):
         }
         res = await client.put("/api/mcp/servers", json=payload)
         assert res.status_code == 200
+        assert "connected" in res.json()
         res = await client.get("/api/mcp/servers")
         assert "echo" in res.json()["mcpServers"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_put_triggers_reload(app):
+    calls: list[str] = []
+
+    def _reload():
+        calls.append("reload")
+        return {"connected": {"echo": []}}
+
+    app.state.reload_mcp = _reload
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.put(
+            "/api/mcp/servers",
+            json={"mcpServers": {"echo": {"command": "python3"}}},
+        )
+        assert res.status_code == 200
+        assert calls == ["reload"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_import_merge_and_duplicate_409(app):
+    app.state.reload_mcp = lambda: {"connected": {}}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.put(
+            "/api/mcp/servers",
+            json={"mcpServers": {"echo": {"command": "python3"}}},
+        )
+        res = await client.post(
+            "/api/mcp/import",
+            json={
+                "mcpServers": {
+                    "playwright": {"url": "https://example.com/mcp"},
+                }
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert "echo" in body["mcpServers"]
+        assert body["mcpServers"]["playwright"]["url"] == "https://example.com/mcp"
+
+        res = await client.post(
+            "/api/mcp/import",
+            json={"mcpServers": {"Echo": {"command": "other"}}},
+        )
+        assert res.status_code == 409

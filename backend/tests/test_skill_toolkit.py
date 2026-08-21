@@ -133,6 +133,31 @@ def test_list_skills_hides_office_when_gate_off(tmp_path: Path):
     assert "officecli-docx" not in names
 
 
+def test_list_skills_hides_legacy_docx_when_officecli_present(tmp_path: Path):
+    office = tmp_path / "officecli-docx"
+    office.mkdir()
+    (office / "skill.yaml").write_text(
+        "id: officecli-docx\nname: officecli-docx\ndescription: Word\nprompt: CLI\n",
+        encoding="utf-8",
+    )
+    legacy = tmp_path / "docx"
+    legacy.mkdir()
+    (legacy / "skill.yaml").write_text(
+        "id: docx\nname: docx\ndescription: pandoc Word\nprompt: PANDOC\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "skills-config.json"
+    save_skills_config({"version": 1, "skills": {}}, cfg)
+    tools = {
+        t.name: t
+        for t in make_skill_tools("single_agent", root=tmp_path, config_path=cfg)
+    }
+    listed = json.loads(tools["list_skills"].invoke({}))
+    names = {row["name"] for row in listed}
+    assert "officecli-docx" in names
+    assert "docx" not in names
+
+
 def test_find_skill_by_name(tmp_path: Path):
     _write_md_skill(tmp_path)
     assert find_skill("md-skill", root=tmp_path) is not None

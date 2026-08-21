@@ -1,15 +1,7 @@
 /**
- * AionUi markdown typography, ported 1:1 from AionUi
- * packages/desktop/src/renderer/components/Markdown/ShadowView.tsx
- * (Apache-2.0 © AionUi). AionUi injects these rules into a Shadow DOM;
- * my-cowork scopes them under `.aion-md` instead. AionUi CSS variables are
- * mapped onto the my-cowork design tokens (light theme):
- *   --text-primary   → --ds-text-neutral-default-default
- *   --text-secondary → --ds-text-neutral-muted-default
- *   --bg-1           → --ds-bg-neutral-subtle-default
- *   --bg-2           → --ds-bg-neutral-default-default
- *   --bg-3           → --ds-bg-neutral-strong-default
- *   --primary        → --accent
+ * Chat markdown typography under `.aion-md`.
+ * Started from AionUi ShadowView (Apache-2.0), then restyled for answer
+ * hierarchy: headings, hanging numbered lists, source blockquotes, tables.
  */
 
 .aion-md {
@@ -21,43 +13,48 @@
   --aion-primary: var(--accent, #000000);
   width: 100%;
   min-width: 0;
+  max-width: 100%;
   color: var(--aion-text-primary);
+  font-size: 15px;
+  line-height: 1.75;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  letter-spacing: 0.01em;
 }
 
 .aion-md * {
-  line-height: 24px;
-  font-size: 16px;
   color: inherit;
 }
 
-.aion-md {
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  max-width: 100%;
+.aion-md > :first-child {
+  margin-top: 0;
 }
 
-.aion-md > p:first-child {
-  margin-top: 0px;
-}
-
-.aion-md h1,
-.aion-md h2,
-.aion-md h3,
-.aion-md h4,
-.aion-md h5,
-.aion-md h6 {
-  margin-block-start: 0px;
-  margin-block-end: 0px;
+.aion-md > :last-child {
+  margin-bottom: 0;
 }
 
 .aion-md p {
-  margin-block-start: 12px;
-  margin-block-end: 12px;
+  margin-block-start: 0.7em;
+  margin-block-end: 0.7em;
 }
 
 .aion-md li {
-  margin-block-start: 6px;
-  margin-block-end: 6px;
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+
+.aion-md li > p {
+  margin-block-start: 0.35em;
+  margin-block-end: 0.35em;
+}
+
+.aion-md li > p:first-child {
+  margin-top: 0;
+}
+
+.aion-md li > p:last-child {
+  margin-bottom: 0;
 }
 
 .aion-md a {
@@ -110,22 +107,50 @@
   color: var(--aion-text-secondary);
 }
 
-.aion-md h1 {
-  font-size: 24px;
-  line-height: 32px;
-  font-weight: bold;
-}
-
+.aion-md h1,
 .aion-md h2,
 .aion-md h3,
 .aion-md h4,
 .aion-md h5,
 .aion-md h6 {
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: bold;
-  margin-top: 20px;
-  margin-bottom: 12px;
+  color: var(--aion-text-primary);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.aion-md h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin: 0 0 0.85em;
+}
+
+.aion-md h2 {
+  font-size: 1.125rem;
+  margin: 1.35em 0 0.65em;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--ds-border-neutral-subtle-default);
+}
+
+.aion-md h3 {
+  font-size: 1.02rem;
+  font-weight: 650;
+  margin: 1.25em 0 0.4em;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+}
+
+.aion-md h4,
+.aion-md h5,
+.aion-md h6 {
+  font-size: 0.95rem;
+  margin: 1em 0 0.4em;
+}
+
+.aion-md > h1:first-child,
+.aion-md > h2:first-child,
+.aion-md > h3:first-child {
+  margin-top: 0;
 }
 
 .aion-md code span {
@@ -134,23 +159,88 @@
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
-.aion-md > p:last-child {
-  margin-bottom: 0px;
-}
-
 .aion-md ol,
 .aion-md ul {
-  padding-inline-start: 24px;
+  margin: 0.85em 0;
+}
+
+.aion-md ul {
+  padding-inline-start: 1.35em;
+}
+
+.aion-md ul > li {
+  margin: 0.35em 0;
+  padding-left: 0.15em;
+}
+
+.aion-md > ol {
+  list-style: none;
+  padding: 0;
+  margin: 0.7em 0;
+  counter-reset: md-ol;
+}
+
+.aion-md > ol > li {
+  counter-increment: md-ol;
+  position: relative;
+  margin: 0.45em 0;
+  padding: 0 0 0 1.7em;
+}
+
+.aion-md > ol > li::before {
+  content: counter(md-ol) ".";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.55em;
+  color: var(--aion-text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: inherit;
+  text-align: right;
+  padding-right: 0.4em;
+  box-sizing: border-box;
+}
+
+.aion-md > ol > li > strong:first-child,
+.aion-md > ol > li > p:first-child > strong:first-child {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.aion-md li > ol,
+.aion-md li > ul {
+  list-style: revert;
+  display: block;
+  padding-inline-start: 1.25em;
+  margin: 0.45em 0 0.15em;
+  gap: 0;
+  counter-reset: none;
+}
+
+.aion-md li > ol > li,
+.aion-md li > ul > li {
+  position: static;
+  padding: 0.15em 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.aion-md li > ol > li::before,
+.aion-md li > ul > li::before {
+  content: none;
 }
 
 .aion-md hr {
   border: none;
-  border-top: 1px solid var(--aion-bg-3);
-  margin: 28px 0;
+  border-top: 1px solid var(--ds-border-neutral-subtle-default);
+  margin: 1.4em 0;
 }
 
 .aion-md strong {
-  font-weight: 600;
+  font-weight: 650;
   color: var(--aion-text-primary);
 }
 
@@ -164,10 +254,23 @@
 }
 
 .aion-md blockquote {
-  border-left: 3px solid var(--aion-bg-3);
-  padding-left: 12px;
-  color: var(--aion-text-primary);
-  margin: 16px 0;
+  margin: 0.7em 0 0;
+  padding: 8px 12px;
+  border: none;
+  border-left: 3px solid var(--ds-border-neutral-default-default);
+  border-radius: 0 8px 8px 0;
+  background: var(--aion-bg-1);
+  color: var(--aion-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.aion-md blockquote p {
+  margin: 0;
+}
+
+.aion-md li > blockquote {
+  margin-top: 0.65em;
 }
 
 .aion-md pre {
@@ -213,29 +316,49 @@
   height: auto;
 }
 
-/* Table borders (AionUi ShadowView + MarkdownView overrides) */
-.aion-md table {
-  border-collapse: collapse;
-  border: 1px solid var(--aion-bg-3);
-  min-width: 100%;
-}
-
-.aion-md th {
-  padding: 8px;
-  border: 1px solid var(--aion-bg-3);
-  background-color: var(--aion-bg-1);
-  font-weight: bold;
-}
-
-.aion-md td {
-  padding: 8px;
-  border: 1px solid var(--aion-bg-3);
-  min-width: 120px;
-}
-
+/* Table: rounded wrap + header wash */
 .aion-md .md-table-wrap {
   overflow-x: auto;
   max-width: 100%;
+  margin: 0.9em 0;
+  border: 1px solid var(--ds-border-neutral-subtle-default);
+  border-radius: 12px;
+  background: var(--aion-bg-1);
+}
+
+.aion-md table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.aion-md .md-table-wrap table {
+  border: none;
+}
+
+.aion-md th,
+.aion-md td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--ds-border-neutral-subtle-default);
+  text-align: left;
+  vertical-align: top;
+}
+
+.aion-md th {
+  background: var(--aion-bg-2);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--aion-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.aion-md td {
+  font-size: 14px;
+  min-width: 88px;
+  line-height: 1.55;
+}
+
+.aion-md tr:last-child td {
+  border-bottom: none;
 }
 
 /* Inline code should wrap on small screens to avoid horizontal overflow */

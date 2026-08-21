@@ -20,6 +20,7 @@ import {
 import { useMemo, useState } from "react";
 
 import SearchInput from "@/components/hub/SearchInput";
+import { openScheduleSettings } from "@/components/settings/KeepAwakeBanner";
 import AlertDialog from "@/components/ui/alertDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -488,7 +489,9 @@ export default function HomeHub() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => usePageTabStore.getState().setHubTab("settings")}
+            onClick={() => {
+              openScheduleSettings();
+            }}
           >
             打开定时任务
           </Button>

@@ -6,6 +6,7 @@ import type { ChannelPluginStatus } from "@/types/channel";
 import ChannelItem from "./ChannelItem";
 import LarkConfigForm from "./LarkConfigForm";
 import WeixinConfigForm from "./WeixinConfigForm";
+import KeepAwakeBanner from "../KeepAwakeBanner";
 
 const ORDER = ["telegram", "lark", "dingtalk", "weixin"] as const;
 
@@ -39,7 +40,11 @@ const META: Record<
   },
 };
 
-export default function ChannelsPanel() {
+export default function ChannelsPanel({
+  onOpenKeepAwake,
+}: {
+  onOpenKeepAwake?: () => void;
+}) {
   const [plugins, setPlugins] = useState<ChannelPluginStatus[]>([]);
   const [toast, setToast] = useState("");
   const [larkStatus, setLarkStatus] = useState<ChannelPluginStatus | null>(null);
@@ -134,6 +139,10 @@ export default function ChannelsPanel() {
       <p className="panel-desc">
         用飞书、微信等渠道把办公助手当成远程助手。飞书使用官方长连接，微信使用 ClawBot 扫码，无需 Cloudflare 隧道。
       </p>
+      <KeepAwakeBanner
+        message="远程通道仅在电脑唤醒状态下运行。熄屏后微信可能中断，可在设置 → 通用打开「保持唤醒」。"
+        onOpenKeepAwake={onOpenKeepAwake}
+      />
       {toast ? (
         <p className="form-hint" role="status" data-testid="channel-toast" style={{ marginBottom: 12 }}>
           {toast}
@@ -151,7 +160,6 @@ export default function ChannelsPanel() {
           return (
             <ChannelItem
               key={id}
-              defaultOpen={id === "lark"}
               channel={{
                 id,
                 title: meta.title,

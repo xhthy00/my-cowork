@@ -1,12 +1,11 @@
-"""Eigent-aligned task split planner.
+"""Todo list helpers matching Eigent ObservableTodoToolkit.
 
-Eigent Single Agent does NOT use keyword heuristics. It follows CAMEL TodoToolkit:
-  - schema: content / active_form / status (pending|in_progress|completed)
-  - prompt: <todo_workflow> — call todo_write before substantial work
-  - wire: todo_state with id todo_1..N
+Eigent Single Agent does not pre-plan Progress. The executing agent calls
+todo_write (schema: content / active_form / status). This module normalizes
+that payload, filters Word/officecli steps when the user did not ask for
+Office, and keeps a fallback list for tests / offline.
 
-This module plans via LLM with the same workflow rules, then falls back to a
-minimal generic list only when the model is unavailable.
+Workforce Progress is the confirmed subtask list, not this planner.
 """
 
 from __future__ import annotations
@@ -38,14 +37,19 @@ def _is_chinese(text: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
 
 
-def _todos_match_user_language(todos: list[dict[str, Any]], user_text: str) -> bool:
+def todos_match_user_language(todos: list[dict[str, Any]], user_text: str) -> bool:
+    """Chinese user requests must not show English-only Progress titles."""
     if not todos:
         return True
     if not _is_chinese(user_text):
         return True
-    # Require majority of contents to contain Chinese
-    zh = sum(1 for t in todos if _is_chinese(str(t.get("content") or "")))
-    return zh >= max(1, (len(todos) + 1) // 2)
+    for t in todos:
+        if not _is_chinese(str(t.get("content") or "")):
+            return False
+        active = str(t.get("active_form") or "")
+        if active and not _is_chinese(active):
+            return False
+    return True
 
 
 def normalize_todos(raw: Any) -> list[dict[str, Any]]:
@@ -179,10 +183,16 @@ def fallback_todos(text: str, *, session_mode: str = "workforce") -> list[dict[s
 
 _OFFICE_TODO_RE = re.compile(
     r"officecli|\.docx|\.pptx|\.xlsx|\bpptx\b|\bdocx\b|"
-    r"生成\s*(?:word|Word)|Word\s*版|"
+    r"生成\s*(?:word|Word)|Word\s*版|Word\s*文档|创建\s*Word|"
+    r"\bword\b|"
     r"输出文档文件|调用\s*officecli",
     re.IGNORECASE,
 )
+
+
+def is_office_plan_text(text: str) -> bool:
+    """True when a todo/subtask title is a Word/officecli step."""
+    return bool(_OFFICE_TODO_RE.search(text or ""))
 
 
 def without_office_todos(todos: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -190,23 +200,50 @@ def without_office_todos(todos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     kept: list[dict[str, Any]] = []
     for item in todos or []:
         blob = f"{item.get('content') or ''} {item.get('active_form') or ''}"
-        if _OFFICE_TODO_RE.search(blob):
+        if is_office_plan_text(blob):
             continue
         kept.append(item)
     return normalize_todos(kept) if kept else []
 
 
+def _markdown_file_todos() -> list[dict[str, Any]]:
+    return normalize_todos(
+        [
+            {
+                "content": "整理来源内容",
+                "active_form": "正在整理来源内容",
+                "status": "in_progress",
+            },
+            {
+                "content": "写入 Markdown 文件",
+                "active_form": "正在写入 Markdown 文件",
+                "status": "pending",
+            },
+            {
+                "content": "核对路径并交付",
+                "active_form": "正在核对路径并交付",
+                "status": "pending",
+            },
+        ]
+    )
+
+
 def _drop_office_plan_if_chat(
     q: str, todos: list[dict[str, Any]], *, session_mode: str
 ) -> list[dict[str, Any]]:
-    from app.graphs.routing import wants_document
+    from app.graphs.routing import wants_document, wants_markdown_file
 
-    if not todos or wants_document(q):
+    if not todos:
+        return todos
+    md_only = wants_markdown_file(q) and not wants_document(q)
+    if wants_document(q) and not md_only:
         return todos
     filtered = without_office_todos(todos)
-    if len(filtered) < len(todos):
-        return fallback_todos(q, session_mode=session_mode)
-    return todos
+    if len(filtered) == len(todos):
+        return todos
+    if md_only:
+        return filtered if filtered else _markdown_file_todos()
+    return fallback_todos(q, session_mode=session_mode)
 
 
 async def plan_todos_llm(
@@ -281,11 +318,11 @@ async def plan_todos_llm(
 
     try:
         todos = await _once()
-        if todos and not _todos_match_user_language(todos, q):
+        if todos and not todos_match_user_language(todos, q):
             todos = await _once(
                 "上次输出语言错误。请用简体中文重写全部 content/active_form，不要出现英文步骤标题。"
             )
-        if todos and _todos_match_user_language(todos, q):
+        if todos and todos_match_user_language(todos, q):
             return _drop_office_plan_if_chat(q, todos, session_mode=session_mode)
         if todos and not _is_chinese(q):
             return _drop_office_plan_if_chat(q, todos, session_mode=session_mode)

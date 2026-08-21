@@ -56,6 +56,24 @@ class TestTraceBus:
         assert len(received) == 1
         assert received[0]["type"] == "tool.result"
 
+    def test_stamps_task_id_from_todo_runtime(self):
+        from app.runtime.todo_context import (
+            TodoRuntime,
+            reset_todo_runtime,
+            set_todo_runtime,
+        )
+
+        bus = TraceBus()
+        received = []
+        bus.subscribe(received.append)
+        token = set_todo_runtime(TodoRuntime(task_id="task-ctx", bus=bus))
+        try:
+            bus.emit({"type": "tool.confirm_request", "payload": {"tool": "fs.write"}})
+        finally:
+            reset_todo_runtime(token)
+        assert received[0]["task_id"] == "task-ctx"
+        assert received[0]["payload"]["task_id"] == "task-ctx"
+
 
 class TestRedact:
     def test_redacts_authorization_header(self):

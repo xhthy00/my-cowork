@@ -43,13 +43,21 @@ function makeResponse(chunks: string[]): Response {
 describe("ChatBar", () => {
   let originalFetch: typeof fetch;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockResolvedValue(makeResponse([])) as unknown as typeof fetch;
     window.api = {
       ...window.api,
       getBackendUrl: vi.fn().mockResolvedValue(BACKEND_URL),
     };
+    const { useSessionStore } = await import("../../renderer/src/store/session");
+    useSessionStore.setState({
+      messages: [],
+      contextTokens: 0,
+      contextLimit: 0,
+      budgetMaxTokens: 200_000,
+      runStatus: "idle",
+    });
   });
 
   afterEach(() => {
@@ -163,5 +171,25 @@ describe("ChatBar", () => {
       );
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("shows a context usage ring next to the model picker", async () => {
+    const { useSessionStore } = await import("../../renderer/src/store/session");
+    useSessionStore.setState({
+      contextTokens: 98200,
+      contextLimit: 192000,
+    });
+    render(<ChatBar onEvent={vi.fn()} />);
+    expect(screen.getByLabelText("51.1% · 98.2K / 192.0K 上下文已使用")).toBeTruthy();
+  });
+
+  it("replaces send with a stop button while a task is running", async () => {
+    const { useSessionStore } = await import("../../renderer/src/store/session");
+    useSessionStore.setState({ runStatus: "running" });
+    const onStop = vi.fn();
+    render(<ChatBar onEvent={vi.fn()} onStop={onStop} />);
+    expect(screen.queryByTitle("发送")).toBeNull();
+    await userEvent.click(screen.getByLabelText("停止任务"));
+    expect(onStop).toHaveBeenCalled();
   });
 });

@@ -3,8 +3,10 @@ from langchain_core.messages import AIMessage, ToolMessage
 from app.graphs.routing import (
     document_tools_succeeded,
     has_office_deliverable,
+    markdown_only,
     wants_document,
     wants_file_document,
+    wants_html_file,
     wants_markdown_file,
     wants_pptx,
     wants_unspecified_document,
@@ -55,7 +57,11 @@ def test_extract_claimed_office_paths_ignores_urls():
     assert extract_claimed_office_paths("见 //www.doc 说明") == []
 
 
-def test_wants_document_gongwen_regenerate():
+def test_wants_document_officecli_skill_tag():
+    assert wants_document("形成word #officecli-docx")
+    assert wants_document("#officecli-docx")
+    assert wants_document("{{officecli-docx}} 把上面做成 Word")
+    assert wants_document("转成 word")
     assert wants_document("#official-document-writing 帮我重新生成一份上述内容的公文汇报")
     assert wants_document("帮我重新生成一份上述内容的公文汇报")
     assert wants_document("写一份关于增加项目经费的请示")
@@ -75,7 +81,23 @@ def test_wants_document_not_mere_mention():
     assert not wants_document("生成一份 markdown")
     assert not wants_document("写成 .md 文件")
     assert wants_markdown_file("帮我生成md文档")
+    assert wants_markdown_file("帮我将内容转成md文件")
+    assert not wants_document("帮我将内容转成md文件")
+    assert not wants_document(
+        "帮我将内容转成md文件\n\n下文含 Word 类名与 .docx 字样仅作原文引用。"
+    )
+    workspace = (
+        "形成md文档\n\n[工作空间约束]\n"
+        "- 最终交付（docx/pptx/xlsx/pdf/图等）必须写在最终产出目录下"
+    )
+    assert wants_markdown_file(workspace)
+    assert not wants_document(workspace)
+    assert markdown_only("@fetch 帮我获取该网页内容形成md文档")
+    assert markdown_only("指定生成md")
     assert not wants_unspecified_document("帮我生成md文档")
+    assert wants_html_file("帮我整合成数据分析html")
+    assert wants_file_document("帮我整合成数据分析html")
+    assert not wants_unspecified_document("帮我整合成数据分析html")
     assert wants_document("生成md文档再出一份 word 版")
 
 

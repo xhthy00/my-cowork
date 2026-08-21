@@ -46,6 +46,13 @@ def test_browser_mentions_web_search():
     text = load_prompt("browser")
     assert "web_search" in text
     assert "web_fetch" in text
+    assert "STOP CONDITION" in text
+
+
+def test_planner_caps_research_split():
+    text = load_prompt("planner")
+    assert "最多 2 个 browser_agent" in text
+    assert "禁止要求" in text
 
 
 def test_single_agent_forbids_search_preamble():
@@ -57,7 +64,22 @@ def test_single_agent_forbids_search_preamble():
     assert "no specified format" in text
     assert "HTML file" in text
     assert "write_to_file" in text
-    assert "我来生成 Word 版本" in text
+    assert "Write only that one file" in text
+    assert "Loading officecli skill" in text
+    assert "Simplified Chinese" in text
+    assert "list_note" in text
+    assert "shared_files" in text
+    assert "structured Markdown" in text
+    assert "_scratch" not in text
+
+
+def test_local_constraints_notes_not_scratch():
+    text = load_prompt("local_constraints")
+    assert "create_note" in text
+    assert "shared_files" in text
+    assert "Intermediate/scratch files go under `_scratch/`" not in text
+    assert "deleted when the task ends" not in text
+    assert "清空 `_scratch`" not in text
 
 
 def test_document_prompt_html_default():
@@ -70,8 +92,9 @@ def test_document_prompt_html_default():
 
 def test_skills_system_office_opt_in():
     text = load_prompt("skills_system")
-    assert "ONLY when the user specified" in text
-    assert "MUST use the skill workflow first" not in text or "Office / document" in text
+    assert "{{pdf}}" in text or "{{data-analyzer}}" in text
+    assert "do not also write .docx" in text
+    assert "MUST use the skill workflow first" in text
 
 
 def test_synthesize_prompt_forbids_internal_jargon():
@@ -81,6 +104,7 @@ def test_synthesize_prompt_forbids_internal_jargon():
     assert "{transcript}" not in text
     assert "unless the user asked for a table" not in text
     assert "tables or lists" in text.lower() or "Use tables" in text
+    assert "来源" in text
 
 
 def test_assemble_merges_assistant_rules_into_one_system(monkeypatch):
@@ -138,6 +162,24 @@ def test_assemble_skips_office_skill_preload_on_research(monkeypatch):
     assert "PRELOADED:demo" in blob
 
 
+def test_assemble_skips_office_skill_preload_on_markdown_file(monkeypatch):
+    from app.runtime.v2.assemble import assemble_system_messages
+
+    monkeypatch.setattr(
+        "app.runtime.v2.assemble._skill_block",
+        lambda sid: f"PRELOADED:{sid}",
+    )
+    msgs = assemble_system_messages(
+        agent_prompt_name="single_agent",
+        enabled_skill_ids=["officecli-docx", "demo"],
+        user_text="帮我将内容转成md文件",
+        long_term=object(),
+    )
+    blob = msgs[0].content
+    assert "PRELOADED:officecli-docx" not in blob
+    assert "PRELOADED:demo" in blob
+
+
 def test_assemble_preloads_office_skill_when_user_wants_doc(monkeypatch):
     from app.runtime.v2.assemble import assemble_system_messages
 
@@ -152,3 +194,37 @@ def test_assemble_preloads_office_skill_when_user_wants_doc(monkeypatch):
         long_term=object(),
     )
     assert "PRELOADED:officecli-docx" in msgs[0].content
+
+
+def test_assemble_preloads_office_skill_on_hash_tag(monkeypatch):
+    from app.runtime.v2.assemble import assemble_system_messages
+
+    monkeypatch.setattr(
+        "app.runtime.v2.assemble._skill_block",
+        lambda sid: f"PRELOADED:{sid}",
+    )
+    msgs = assemble_system_messages(
+        agent_prompt_name="single_agent",
+        enabled_skill_ids=["officecli-docx"],
+        user_text="形成word #officecli-docx",
+        long_term=object(),
+    )
+    assert "PRELOADED:officecli-docx" in msgs[0].content
+
+
+def test_assemble_auto_preloads_officecli_when_user_asks_word(monkeypatch):
+    from app.runtime.v2.assemble import assemble_system_messages
+
+    monkeypatch.setattr(
+        "app.runtime.v2.assemble._skill_block",
+        lambda sid: f"PRELOADED:{sid}",
+    )
+    msgs = assemble_system_messages(
+        agent_prompt_name="single_agent",
+        enabled_skill_ids=[],
+        user_text="帮我生成word文档",
+        long_term=object(),
+    )
+    blob = msgs[0].content
+    assert "PRELOADED:officecli" in blob
+    assert "PRELOADED:officecli-docx" in blob

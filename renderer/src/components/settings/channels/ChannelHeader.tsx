@@ -1,6 +1,8 @@
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
+import { getChannelLogo } from "./channelLogos";
+
 export interface ChannelCardConfig {
   id: string;
   title: string;
@@ -19,16 +21,29 @@ export default function ChannelHeader({
   channel: ChannelCardConfig;
   onToggleEnabled?: (enabled: boolean) => void;
 }) {
+  const logoSrc = getChannelLogo(channel.id);
+
   return (
     <div className="flex w-full items-center gap-3">
-      <span
-        className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white",
-          channel.accent,
-        )}
-      >
-        {channel.initial}
-      </span>
+      {logoSrc ? (
+        <img
+          src={logoSrc}
+          alt=""
+          className={cn(
+            "h-8 w-8 shrink-0 rounded-lg object-contain",
+            channel.comingSoon && "opacity-60",
+          )}
+        />
+      ) : (
+        <span
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white",
+            channel.accent,
+          )}
+        >
+          {channel.initial}
+        </span>
+      )}
       <div className="min-w-0 flex-1 text-left">
         <div className="flex items-center gap-2">
           <span className="text-[14px] font-medium text-ds-text-neutral-default-default">

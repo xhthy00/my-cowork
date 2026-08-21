@@ -356,7 +356,8 @@ async def test_loop_refuses_exec_bash_officecli():
     refused = [
         m
         for m in out
-        if "chat answer, not a file" in str(getattr(m, "content", ""))
+        if "not an Office file" in str(getattr(m, "content", ""))
+        or "chat answer, not a file" in str(getattr(m, "content", ""))
     ]
     assert refused
     assert not any("officecli 1.0" in str(getattr(m, "content", "")) for m in out)
@@ -437,3 +438,123 @@ async def test_loop_load_skill_does_not_insert_human_between_tools():
     bodies = [str(getattr(m, "content", "")) for m in out if getattr(m, "type", None) == "tool"]
     assert any("SKILL:official-document-writing" in b for b in bodies)
     assert any("Follow the skill markdown" in b for b in bodies)
+
+
+@pytest.mark.asyncio
+async def test_loop_refuses_pandoc_docx():
+    ran = {"n": 0}
+
+    @langchain_tool
+    def bash(command: str) -> str:
+        """Run a shell command."""
+        ran["n"] += 1
+        return "wrote /tmp/x.docx"
+
+    model = FakeChatModel(
+        responses=[
+            make_ai(
+                "我用 pandoc 转 Word",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "name": "bash",
+                        "args": {
+                            "command": "pandoc report.html -o /tmp/扬州购房政策调研报告.docx"
+                        },
+                    }
+                ],
+            ),
+            make_ai("改用 officecli 生成。"),
+        ]
+    )
+    out = await run_act_loop(
+        model,
+        [bash],
+        [HumanMessage(content="帮我生成word文档")],
+        allow_file_writes=True,
+    )
+    assert ran["n"] == 0
+    refused = [
+        m
+        for m in out
+        if "Do not use pandoc" in str(getattr(m, "content", ""))
+    ]
+    assert refused
+
+
+@pytest.mark.asyncio
+async def test_loop_filters_mcp_tools_before_bind():
+    from langchain_core.tools import StructuredTool
+
+    from app.tools.mcp.manager import reset_enabled_mcp, set_enabled_mcp
+
+    bound: list[str] = []
+
+    class Rec(FakeChatModel):
+        def bind_tools(self, tools, **kwargs):  # type: ignore[no-untyped-def]
+            bound.clear()
+            bound.extend(str(getattr(t, "name", "") or "") for t in tools)
+            return self
+
+    pw = StructuredTool.from_function(
+        lambda: "a",
+        name="mcp_playwright_nav",
+        description="d",
+        metadata={"mcp_server": "playwright"},
+    )
+    other = StructuredTool.from_function(
+        lambda: "b",
+        name="mcp_other_foo",
+        description="d",
+        metadata={"mcp_server": "other"},
+    )
+    model = Rec(responses=[make_ai("ok")])
+    token = set_enabled_mcp(["playwright"])
+    try:
+        await run_act_loop(model, [pw, other], [HumanMessage(content="hi")])
+    finally:
+        reset_enabled_mcp(token)
+    assert "mcp_playwright_nav" in bound
+    assert "mcp_other_foo" not in bound
+
+
+@pytest.mark.asyncio
+async def test_loop_refuses_search_after_budget(monkeypatch):
+    import app.runtime.v2.loop as loop_mod
+
+    monkeypatch.setattr(loop_mod, "_MAX_RESEARCH_SEARCHES", 2)
+
+    calls: list[str] = []
+
+    @langchain_tool
+    def web_search(query: str) -> str:
+        """Search the web."""
+        calls.append(query)
+        return f'[{{"url":"https://example.gov/{len(calls)}"}}]'
+
+    model = FakeChatModel(
+        responses=[
+            make_ai(
+                "",
+                tool_calls=[{"id": "1", "name": "web_search", "args": {"query": "q1 官方"}}],
+            ),
+            make_ai(
+                "",
+                tool_calls=[{"id": "2", "name": "web_search", "args": {"query": "q2 细则"}}],
+            ),
+            make_ai(
+                "",
+                tool_calls=[{"id": "3", "name": "web_search", "args": {"query": "q3 更多"}}],
+            ),
+            make_ai("enough"),
+        ]
+    )
+    out = await run_act_loop(model, [web_search], [HumanMessage(content="调研政策")])
+    assert calls == ["q1 官方", "q2 细则"]
+    notices = [
+        str(getattr(m, "content", "") or "")
+        for m in out
+        if getattr(m, "type", None) == "tool"
+    ]
+    assert any("Research budget exhausted" in t for t in notices)
+    assert out[-1].content == "enough"

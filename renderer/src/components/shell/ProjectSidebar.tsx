@@ -13,6 +13,7 @@ import {
 import { useMemo, useState } from "react";
 
 import AlertDialog from "@/components/ui/alertDialog";
+import { openScheduleSettings } from "@/components/settings/KeepAwakeBanner";
 import { cn } from "@/lib/utils";
 import {
   PROJECT_SIDEBAR_EXPANDED_WIDTH_PX,
@@ -105,10 +106,10 @@ export default function ProjectSidebar({
 
   return (
     <aside
-      className="box-border flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-2xl bg-ds-bg-neutral-default-default p-1"
+      className="box-border flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl bg-ds-bg-neutral-default-default p-1"
       style={fill && !folded ? { width: "100%" } : { width }}
     >
-      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <nav className="flex w-full shrink-0 flex-col gap-1">
           <button
             type="button"
@@ -148,7 +149,7 @@ export default function ProjectSidebar({
             type="button"
             title="定时"
             className={cn(navTabClass(false), folded && "justify-center px-0 gap-0")}
-            onClick={() => setHubTab("settings")}
+            onClick={() => openScheduleSettings()}
           >
             <Zap className="h-4 w-4 shrink-0 text-ds-icon-neutral-muted-default" />
             {!folded && <span className="min-w-0 flex-1 truncate">定时</span>}
@@ -203,7 +204,7 @@ export default function ProjectSidebar({
             <div className="mb-1 px-3 pt-1 text-[11px] font-semibold tracking-wide text-ds-text-neutral-subtle-default">
               项目
             </div>
-            <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-0.5">
+            <div className="min-h-0 min-w-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-0.5">
               {projects.map((s) => (
                 <div
                   key={s.id}

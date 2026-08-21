@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import MessageContent, {
+  beautifyChatMarkdown,
   collectThinkSegments,
   hasVisibleAnswer,
   normalizeMarkdown,
@@ -45,6 +46,25 @@ describe("parseContentSegments", () => {
     expect(parseContentSegments("普通回复")).toEqual([
       { type: "answer", text: "普通回复" },
     ]);
+  });
+
+  it("drops leaked search-narration after </think> instead of showing it as the answer", () => {
+    const raw = [
+      "<think>",
+      "- 扬州已取消限购",
+      "</think>",
+      "我将开始调研扬州",
+      "继续查询公积金、人才补贴",
+      "让我深入获取最新政策。",
+    ].join("\n");
+    const segs = parseContentSegments(raw);
+    expect(segs.some((s) => s.type === "answer")).toBe(false);
+    const think = segs
+      .filter((s) => s.type === "think")
+      .map((s) => s.text)
+      .join("\n");
+    expect(think).toContain("取消限购");
+    expect(think).not.toContain("我将开始调研扬州");
   });
 
   it("strips unsolicited officecli Word plans from think", () => {
@@ -116,17 +136,17 @@ describe("MessageContent deep think UI", () => {
     expect(details?.textContent).toMatch(/planning next tool/);
   });
 
-  it("collapses a closed think to 深度思考", () => {
+  it("collapses a closed think to 工作过程", () => {
     const content = ["<think>", "done thinking", "</think>", "最终答案"].join("\n");
     render(<MessageContent content={content} role="assistant" />);
     const details = document.querySelectorAll("details.deep-think");
     expect(details).toHaveLength(1);
     expect(details[0]?.hasAttribute("open")).toBe(false);
-    expect(screen.getByText("深度思考")).toBeInTheDocument();
+    expect(screen.getByText("工作过程")).toBeInTheDocument();
     expect(screen.getByText(/最终答案/)).toBeInTheDocument();
   });
 
-  it("merges multiple thinks into one V1 summary", () => {
+  it("merges multiple thinks into one process summary", () => {
     const content = [
       "<think>",
       "step1",
@@ -142,7 +162,7 @@ describe("MessageContent deep think UI", () => {
     );
     const details = document.querySelectorAll("details.deep-think");
     expect(details).toHaveLength(1);
-    expect(screen.getByText("已思考 · 2 步")).toBeInTheDocument();
+    expect(screen.getByText("工作过程")).toBeInTheDocument();
     expect(screen.queryAllByText("深度思考")).toHaveLength(0);
     expect(details[0]?.textContent).toMatch(/step1/);
     expect(details[0]?.textContent).toMatch(/step2/);
@@ -158,8 +178,7 @@ describe("MessageContent deep think UI", () => {
       <MessageContent content={content} role="assistant" hideThink />,
     );
     expect(document.querySelector("details.deep-think")).toBeNull();
-    expect(screen.queryByText("深度思考")).not.toBeInTheDocument();
-    expect(screen.queryByText("已思考")).not.toBeInTheDocument();
+    expect(screen.queryByText("工作过程")).not.toBeInTheDocument();
     expect(screen.getByText(/可见答案/)).toBeInTheDocument();
   });
 });
@@ -185,6 +204,20 @@ describe("normalizeMarkdown", () => {
   it("leaves fenced code alone", () => {
     const raw = "见下：\n```\nfoo### not a heading\n```";
     expect(normalizeMarkdown(raw)).toBe(raw);
+  });
+
+  it("detaches code fences glued to a heading and the last line", () => {
+    const raw = [
+      "四、APP申请流程示意图```",
+      "└── 我的 — 实名认证 (身份证+人脸)",
+      "推送给开发企业 — 首付款直接抵扣```",
+      "五、常见卡点与解决方法",
+    ].join("\n");
+    const out = normalizeMarkdown(raw);
+    expect(out).toContain("四、APP申请流程示意图\n```\n");
+    expect(out).toContain("首付款直接抵扣\n```\n五、");
+    expect(out).not.toContain("示意图```");
+    expect(out).not.toContain("抵扣```");
   });
 
   it("inserts a blank line before a flush table", () => {
@@ -229,5 +262,73 @@ describe("normalizeMarkdown", () => {
     expect(out).not.toMatch(/^\| ## /m);
     const headerCols = (out.match(/\| 技术难点 \| 外包队伍应对策略 \|/) || [])[0];
     expect(headerCols).toBeTruthy();
+  });
+});
+
+describe("beautifyChatMarkdown", () => {
+  it("promotes a short title line and quotes 来源 lines", () => {
+    const raw = [
+      "核心政策结论（含出处）",
+      "",
+      "1. **限购限售：均已全面取消**",
+      "2024年5月起扬州全市取消限购。",
+      "来源：新浪财经 https://example.com/a",
+    ].join("\n");
+    const out = beautifyChatMarkdown(raw);
+    expect(out.startsWith("## 核心政策结论（含出处）")).toBe(true);
+    expect(out).toContain("> **来源** · 新浪财经 https://example.com/a");
+  });
+
+  it("does not promote a full sentence as a title", () => {
+    expect(beautifyChatMarkdown("扬州已取消限购。")).toBe("扬州已取消限购。");
+  });
+
+  it("pulls indented 2. 3. 4. back to one ordered list", () => {
+    const raw = [
+      "## 核心政策结论（含出处）",
+      "",
+      "1. **限购限售：均已全面取消**",
+      "2024年5月起扬州全市取消限购。",
+      "来源：新浪财经",
+      "   2. **房贷利率（2024 年 LPR 调整后）**",
+      "      首套房 3.05%。",
+      "      3. **契税新政（2024.11.13 起）**",
+      "         4. **公积金阶段性提额**",
+    ].join("\n");
+    const out = beautifyChatMarkdown(raw);
+    expect(out).toMatch(/^### 1\. 限购限售/m);
+    expect(out).toMatch(/^### 2\. 房贷利率/m);
+    expect(out).toMatch(/^### 3\. 契税新政/m);
+    expect(out).toMatch(/^### 4\. 公积金阶段性提额/m);
+    expect(out).not.toMatch(/^[ \t]+2\./m);
+    expect(out).not.toMatch(/^[ \t]+3\./m);
+    expect(out).not.toMatch(/^[ \t]+4\./m);
+  });
+
+  it("promotes bold numbered titles to headings instead of list cards", () => {
+    const out = beautifyChatMarkdown(
+      [
+        "## 六、投资建议",
+        "",
+        "1. **已中签者——分批兑现**",
+        "长鑫科技建议分批兑现。",
+        "2. **未中签、想二级买入者——观望为主**",
+      ].join("\n"),
+    );
+    expect(out).toContain("### 1. 已中签者——分批兑现");
+    expect(out).toContain("### 2. 未中签、想二级买入者——观望为主");
+    expect(out).toContain("长鑫科技建议分批兑现。");
+  });
+
+  it("keeps a nested list that restarts at 1", () => {
+    const raw = [
+      "1. 主点",
+      "   1. 子点 A",
+      "   2. 子点 B",
+      "2. 下一项",
+    ].join("\n");
+    const out = beautifyChatMarkdown(raw);
+    expect(out).toContain("   1. 子点 A");
+    expect(out).toMatch(/^2\. 下一项$/m);
   });
 });

@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from app.agents.workers import WORKER_IDS, normalize_worker_id
+from app.runtime.todo_planner import is_office_plan_text
 
 _DECOMPOSE_SYSTEM = None
 
@@ -135,12 +136,37 @@ def parse_subtasks_json(text: str) -> list[dict[str, Any]]:
     return normalize_subtasks(data)
 
 
+_MD_ONLY_BRIEF = "将内容写入 Markdown 文件（.md）。"
+
+
+def align_subtasks_to_user_format(
+    text: str, subtasks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Drop invented Word/officecli briefs when the user asked only for Markdown.
+
+    Eigent document agent writes the user-specified extension via write_to_file;
+    unspecified format is HTML. Workforce Progress is this subtask list.
+    """
+    from app.graphs.routing import wants_document, wants_markdown_file
+
+    q = (text or "").strip()
+    if not subtasks or not (wants_markdown_file(q) and not wants_document(q)):
+        return subtasks
+    out: list[dict[str, Any]] = []
+    for item in subtasks:
+        row = dict(item)
+        if is_office_plan_text(str(row.get("content") or "")):
+            row["content"] = _MD_ONLY_BRIEF
+        out.append(row)
+    return out
+
+
 async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]:
     q = (text or "").strip()
     if _is_trivial(q):
         return []
     if llm is None:
-        return fallback_subtasks(q)
+        return align_subtasks_to_user_format(q, fallback_subtasks(q))
     prompt = f"User request:\n{q}\n\nReturn the JSON subtask array now."
     try:
         if hasattr(llm, "ainvoke"):
@@ -168,7 +194,7 @@ async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]
         else:
             todos = []
         if todos:
-            return todos
+            return align_subtasks_to_user_format(q, todos)
     except Exception:
         pass
-    return fallback_subtasks(q)
+    return align_subtasks_to_user_format(q, fallback_subtasks(q))

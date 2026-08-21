@@ -47,7 +47,9 @@ class WorkforceState(TypedDict, total=False):
     worker_brief: Annotated[str, _last_value]
     coord_action: Annotated[str, _last_value]
     coord_briefs: Annotated[dict, _last_value]
-    round: Annotated[int, operator.add]
+    # last_value so a new turn (round=0) does not inherit the previous
+    # run's accumulated count (operator.add + shared thread_id ended instantly).
+    round: Annotated[int, _last_value]
 
 
 # Back-compat alias used by older imports/tests during migration.

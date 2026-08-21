@@ -137,8 +137,8 @@ def is_process_meta(text: str) -> bool:
     return False
 
 
-def resolve_workforce_end_summary(subtasks: list[dict[str, Any]] | None) -> str:
-    """Eigent-like end text: prefer <summary>…</summary>, else non-meta results."""
+def worker_summary_parts(subtasks: list[dict[str, Any]] | None) -> list[str]:
+    """User-facing bodies from each worker result (skip process meta)."""
     parts: list[str] = []
     for st in subtasks or []:
         raw = str(st.get("result") or "")
@@ -151,11 +151,15 @@ def resolve_workforce_end_summary(subtasks: list[dict[str, Any]] | None) -> str:
         clean = strip_think_blocks(raw)
         if clean and not is_process_meta(clean):
             parts.append(clean)
+    return parts
+
+
+def resolve_workforce_end_summary(subtasks: list[dict[str, Any]] | None) -> str:
+    """One user-facing end card. Never concatenate every worker report."""
+    parts = worker_summary_parts(subtasks)
     if not parts:
         return ""
-    if len(parts) == 1:
-        return parts[0]
-    return "\n\n".join(f"### 子任务 {i}\n{p}" for i, p in enumerate(parts, start=1))
+    return parts[-1]
 
 
 def summary_is_thin(text: str) -> bool:
@@ -277,28 +281,23 @@ async def synthesize_answer(
         evidence=evidence_blob(messages),
     )
     try:
-        msg = await llm.ainvoke(
-            [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "Write the final user-facing answer now."},
-            ]
-        )
-        text = str(getattr(msg, "content", None) or msg).strip()
+        from app.runtime.agent_stream import _emit_step_delta, astream_llm_content
+
+        prompt_messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "Write the final user-facing answer now."},
+        ]
+        text = await astream_llm_content(llm, prompt_messages)
         text = _SUMMARY_RE.sub(lambda m: m.group(1).strip(), text)
         last_turn = last_ai_text(turn)
         if looks_like_workspace_dump(text):
             clean = fallback or digest_from_tools(turn)
             if clean and clean != last_turn:
-                from app.runtime.agent_stream import _emit_step_delta
-
                 _emit_step_delta("\n" + clean)
             return clean
-        text = text or fallback
-        if text and text != last_turn:
-            from app.runtime.agent_stream import _emit_step_delta
-
+        if text and text != last_turn and not hasattr(llm, "astream"):
             _emit_step_delta("\n" + text)
-        return text
+        return text or fallback
     except Exception:
         return fallback
 
@@ -312,9 +311,15 @@ async def compose_workforce_answer(
 ) -> str:
     """Merge worker <summary> tags; rewrite only when the composition is thin."""
     msgs = list(messages or [])
+    parts = worker_summary_parts(subtasks)
     composed = resolve_workforce_end_summary(subtasks)
-    if composed and not summary_is_thin(composed):
+    # One worker: keep their <summary>. Several workers: synthesize one
+    # user-facing answer (Eigent END card) instead of concatenating every role.
+    if composed and not summary_is_thin(composed) and len(parts) <= 1:
+        from app.runtime.agent_stream import _emit_step_delta
+
+        _emit_step_delta(composed)
         return composed
-    if llm is not None and _has_findings_or_fetch(msgs):
+    if llm is not None and (len(parts) > 1 or _has_findings_or_fetch(msgs)):
         return await synthesize_answer(user_text, msgs, llm, rewrite=True)
     return composed or fallback_synthesize(user_text, msgs)

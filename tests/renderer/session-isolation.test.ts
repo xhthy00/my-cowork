@@ -15,12 +15,15 @@ import {
   dropProjectPark,
   rememberProjectTaskId,
 } from "../../renderer/src/store/livePark";
+import { dropAllProjectRuntimes } from "../../renderer/src/store/projectRuntime";
 import { useSessionStore } from "../../renderer/src/store/session";
 import { useSessionsStore } from "../../renderer/src/store/sessions";
+import { useWorkforceStore } from "../../renderer/src/store/workforce";
 
 describe("session isolation", () => {
   beforeEach(() => {
     abortActiveChatStream();
+    dropAllProjectRuntimes();
     useSessionsStore.setState({
       sessions: [],
       activeId: null,
@@ -108,7 +111,7 @@ describe("session isolation", () => {
     expect(b).toBeTruthy();
   });
 
-  it("routes background SSE into parked project without touching active", () => {
+    it("routes background SSE into parked project without touching active", () => {
     const a = useSessionsStore.getState().createSession("a");
     useSessionStore.setState({
       messages: [{ id: "u1", role: "user", content: "任务A" }],
@@ -125,12 +128,84 @@ describe("session isolation", () => {
 
     expect(useSessionStore.getState().messages).toEqual([]);
     useSessionsStore.getState().setActive(a);
+    const parked = useSessionStore.getState();
+    const text = parked.messages.map((m) => m.content).join("\n");
+    expect(text).not.toContain("后台增量");
+    expect(
+      parked.trace.some(
+        (e) => e.type === "step.delta" && e.payload?.delta === "后台增量",
+      ),
+    ).toBe(true);
+    expect(parked.runStatus).toBe("running");
+  });
+
+  it("drops leaked SSE whose task_id belongs to another project", () => {
+    const a = useSessionsStore.getState().createSession("a");
+    rememberProjectTaskId(a, "task-a");
+    useSessionStore.setState({
+      messages: [{ id: "u1", role: "user", content: "任务A" }],
+      runStatus: "running",
+    });
+    const b = useSessionsStore.getState().createSession("b");
+    rememberProjectTaskId(b, "task-b");
+
+    dispatchProjectEvent(b, {
+      type: "step.delta",
+      payload: { delta: "不该出现在B", task_id: "task-a" },
+    });
+    expect(useSessionStore.getState().messages).toEqual([]);
+
+    useSessionsStore.getState().setActive(a);
     const text = useSessionStore
       .getState()
       .messages.map((m) => m.content)
       .join("\n");
-    expect(text).toContain("后台增量");
-    expect(useSessionStore.getState().runStatus).toBe("running");
+    expect(text).not.toContain("不该出现在B");
+  });
+
+  it("keeps workforce progress on the source project while another chat is active", () => {
+    const a = useSessionsStore.getState().createSession("a");
+    dispatchProjectEvent(a, {
+      type: "agent.create",
+      payload: {
+        agent_id: "developer_agent",
+        name: "Developer Agent",
+        agent_type: "developer_agent",
+      },
+    });
+    dispatchProjectEvent(a, {
+      type: "agent.activate",
+      payload: { agent_id: "developer_agent" },
+    });
+
+    useSessionsStore.getState().createSession("b");
+    const activeAgent = useWorkforceStore
+      .getState()
+      .taskAssigning.find((x) => x.agent_id === "developer_agent");
+    expect(activeAgent?.status).toBe("idle");
+
+    dispatchProjectEvent(a, {
+      type: "agent.assign",
+      payload: {
+        agent_id: "developer_agent",
+        assign_id: "t-bg",
+        content: "后台任务",
+        status: "running",
+      },
+    });
+    expect(
+      useWorkforceStore
+        .getState()
+        .taskAssigning.find((x) => x.agent_id === "developer_agent")?.status,
+    ).toBe("idle");
+    expect(useWorkforceStore.getState().taskRunning).toHaveLength(0);
+
+    useSessionsStore.getState().setActive(a);
+    const restored = useWorkforceStore
+      .getState()
+      .taskAssigning.find((x) => x.agent_id === "developer_agent");
+    expect(restored?.status).toBe("running");
+    expect(restored?.tasks.some((t) => t.content === "后台任务")).toBe(true);
   });
 
   it("deleteSession aborts that project stream only", () => {

@@ -11,9 +11,10 @@ from langgraph.types import Send
 from app.agents.factory import load_prompt
 from app.agents.workers import WORKER_IDS
 from app.graphs.coordinator import coordinate
-from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks
+from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks, wants_document
 from app.graphs.state import WorkforceState
 from app.graphs.v2_single import run_with_floor_retries
+from app.runtime.todo_context import todo_agent_scope
 from app.runtime.v2.assemble import render_agent_prompt
 from app.runtime.v2.critic import (
     analyze_task,
@@ -21,6 +22,7 @@ from app.runtime.v2.critic import (
     finalize_worker_result,
     needs_research,
 )
+from app.runtime.v2.office_gate import office_skills_scope
 from app.runtime.v2.synthesize import compose_workforce_answer
 
 
@@ -70,24 +72,25 @@ def compile_v2_workforce_graph(
             for a in (decision.get("assignments") or [])
             if isinstance(a, dict) and a.get("id")
         }
+        rnd = int(state.get("round") or 0) + 1
         return {
             "subtasks": subtasks,
             "coord_action": action,
             "coord_briefs": briefs,
             "assigned_task_id": None,
-            "round": 1,
+            "round": rnd,
             "messages": [],
         }
 
     def route_after(state: dict[str, Any]) -> Any:
         action = str(state.get("coord_action") or "")
-        if action == "finish":
-            return "synthesize"
-        round_n = int(state.get("round") or 0)
-        if round_n >= 16:
-            return "synthesize"
         subtasks = list(state.get("subtasks") or [])
         ready = ready_subtasks(subtasks)
+        if action == "finish" and not ready:
+            return "synthesize"
+        round_n = int(state.get("round") or 0)
+        if round_n >= 16 and not ready:
+            return "synthesize"
         briefs = dict(state.get("coord_briefs") or {})
         if action == "rework":
             ready = ready_subtasks(subtasks)
@@ -124,7 +127,7 @@ def compile_v2_workforce_graph(
             task_id = state.get("assigned_task_id")
             task = next((t for t in subtasks if str(t.get("id")) == str(task_id)), None)
             if task is None:
-                return {"messages": [], "round": 0}
+                return {"messages": []}
             user_text = str(state.get("user_text") or "")
             brief = str(state.get("worker_brief") or task.get("content") or "")
             deps = task.get("dependencies") or []
@@ -147,20 +150,28 @@ def compile_v2_workforce_graph(
             )
             system = render_agent_prompt(prompt_name)
             invoke = [SystemMessage(content=system), HumanMessage(content=prompt)]
-            result_messages = await run_with_floor_retries(
-                model,
-                tools,
-                invoke,
-                brief or user_text,
-                apply_research=(
-                    name == "browser_agent"
-                    and needs_research(f"{user_text} {brief}")
-                ),
-                require_findings=(
-                    name == "browser_agent"
-                    and needs_research(f"{user_text} {brief}")
-                ),
-            )
+            # Gate office on the original user ask, not a planner brief that
+            # invented「再生成 Word」after the user only wanted Markdown.
+            format_text = user_text or brief
+            with todo_agent_scope(name):
+                with office_skills_scope(wants_document(format_text)):
+                    result_messages = await run_with_floor_retries(
+                        model,
+                        tools,
+                        invoke,
+                        format_text,
+                        max_retries=1,
+                        act_max_steps=18,
+                        skip_file_gate=name == "browser_agent",
+                        apply_research=(
+                            name == "browser_agent"
+                            and needs_research(f"{user_text} {brief}")
+                        ),
+                        require_findings=(
+                            name == "browser_agent"
+                            and needs_research(f"{user_text} {brief}")
+                        ),
+                    )
             summary = _last_text(result_messages)
             digest = evidence_digest(result_messages)
             if digest:
@@ -191,7 +202,6 @@ def compile_v2_workforce_graph(
                 "messages": result_messages,
                 "subtasks": [patch],
                 "assigned_task_id": None,
-                "round": 0,
             }
 
         worker_node.__name__ = f"{name}_node"
@@ -199,13 +209,14 @@ def compile_v2_workforce_graph(
 
     async def synthesize_node(state: WorkforceState) -> dict:
         user_text = str(state.get("user_text") or "")
-        text = await compose_workforce_answer(
-            user_text,
-            subtasks=list(state.get("subtasks") or []),
-            messages=list(state.get("messages") or []),
-            llm=planner_llm,
-        )
-        return {"messages": [AIMessage(content=text)], "round": 0, "coord_action": "done"}
+        with todo_agent_scope("synthesize"):
+            text = await compose_workforce_answer(
+                user_text,
+                subtasks=list(state.get("subtasks") or []),
+                messages=list(state.get("messages") or []),
+                llm=planner_llm,
+            )
+        return {"messages": [AIMessage(content=text)], "coord_action": "done"}
 
     builder = StateGraph(WorkforceState)
     builder.add_node("coordinator", coordinator_node)

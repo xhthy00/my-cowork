@@ -36,6 +36,15 @@ _MIN_SEARCH_QUERIES = 2
 _MIN_FETCHES = 2
 
 
+def _is_fetch_tool(name: str) -> bool:
+    n = (name or "").strip().lower()
+    if not n or n in {"web_search", "web-search"}:
+        return False
+    if n in {"web_fetch", "web-fetch", "fetch"}:
+        return True
+    return "fetch" in n
+
+
 @dataclass
 class EvidenceInventory:
     search_queries: list[str] = field(default_factory=list)
@@ -130,7 +139,7 @@ def collect_evidence(messages: list[Any], user_text: str = "") -> EvidenceInvent
                 q = str(args.get("query") or args.get("q") or "").strip()
                 if q:
                     queries.append(q)
-            elif cname == "web_fetch":
+            elif _is_fetch_tool(cname):
                 url = _norm_url(str(args.get("url") or ""))
                 if url:
                     inv.fetch_urls.add(url)
@@ -142,7 +151,7 @@ def collect_evidence(messages: list[Any], user_text: str = "") -> EvidenceInvent
                     inv.findings_text += str(args.get("content") or "")
         if name == "web_search":
             inv.search_urls |= _parse_search_urls(content)
-        elif name == "web_fetch":
+        elif _is_fetch_tool(name):
             inv.fetch_urls |= _urls_in(content)
             if content.startswith("URL:"):
                 first = content.split("\n", 1)[0][4:].strip()
@@ -204,6 +213,14 @@ def evidence_digest(messages: list[Any], limit: int = 2_000) -> str:
         parts.append("notes: " + ", ".join(sorted(inv.note_names)))
     blob = "\n".join(parts)
     return blob if len(blob) <= limit else blob[:limit] + "…"
+
+
+def evidence_floor_met(inv: EvidenceInventory) -> bool:
+    """True when search+fetch already meet the research minimum (stop injecting)."""
+    return (
+        len(inv.search_queries) >= _MIN_SEARCH_QUERIES
+        and len(inv.fetch_urls) >= _MIN_FETCHES
+    )
 
 
 @dataclass
@@ -310,12 +327,13 @@ def heuristic_critic(
     *,
     apply_research: bool | None = None,
     require_findings: bool = False,
+    skip_file_gate: bool = False,
 ) -> CriticVerdict:
     """Deterministic completeness floor (goldens + analyze_task gate)."""
     messages = current_turn_messages(messages)
     ai = best_user_facing_text(messages) or last_ai_text(messages)
     body = strip_think_blocks(ai)
-    need_doc = _wants_file(user_text)
+    need_doc = False if skip_file_gate else _wants_file(user_text)
     doc_ok = _file_written(messages, user_text) if need_doc else True
     plan_only = looks_like_plan_only(user_text, ai)
     research = needs_research(user_text) if apply_research is None else bool(apply_research)
@@ -363,7 +381,7 @@ def heuristic_critic(
                 "(not only the user sentence)."
             )
             sources_ok = False
-        if len(valid_fetches) < _MIN_FETCHES:
+        if len(inv.fetch_urls) < _MIN_FETCHES:
             missing.append(
                 "Call web_fetch on at least 2 URLs from search results "
                 "(or URLs the user provided)."
@@ -416,6 +434,7 @@ def floor_analysis(
     *,
     apply_research: bool | None = None,
     require_findings: bool = False,
+    skip_file_gate: bool = False,
 ) -> TaskAnalysisResult | None:
     """Return an insufficient result when the deterministic floor fails."""
     verdict = heuristic_critic(
@@ -423,6 +442,7 @@ def floor_analysis(
         messages,
         apply_research=apply_research,
         require_findings=require_findings,
+        skip_file_gate=skip_file_gate,
     )
     if verdict.next == "answer":
         return None
@@ -532,9 +552,19 @@ async def analyze_task(
         msgs,
         apply_research=apply_research,
         require_findings=require_findings,
+        skip_file_gate=assigned_worker == "browser_agent",
     )
     if floor is not None:
         return floor
+    research = assigned_worker == "browser_agent" or needs_research(gate_text or blob)
+    if research:
+        # Floor already passed. Another critic LLM used to send the same
+        # research worker back for 40 more search steps (20+ minute runs).
+        return TaskAnalysisResult(
+            quality_score=FAIL_OPEN_SCORE,
+            reasoning="Research completeness floor passed.",
+            recovery_strategy=None,
+        )
 
     issue_type = "failure" if for_failure else "quality"
     extra = (

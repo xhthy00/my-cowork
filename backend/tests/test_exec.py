@@ -94,6 +94,39 @@ class TestExecBash:
         assert run.call_args.kwargs.get("timeout") == 180.0
 
     @pytest.mark.asyncio
+    async def test_pandoc_docx_is_refused(self, tmp_path):
+        bash = _make(make_bash, tmp_path, ok=True)
+        with patch("app.tools.builtin.exec.subprocess.run") as run:
+            raw = await bash.ainvoke(
+                {
+                    "cmd": "pandoc report.html -o /tmp/out.docx",
+                    "cwd": str(tmp_path),
+                }
+            )
+        payload = json.loads(raw)
+        assert payload["exit_code"] == 1
+        assert "pandoc" in payload["stderr"].lower()
+        assert run.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_officecli_create_refused_when_office_gated(self, tmp_path):
+        from app.runtime.v2.office_gate import office_skills_scope
+
+        bash = _make(make_bash, tmp_path, ok=True)
+        with office_skills_scope(False):
+            with patch("app.tools.builtin.exec.subprocess.run") as run:
+                raw = await bash.ainvoke(
+                    {
+                        "cmd": "officecli create /tmp/out/a.docx",
+                        "cwd": str(tmp_path),
+                    }
+                )
+        payload = json.loads(raw)
+        assert payload["exit_code"] == 1
+        assert "Markdown" in payload["stderr"]
+        assert run.call_count == 0
+
+    @pytest.mark.asyncio
     async def test_timeout_returns_124(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MY_COWORK_BASH_TIMEOUT", "5")
         bash = _make(make_bash, tmp_path, ok=True)

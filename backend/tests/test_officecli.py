@@ -61,3 +61,12 @@ def test_assistants_builtin_seed(tmp_path):
     assert "officecli" in ppt["enabled_skills"]
     assert "officecli-pptx" in ppt["enabled_skills"]
     assert ppt.get("category") == "presentation"
+
+
+def test_office_bypass_refuse_pandoc_docx():
+    from app.runtime.v2.office import office_bypass_refuse
+
+    assert office_bypass_refuse("which pandoc && pandoc --version") is None
+    assert office_bypass_refuse("officecli create report.docx") is None
+    msg = office_bypass_refuse("pandoc report.html -o /tmp/out.docx")
+    assert msg and "pandoc" in msg.lower()

@@ -21,6 +21,22 @@ _office_skills_allowed: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "office_skills_allowed", default=True
 )
 
+OFFICE_WRITE_REFUSE = (
+    "[ERROR] The user asked for Markdown (.md) or a chat answer, not an Office file. "
+    "Do not run officecli or write .docx/.pptx/.xlsx/.pdf. "
+    "If they asked for .md, use fs_write and stop."
+)
+
+_OFFICE_WRITE_CMD_RE = re.compile(
+    r"\bofficecli(?:\.exe)?\s+(create|add|set|batch|save|close|remove|move|swap)\b",
+    re.IGNORECASE,
+)
+_OFFICE_EXT_RE = re.compile(r"\.(docx?|pptx?|xlsx|pdf)\b", re.IGNORECASE)
+_OFFICE_SAVE_RE = re.compile(
+    r"\b(create|write|save|document|openpyxl|pptxgen)\b",
+    re.IGNORECASE,
+)
+
 
 def is_office_skill(skill_id: str) -> bool:
     key = (skill_id or "").strip()
@@ -50,3 +66,32 @@ def office_skills_scope(allowed: bool) -> Iterator[None]:
         yield
     finally:
         reset_office_skills_allowed(token)
+
+
+def is_office_write_command(cmd: str) -> bool:
+    """True for officecli mutating verbs or scripts that save Office files."""
+    q = cmd or ""
+    if _OFFICE_WRITE_CMD_RE.search(q):
+        return True
+    return bool(_OFFICE_EXT_RE.search(q) and _OFFICE_SAVE_RE.search(q))
+
+
+def office_writes_blocked(user_text: str | None = None) -> bool:
+    """Block Word/PPT/Excel writes when office skills are gated or the user asked only for Markdown."""
+    if not office_skills_allowed():
+        return True
+    text = user_text
+    if text is None:
+        from app.runtime.todo_context import get_todo_runtime
+
+        rt = get_todo_runtime()
+        text = rt.user_text if rt is not None else ""
+    if not text:
+        return False
+    from app.graphs.routing import markdown_only
+
+    return markdown_only(text)
+
+
+def office_path_blocked(path: str) -> bool:
+    return office_writes_blocked() and bool(_OFFICE_EXT_RE.search(path or ""))

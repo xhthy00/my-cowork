@@ -18,6 +18,19 @@ from app.runtime.graph_runner import run_graph
 from app.skills import find_skill
 
 
+def _event_task_id(event: dict[str, Any]) -> str:
+    """Return the owning task id from a flat or nested bus event."""
+    tid = event.get("task_id")
+    if isinstance(tid, str) and tid:
+        return tid
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        nested = payload.get("task_id")
+        if isinstance(nested, str) and nested:
+            return nested
+    return ""
+
+
 def _assistant_skill_prefix(
     assistant_id: str | None, skill_ids: list[str] | None
 ) -> str:
@@ -237,6 +250,7 @@ class TaskManager:
             assistant_id = None
             enabled_skill_ids: list[str] = []
             session_id = None
+            enabled_mcp: list[str] | None = None
             req_obj = TaskRequest(text=text, task_id=task_id)
         else:
             text = task_req.text
@@ -251,6 +265,7 @@ class TaskManager:
             assistant_id = task_req.assistant_id
             enabled_skill_ids = list(task_req.enabled_skill_ids or [])
             session_id = task_req.session_id or task_req.project_id
+            enabled_mcp = task_req.enabled_mcp
             req_obj = task_req
 
         # When an assistant is selected but skills omitted, use its defaults.
@@ -268,13 +283,18 @@ class TaskManager:
             if prefix:
                 text = prefix + text
 
-        if self.confirm_hub is not None and hasattr(
-            self.confirm_hub, "clear_officecli_auto"
-        ):
-            self.confirm_hub.clear_officecli_auto()
-
         self._set_status(task_id, "RUNNING", source=source, text=text)
         self._seed_short_term(task_id, req_obj)
+        other_running = any(
+            tid != task_id and not gt.done()
+            for tid, gt in self._graph_tasks.items()
+        )
+        if (
+            not other_running
+            and self.confirm_hub is not None
+            and hasattr(self.confirm_hub, "clear_officecli_auto")
+        ):
+            self.confirm_hub.clear_officecli_auto()
         task = _Task(
             task_id=task_id,
             text=text,
@@ -296,10 +316,22 @@ class TaskManager:
         self._cancel_events[task_id] = cancel_event
 
         def _on_bus(event: dict[str, Any]) -> None:
+            owner = _event_task_id(event)
+            if owner and owner != task_id:
+                return
+            if not owner and any(
+                tid != task_id and not gt.done()
+                for tid, gt in self._graph_tasks.items()
+            ):
+                # Unscoped events must not fan out while two chats are live.
+                return
             queue.put_nowait(event)
 
         unsub = self.bus.subscribe(_on_bus)
         remote_token = set_remote_channel(source in REMOTE_CHANNEL_SOURCES)
+        from app.tools.mcp.manager import reset_enabled_mcp, set_enabled_mcp
+
+        mcp_token = set_enabled_mcp(enabled_mcp)
 
         async def _run_graph() -> None:
             try:
@@ -336,6 +368,10 @@ class TaskManager:
         try:
             while True:
                 event = await queue.get()
+                if event.get("type") == "graph.end":
+                    owner = _event_task_id(event)
+                    if owner and owner != task_id:
+                        continue
                 self._tasks[task_id]["events"].append(event)
                 if event.get("type") == "graph.end" and self.short_term is not None:
                     try:
@@ -365,6 +401,7 @@ class TaskManager:
                     break
         finally:
             unsub()
+            reset_enabled_mcp(mcp_token)
             reset_remote_channel(remote_token)
             self._cancel_events.pop(task_id, None)
             self._graph_tasks.pop(task_id, None)

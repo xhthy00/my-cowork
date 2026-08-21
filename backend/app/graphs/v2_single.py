@@ -18,7 +18,6 @@ from app.runtime.v2.critic import (
     issues_need_search,
 )
 from app.runtime.v2.loop import inject_forced_fetch, inject_forced_search, run_act_loop
-from app.runtime.v2.markdown import maybe_write_markdown_report
 from app.runtime.v2.office_gate import office_skills_scope
 from app.runtime.v2.session import load_thread, save_thread
 from app.runtime.v2.synthesize import synthesize_answer
@@ -44,27 +43,48 @@ async def run_with_floor_retries(
     max_retries: int = _FLOOR_RETRIES,
     apply_research: bool | None = None,
     require_findings: bool = False,
+    skip_file_gate: bool = False,
+    act_max_steps: int | None = None,
 ) -> list:
     """Act loop, then gate retries with forced search/fetch (LLM critic is optional later)."""
     allow_files = wants_document(user_text)
     tool_names = {
         str(getattr(t, "name", "") or "") for t in (tools or []) if getattr(t, "name", None)
     }
+    loop_kwargs: dict[str, Any] = {
+        "allow_file_writes": allow_files,
+    }
+    if act_max_steps is not None:
+        loop_kwargs["max_steps"] = act_max_steps
     working = await run_act_loop(
-        model, tools or [], messages, allow_file_writes=allow_files
+        model, tools or [], messages, **loop_kwargs
     )
+    from app.runtime.v2.critic import collect_evidence, evidence_floor_met
+
     for _ in range(max_retries):
         floor = floor_analysis(
             user_text,
             working,
             apply_research=apply_research,
             require_findings=require_findings,
+            skip_file_gate=skip_file_gate,
         )
         if floor is None:
             break
         issues = list(floor.issues or [])
         before = len(working)
-        if issues_need_fetch(issues) and not issues_need_search(issues):
+        enough = evidence_floor_met(collect_evidence(working, user_text))
+        leftover = [
+            i
+            for i in issues
+            if "web_search" not in i and "web_fetch" not in i
+        ]
+        if enough and not leftover:
+            break
+        if enough:
+            # Already searched/fetched enough — do not inject more queries.
+            pass
+        elif issues_need_fetch(issues) and not issues_need_search(issues):
             working = await inject_forced_fetch(tools, working)
         elif issues_need_search(issues):
             working = await inject_forced_search(tools, user_text, working)
@@ -170,20 +190,6 @@ def compile_v2_single_agent_graph(
                 not result or str(getattr(result[-1], "content", "") or "") != final
             ):
                 result = [*result, AIMessage(content=final)]
-        from app.runtime.workspace_context import get_workspace_runtime
-
-        rt = get_workspace_runtime()
-        workdir = rt.working_directory if rt is not None else None
-        synth_body = (final or "").strip() or None
-        if result and not synth_body:
-            from app.runtime.v2.synthesize import best_user_facing_text as _best
-
-            synth_body = _best(result)
-        result, md_path = maybe_write_markdown_report(
-            user_text, result, workdir=workdir, body=synth_body
-        )
-        if md_path:
-            _emit_step_delta("\n已整理为 Markdown：" + md_path)
         if session_id:
             save_thread(session_id, [m for m in result if not _is_system(m)])
         return {"messages": _delta_after_last_human(result), "round": 0}

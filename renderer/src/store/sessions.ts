@@ -15,7 +15,13 @@ import {
   parkProject,
   restoreProject,
 } from "./livePark";
-import { useSessionStore, type Message } from "./session";
+import {
+  setActiveProjectRuntime,
+  setProjectMessagePersist,
+} from "./projectRuntime";
+import type { Message } from "./session";
+
+import "./session";
 import {
   DEFAULT_SPACE_ID,
   useSpacesStore,
@@ -94,16 +100,12 @@ function abortProjectStream(projectId: string): void {
   dropProjectPark(projectId);
 }
 
-/** Hydrate live chat from persisted messages for the active session (startup). */
+/** Hydrate the active project's own store from persisted messages (startup). */
 export function hydrateLiveChat(): void {
   const s = useSessionsStore.getState();
   const id = s.activeId;
-  setLiveBoundId(null);
   if (id) restoreProject(id, s.getMessages(id));
-  else {
-    useSessionStore.getState().replaceMessages([]);
-    useSessionStore.getState().resetLiveState();
-  }
+  else setActiveProjectRuntime(null);
   setLiveBoundId(id);
 }
 
@@ -177,7 +179,6 @@ export const useSessionsStore = create<SessionsState>()(
           assistantPrompts: opts?.assistantPrompts,
         };
         const prev = get().activeId;
-        setLiveBoundId(null);
         if (prev) parkProject(prev);
         set((s) => ({
           sessions: [session, ...s.sessions],
@@ -204,7 +205,6 @@ export const useSessionsStore = create<SessionsState>()(
         setActive: (id) => {
           if (get().activeId === id) return;
           const prev = get().activeId;
-          setLiveBoundId(null);
           if (prev) parkProject(prev);
           set((s) => ({
             activeId: id,
@@ -240,12 +240,10 @@ export const useSessionsStore = create<SessionsState>()(
               : s.activeId;
           abortProjectStream(id);
           if (s.activeId === id) {
-            setLiveBoundId(null);
             if (nextActive) {
               restoreProject(nextActive, messagesById[nextActive] ?? []);
             } else {
-              useSessionStore.getState().replaceMessages([]);
-              useSessionStore.getState().resetLiveState();
+              setActiveProjectRuntime(null);
             }
             setLiveBoundId(nextActive);
             const nextProject = sessions.find((x) => x.id === nextActive);
@@ -292,12 +290,10 @@ export const useSessionsStore = create<SessionsState>()(
               : s.activeId;
           for (const id of removedIds) abortProjectStream(id);
           if (s.activeId && removedIds.has(s.activeId)) {
-            setLiveBoundId(null);
             if (nextActive) {
               restoreProject(nextActive, messagesById[nextActive] ?? []);
             } else {
-              useSessionStore.getState().replaceMessages([]);
-              useSessionStore.getState().resetLiveState();
+              setActiveProjectRuntime(null);
             }
             setLiveBoundId(nextActive);
           }
@@ -323,9 +319,19 @@ export const useSessionsStore = create<SessionsState>()(
           messagesById: state.messagesById || {},
         };
       },
+      onRehydrateStorage: () => (state) => {
+        const id = state?.activeId ?? null;
+        if (id) restoreProject(id, state?.messagesById?.[id] ?? []);
+        else setActiveProjectRuntime(null);
+        setLiveBoundId(id);
+      },
     },
   ),
 );
+
+setProjectMessagePersist((id, messages) => {
+  useSessionsStore.getState().saveMessages(id, messages);
+});
 
 export function ensureActiveSession(): string {
   const s = useSessionsStore.getState();

@@ -170,6 +170,11 @@ def make_fs_write(guard: PathGuard, confirm_hub: ConfirmHub | None) -> BaseTool:
         except PathGuardError as exc:
             return f"[ERROR] {exc}"
 
+        from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_path_blocked
+
+        if office_path_blocked(str(target)):
+            return OFFICE_WRITE_REFUSE
+
         if confirm_hub is not None:
             call_id = f"fs.write:{uuid.uuid4().hex}"
             ok = await confirm_hub.request(

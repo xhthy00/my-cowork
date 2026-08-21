@@ -17,10 +17,18 @@ from app.agents.sanitize import (
 )
 from app.runtime.agent_stream import _emit_step_delta, _message_content_text
 from app.runtime.context import is_user_facing_answer, looks_like_process_narration
-from app.runtime.v2.office import paths_from_text, validate_office_file
+from app.runtime.v2.office import office_bypass_refuse, paths_from_text, validate_office_file
 from app.runtime.v2.critic import collect_evidence, fetch_candidates
+from app.tools.mcp.manager import filter_mcp_tools, get_enabled_mcp
 
 _DEFAULT_MAX_STEPS = 40
+_MAX_RESEARCH_SEARCHES = 8
+_MAX_RESEARCH_FETCHES = 8
+_RESEARCH_BUDGET_NOTICE = (
+    "[NOTICE] Research budget exhausted (max 8 searches / 8 page fetches). "
+    "Do not call web_search, web_fetch, or other fetch tools again. "
+    "Write findings notes if needed, then the <summary> and stop."
+)
 _OFFICE_GEN = frozenset({"docx_gen", "pptx_gen", "xlsx_gen", "pdf_gen"})
 _FS_WRITE = frozenset({"fs.write", "fs_write"})
 _BASH_NAMES = frozenset({"bash", "exec.bash"})
@@ -29,9 +37,9 @@ _OFFICE_SKILL_RE = re.compile(
     re.IGNORECASE,
 )
 _FILE_REFUSE = (
-    "[ERROR] The user asked for a chat answer, not a file. "
+    "[ERROR] The user asked for Markdown or a chat answer, not an Office file. "
     "Do not write Word/PPT/Excel/PDF or run officecli. "
-    "Stop after the user-facing answer in the message body."
+    "If they asked for .md, use fs_write and stop."
 )
 
 
@@ -394,6 +402,22 @@ async def inject_forced_fetch(
     return out
 
 
+def _completed_research_counts(messages: list[Any]) -> tuple[int, int]:
+    """Count finished search/fetch tool messages (ignore the in-flight AI call)."""
+    searches = 0
+    fetches = 0
+    for msg in messages or []:
+        role = str(getattr(msg, "type", None) or "")
+        name = str(getattr(msg, "name", "") or "").lower()
+        if role not in {"tool", "ToolMessage"}:
+            continue
+        if name == "web_search":
+            searches += 1
+        elif "fetch" in name:
+            fetches += 1
+    return searches, fetches
+
+
 async def run_act_loop(
     model: Any,
     tools: list[BaseTool] | None,
@@ -405,7 +429,7 @@ async def run_act_loop(
     allow_file_writes: bool = True,
 ) -> list[Any]:
     """Run model ↔ tools until the model stops calling tools (ChatAgent-style)."""
-    tools = tools or []
+    tools = filter_mcp_tools(list(tools or []), get_enabled_mcp())
     mapping = _tool_map(tools)
     bound = model.bind_tools(tools) if tools and hasattr(model, "bind_tools") else model
     working = list(messages)
@@ -451,6 +475,35 @@ async def run_act_loop(
                     ToolMessage(content=_FILE_REFUSE, tool_call_id=cid or name, name=name)
                 )
                 continue
+            from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
+
+            if office_writes_blocked() and _is_file_write_call(name, args):
+                working.append(
+                    ToolMessage(
+                        content=OFFICE_WRITE_REFUSE, tool_call_id=cid or name, name=name
+                    )
+                )
+                continue
+            searches, fetches = _completed_research_counts(working)
+            over_search = name == "web_search" and searches >= _MAX_RESEARCH_SEARCHES
+            over_fetch = "fetch" in name.lower() and fetches >= _MAX_RESEARCH_FETCHES
+            if over_search or over_fetch:
+                working.append(
+                    ToolMessage(
+                        content=_RESEARCH_BUDGET_NOTICE,
+                        tool_call_id=cid or name,
+                        name=name,
+                    )
+                )
+                continue
+            if name in _BASH_NAMES:
+                cmd = str(args.get("command") or args.get("cmd") or args.get("input") or "")
+                refused = office_bypass_refuse(cmd)
+                if refused:
+                    working.append(
+                        ToolMessage(content=refused, tool_call_id=cid or name, name=name)
+                    )
+                    continue
             tool = mapping.get(name)
             if tool is None:
                 content = f"[ERROR] Unknown tool {name!r}."

@@ -1,7 +1,7 @@
 /**
  * Adapted from eigent: ChatBox/BottomBox (InputBox + picker overlays + BoxFooter).
  * Layout: [picker panels] → attachments → rich input → [paperclip | hammer | wand] … [send]
- *         → footer [mode | model]
+ *         → footer [mode | ring + model]
  */
 import {
   ArrowRight,
@@ -12,6 +12,7 @@ import {
   Joystick,
   Paperclip,
   Sparkles,
+  Square,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -33,14 +34,18 @@ import {
   getProjectTaskId,
   rememberProjectTaskId,
 } from "../../store/livePark";
-import { liveBoundId, getActiveProjectContext, useSessionsStore } from "../../store/sessions";
+import { getActiveProjectContext, useSessionsStore } from "../../store/sessions";
 import { useWorkforceStore } from "../../store/workforce";
 import { SessionMode } from "../../types/workforce";
 import ChatModelSelect from "./ChatModelSelect";
+import ContextUsageIndicator from "./ContextUsageIndicator";
+import { resolveContextUsage } from "@/lib/formatTokens";
 
 interface ChatBarProps {
   onEvent: (event: SSEvent, projectId?: string) => void;
   onSend?: (text: string) => void;
+  onStop?: () => void;
+  stopping?: boolean;
   disabled?: boolean;
   placeholder?: string;
   showFooter?: boolean;
@@ -92,6 +97,8 @@ function extractMcpNames(text: string): string[] {
 export default function ChatBar({
   onEvent,
   onSend,
+  onStop,
+  stopping = false,
   disabled,
   placeholder = "描述你想完成的事…",
   showFooter = true,
@@ -117,6 +124,23 @@ export default function ChatBar({
   const boundAssistantTitle = activeProject?.assistantId
     ? activeProject.assistantName || activeProject.title
     : null;
+  const sessionMessages = useSessionStore((s) => s.messages);
+  const contextTokens = useSessionStore((s) => s.contextTokens);
+  const contextLimit = useSessionStore((s) => s.contextLimit);
+  const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
+  const runStatus = useSessionStore((s) => s.runStatus);
+  const running = runStatus === "running";
+  const contextUsage = useMemo(
+    () =>
+      resolveContextUsage({
+        messages: sessionMessages,
+        draft: input,
+        contextTokens,
+        contextLimit,
+        budgetMaxTokens,
+      }),
+    [sessionMessages, input, contextTokens, contextLimit, budgetMaxTokens],
+  );
 
   useEffect(() => {
     const onFill = (e: Event) => {
@@ -241,10 +265,7 @@ export default function ChatBar({
     setIsLoading(true);
 
     const activeId = useSessionsStore.getState().activeId;
-    const prior =
-      activeId && liveBoundId === activeId
-        ? useSessionsStore.getState().getMessages(activeId)
-        : useSessionStore.getState().messages;
+    const prior = useSessionStore.getState().messages;
     const history = buildChatHistory(prior);
     const { project, space } = getActiveProjectContext();
     const streamProjectId = project?.id || activeId || undefined;
@@ -295,7 +316,12 @@ export default function ChatBar({
             ? { enabled_skill_ids: project.enabledSkillIds }
             : {}),
         },
-        (ev) => onEvent(ev, streamProjectId),
+        (ev) => {
+          const evTid =
+            typeof ev.payload?.task_id === "string" ? ev.payload.task_id : "";
+          if (evTid && evTid !== taskId) return;
+          onEvent(ev, streamProjectId);
+        },
         (message) => {
           onEvent(
             { type: "step.delta", payload: { delta: message } },
@@ -482,26 +508,39 @@ export default function ChatBar({
             </button>
           </div>
 
-          <button
-            type="button"
-            title="发送"
-            disabled={!hasContent || disabled || isLoading}
-            onClick={() => void handleSend()}
-            className={cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition-colors disabled:opacity-35",
-              hasContent
-                ? "bg-[var(--colors-green-default)]"
-                : "bg-ds-text-neutral-default-default",
-            )}
-          >
-            <ArrowRight
+          {running && onStop ? (
+            <button
+              type="button"
+              title="停止"
+              aria-label="停止任务"
+              disabled={stopping}
+              onClick={() => onStop()}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--danger)] text-white transition-colors disabled:opacity-35"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" strokeWidth={0} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              title="发送"
+              disabled={!hasContent || disabled || isLoading}
+              onClick={() => void handleSend()}
               className={cn(
-                "h-4 w-4 transition-transform duration-200",
-                hasContent && "-rotate-90",
+                "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition-colors disabled:opacity-35",
+                hasContent
+                  ? "bg-[var(--colors-green-default)]"
+                  : "bg-ds-text-neutral-default-default",
               )}
-              strokeWidth={2.2}
-            />
-          </button>
+            >
+              <ArrowRight
+                className={cn(
+                  "h-4 w-4 transition-transform duration-200",
+                  hasContent && "-rotate-90",
+                )}
+                strokeWidth={2.2}
+              />
+            </button>
+          )}
         </div>
       </div>
 
@@ -534,7 +573,10 @@ export default function ChatBar({
             )}
           </button>
 
-          <ChatModelSelect />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <ContextUsageIndicator used={contextUsage.used} limit={contextUsage.limit} />
+            <ChatModelSelect />
+          </div>
         </div>
       )}
     </div>

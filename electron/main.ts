@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, screen, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, protocol, screen, session, shell } from "electron";
 import type { ChildProcess } from "child_process";
 import { readFile } from "fs/promises";
 import * as fs from "fs";
@@ -26,6 +26,14 @@ import {
   type ModelProfile,
   type ModelProvider,
 } from "./models_store";
+import {
+  configureKeepAwakeRuntime,
+  getKeepAwakeState,
+  initKeepAwake,
+  releaseKeepAwake,
+  restoreKeepAwake,
+  setKeepAwakeEnabled,
+} from "./keepAwake";
 import { startPdfServer, type PdfServer } from "./pdf_server";
 import { start, stop as stopPythonBackend } from "./python_runner";
 import { getPackageVersion, prepareTerminalPython } from "./terminal_venv";
@@ -427,6 +435,16 @@ ipcMain.handle("cdp:connect", (_e, port: number) => connectCdpBrowser(port));
 ipcMain.handle("cdp:remove", (_e, id: string) => removeCdpBrowser(id));
 ipcMain.handle("updater:check", () => checkForUpdates());
 
+ipcMain.handle("keepAwake:get", () => getKeepAwakeState());
+ipcMain.handle(
+  "keepAwake:set",
+  (_e, body: { enabled?: boolean } | boolean | undefined) => {
+    const enabled =
+      typeof body === "boolean" ? body : Boolean(body?.enabled);
+    return setKeepAwakeEnabled(enabled);
+  },
+);
+
 // ── window ───────────────────────────────────────────────────────────────────
 
 async function loadRenderer(win: BrowserWindow) {
@@ -558,6 +576,13 @@ app.whenReady().then(async () => {
   const userData = app.getPath("userData");
   initKeychain(userData);
   initModelsStore(userData);
+  configureKeepAwakeRuntime({ powerSaveBlocker });
+  initKeepAwake(userData);
+  try {
+    await restoreKeepAwake();
+  } catch (err) {
+    console.error("Failed to restore keep-awake:", err);
+  }
 
   try {
     pdfServer = await startPdfServer();
@@ -587,6 +612,21 @@ app.whenReady().then(async () => {
       w.webContents.send("cdp:pool-changed", list);
     }
   });
+});
+
+let keepAwakeReleased = false;
+
+app.on("before-quit", (event) => {
+  if (keepAwakeReleased) return;
+  event.preventDefault();
+  void releaseKeepAwake()
+    .catch((err) => {
+      console.error("Failed to release keep-awake:", err);
+    })
+    .finally(() => {
+      keepAwakeReleased = true;
+      app.quit();
+    });
 });
 
 app.on("window-all-closed", () => {

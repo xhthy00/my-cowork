@@ -11,6 +11,12 @@ from langchain_core.tools import BaseTool, tool
 
 from app.guardrails.approval import ConfirmHub
 from app.guardrails.command_filter import CommandFilter
+from app.runtime.v2.office import office_bypass_refuse
+from app.runtime.v2.office_gate import (
+    OFFICE_WRITE_REFUSE,
+    is_office_write_command,
+    office_writes_blocked,
+)
 from app.sandbox.path_guard import PathGuard, PathGuardError, resolve_tool_path
 from app.runtime.workspace_context import get_workspace_runtime
 from app.tools.builtin.terminal_venv import (
@@ -75,6 +81,7 @@ def make_bash(
         Windows uses cmd.exe (not bash): ``dir`` / ``type`` / ``officecli``,
         not ``ls`` / ``cat``. Unicode paths work as-is — never run ``chcp``
         or encoding-conversion loops; use fs tools if a path looks wrong.
+        Word/PPT/Excel: run ``officecli``, never pandoc or LibreOffice convert.
         """
         try:
             rt = get_workspace_runtime()
@@ -88,6 +95,20 @@ def make_bash(
         except PathGuardError as exc:
             return json.dumps(
                 {"stdout": "", "stderr": str(exc), "exit_code": 1}
+            )
+
+        refused = office_bypass_refuse(cmd)
+        if refused:
+            return json.dumps(
+                {"stdout": "", "stderr": refused, "exit_code": 1}
+            )
+        if office_writes_blocked() and is_office_write_command(cmd):
+            return json.dumps(
+                {
+                    "stdout": "",
+                    "stderr": OFFICE_WRITE_REFUSE,
+                    "exit_code": 1,
+                }
             )
 
         if confirm_hub is not None:

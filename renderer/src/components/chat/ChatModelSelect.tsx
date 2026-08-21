@@ -22,7 +22,7 @@ import type { ModelProfile } from "@/window";
 
 /** Matches Eigent ModelSelect trigger shell. */
 const modelTriggerShellClass = cn(
-  "rounded-xl px-2 py-1 inline-flex max-w-[min(100%,420px)] shrink-0 items-center gap-1.5",
+  "rounded-xl px-2 py-1 inline-flex min-w-0 max-w-[min(100%,280px)] items-center gap-1.5",
   "bg-ds-bg-neutral-default-default text-ds-text-neutral-default-default",
 );
 
@@ -178,7 +178,7 @@ export default function ChatModelSelect() {
             "hover:bg-ds-bg-neutral-subtle-default active:bg-ds-bg-neutral-subtle-default data-[state=open]:bg-ds-bg-neutral-subtle-default",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-border-neutral-strong-default focus-visible:ring-offset-2",
             "disabled:pointer-events-none disabled:opacity-50",
-            open && "min-w-[200px]",
+            open && "min-w-[min(100%,200px)]",
           )}
         >
           <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">

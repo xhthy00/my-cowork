@@ -9,8 +9,16 @@ import type { SessionPreviewTab } from "./preview";
 export type HubTab = "home" | "agents" | "connectors" | "browser" | "settings";
 export type HomeSection = "spaces" | "projects" | "triggers";
 export type WorkspaceView = "workspace" | "hub";
-export type AgentsSection = "models" | "skills" | "sub-agents" | "memory";
+export type AgentsSection = "skills" | "sub-agents" | "memory";
 export type BrowserSection = "cdp" | "extension" | "cookies";
+
+export function migratePageTabState(persisted: unknown): unknown {
+  const state = persisted as Partial<PageTabState> & { agentsSection?: string };
+  if (state?.agentsSection === "models") {
+    return { ...state, agentsSection: "skills" };
+  }
+  return persisted;
+}
 
 interface PageTabState {
   workspaceView: WorkspaceView;
@@ -58,6 +66,8 @@ export const usePageTabStore = create<PageTabState>()(
     }),
     {
       name: "my-cowork-page-tab",
+      version: 1,
+      migrate: (persisted) => migratePageTabState(persisted),
       partialize: (s) => ({
         projectSidebarFolded: s.projectSidebarFolded,
         hubTab: s.hubTab,

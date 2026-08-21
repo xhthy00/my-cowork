@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import platform
+import re
 from datetime import datetime
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.factory import load_prompt
-from app.graphs.routing import wants_document
+from app.graphs.routing import wants_document, wants_pptx
 from app.runtime.context import format_memory_block
 from app.runtime.v2.office_gate import is_office_skill
 from app.runtime.v2.session import load_thread
@@ -68,6 +69,21 @@ def render_agent_prompt(name: str, **extra: str) -> str:
     return f"{body.rstrip()}\n\n{skills.rstrip()}\n\n{local.rstrip()}\n"
 
 
+def default_office_skill_ids(user_text: str) -> list[str]:
+    """Preload officecli-* so the model does not fall back to pandoc."""
+    if not wants_document(user_text):
+        return []
+    q = user_text or ""
+    ids = ["officecli"]
+    if wants_pptx(q):
+        ids.append("officecli-pptx")
+    elif re.search(r"xlsx|\bexcel\b|估算表|明细表|测算表", q, re.I):
+        ids.append("officecli-xlsx")
+    else:
+        ids.append("officecli-docx")
+    return ids
+
+
 def _skill_block(skill_id: str) -> str:
     meta = find_skill(skill_id)
     if meta is None or not meta.prompt:
@@ -124,6 +140,10 @@ def assemble_system_messages(
     skill_ids = list(enabled_skill_ids or [])
     if user_text and not wants_document(user_text):
         skill_ids = [sid for sid in skill_ids if not is_office_skill(sid)]
+    else:
+        for sid in default_office_skill_ids(user_text):
+            if sid not in skill_ids:
+                skill_ids.append(sid)
     for sid in skill_ids:
         if not sid:
             continue

@@ -70,4 +70,11 @@ contextBridge.exposeInMainWorld("api", {
   },
   checkForUpdates: (): Promise<{ ok: boolean; message: string }> =>
     ipcRenderer.invoke("updater:check"),
+  getKeepAwake: (): Promise<{ enabled: boolean; supported: boolean }> =>
+    ipcRenderer.invoke("keepAwake:get"),
+  setKeepAwake: (input: { enabled: boolean }): Promise<{
+    ok: boolean;
+    enabled: boolean;
+    error?: string;
+  }> => ipcRenderer.invoke("keepAwake:set", input),
 });

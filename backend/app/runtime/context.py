@@ -15,6 +15,8 @@ _HISTORY_MAX_CHARS = 8_000
 
 _THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
 _THINK_OPEN_RE = re.compile(r"<think>[\s\S]*$", re.IGNORECASE)
+_THINK_TAG_RE = re.compile(r"</?think(?:ing)?>", re.IGNORECASE)
+_ORPHAN_CLOSE_THINK_RE = re.compile(r"^[\s\S]*?</think(?:ing)?>", re.IGNORECASE)
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _PLAN_MARKERS = (
     "i will generate",
@@ -86,10 +88,15 @@ def format_memory_block(memories: list[dict[str, Any]]) -> str:
 
 
 def strip_think_blocks(content: str) -> str:
-    """Drop <think>…</think> (and unclosed think) so history is the formal answer."""
-    text = _THINK_BLOCK_RE.sub("\n", content or "")
+    """Drop <think>…</think> (and MiniMax orphan </think>) so history is the formal answer."""
+    text = content or ""
+    # AionUI MiniMax: reasoning then a lone </think> before the answer.
+    if not re.search(r"<think\b", text, re.I) and re.search(r"</think", text, re.I):
+        text = _ORPHAN_CLOSE_THINK_RE.sub("\n", text, count=1)
+    text = _THINK_BLOCK_RE.sub("\n", text)
     text = _THINK_OPEN_RE.sub("\n", text)
-    return text.replace("<think>", "").replace("</think>", "").strip()
+    text = _THINK_TAG_RE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def looks_like_workspace_dump(text: str) -> bool:

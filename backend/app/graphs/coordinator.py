@@ -35,7 +35,10 @@ async def coordinate(
         str(t.get("status")) in {"completed", "failed"} for t in subtasks
     )
     failed = [t for t in subtasks if str(t.get("status")) == "failed"]
-    if llm is None:
+    # Dispatch / finish are deterministic. Calling the coordinator LLM here
+    # used to re-open completed research ("need more sources") for another
+    # 40-step search loop.
+    if llm is None or all_done or (ready and not failed):
         if all_done:
             return {
                 "action": "finish",

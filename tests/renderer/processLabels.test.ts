@@ -47,7 +47,7 @@ describe("processLabels", () => {
     );
   });
 
-  it("buildWorkLogSteps shows Chinese labels", () => {
+  it("buildWorkLogSteps matches single-agent: tools only, no worker rows", () => {
     const steps = buildWorkLogSteps(
       [
         {
@@ -75,9 +75,9 @@ describe("processLabels", () => {
     expect(labels.some((l) => /browser_agent|list_skills|Running /i.test(l))).toBe(
       false,
     );
-    expect(labels).toContain("正在运行 · 浏览器智能体");
     expect(labels).toContain("列出技能");
-    expect(labels).toContain("任务协调");
+    expect(labels).not.toContain("正在运行 · 浏览器智能体");
+    expect(labels).not.toContain("任务协调");
   });
 
   it("pairs tool.start with tool.result and keeps repeat calls", () => {

@@ -95,6 +95,65 @@ def test_without_office_todos_drops_docx_steps():
     assert [t["content"] for t in kept] == ["检索备案政策", "在对话中回答"]
 
 
+def test_without_office_todos_drops_create_word_document():
+    todos = normalize_todos(
+        [
+            {
+                "content": "创建 Word 文档并搭建标题与元信息",
+                "active_form": "正在创建 Word 文档",
+                "status": "in_progress",
+            },
+            {
+                "content": "写入 Markdown 文件",
+                "active_form": "正在写入 Markdown 文件",
+                "status": "pending",
+            },
+        ]
+    )
+    kept = without_office_todos(todos)
+    assert [t["content"] for t in kept] == ["写入 Markdown 文件"]
+
+
+@pytest.mark.asyncio
+async def test_plan_todos_llm_rewrites_word_plan_when_user_asked_md():
+    import json
+
+    class _LLM:
+        async def ainvoke(self, _messages):
+            return type(
+                "M",
+                (),
+                {
+                    "content": json.dumps(
+                        [
+                            {
+                                "content": "创建 Word 文档并搭建标题与元信息",
+                                "active_form": "正在创建 Word 文档",
+                                "status": "in_progress",
+                            },
+                            {
+                                "content": "填写章节正文",
+                                "active_form": "正在填写章节正文",
+                                "status": "pending",
+                            },
+                        ],
+                        ensure_ascii=False,
+                    )
+                },
+            )()
+
+    todos = await plan_todos_llm(
+        "帮我将内容转成md文件",
+        _LLM(),
+        session_mode="single-agent",
+    )
+    blob = " ".join(t["content"] for t in todos)
+    assert "Word" not in blob
+    assert "docx" not in blob.lower()
+    assert todos
+    assert any("md" in t["content"].lower() or "Markdown" in t["content"] or "填写" in t["content"] for t in todos)
+
+
 @pytest.mark.asyncio
 async def test_plan_todos_llm_rejects_office_on_research_question():
     import json
@@ -138,3 +197,65 @@ async def test_plan_todos_llm_rejects_office_on_research_question():
     assert ".docx" not in blob
     assert todos
     assert any("拆解" in t["content"] or "执行" in t["content"] or "交付" in t["content"] for t in todos)
+
+
+def test_todos_match_user_language_rejects_english_titles():
+    from app.runtime.todo_planner import todos_match_user_language
+
+    en = [
+        {
+            "content": "Loading officecli skill",
+            "active_form": "Loading officecli skill",
+        }
+    ]
+    zh = [
+        {
+            "content": "加载 officecli 技能",
+            "active_form": "正在加载 officecli 技能",
+        }
+    ]
+    assert not todos_match_user_language(en, "调研扬州房价并生成word")
+    assert todos_match_user_language(zh, "调研扬州房价并生成word")
+    assert todos_match_user_language(en, "Write a Word report")
+
+
+def test_todo_write_rejects_english_when_user_is_chinese():
+    from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
+    from app.tools.builtin.todo import todo_write
+
+    class _Bus:
+        def emit(self, _event):
+            pass
+
+    runtime = TodoRuntime(
+        task_id="t1",
+        bus=_Bus(),
+        user_text="调研扬州房价并生成word",
+    )
+    token = set_todo_runtime(runtime)
+    try:
+        msg = todo_write(
+            [
+                {
+                    "content": "Loading officecli skill",
+                    "active_form": "Loading officecli skill",
+                    "status": "in_progress",
+                }
+            ]
+        )
+        assert msg.startswith("[ERROR]")
+        assert "简体中文" in msg
+        assert runtime.todos == []
+        ok = todo_write(
+            [
+                {
+                    "content": "加载 officecli 技能",
+                    "active_form": "正在加载 officecli 技能",
+                    "status": "in_progress",
+                }
+            ]
+        )
+        assert "Updated todo list" in ok
+        assert runtime.todos[0]["content"] == "加载 officecli 技能"
+    finally:
+        reset_todo_runtime(token)

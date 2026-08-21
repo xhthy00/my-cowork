@@ -93,15 +93,24 @@ class ConfirmHub:
             call_id=call_id,
             detail={"args": args},
         )
-        self._emit(
-            {
-                "type": "tool.confirm_request",
-                "call_id": call_id,
-                "tool": tool,
-                "args": args,
-                "payload": {"call_id": call_id, "tool": tool, "args": args},
-            }
-        )
+        confirm_event: dict[str, Any] = {
+            "type": "tool.confirm_request",
+            "call_id": call_id,
+            "tool": tool,
+            "args": args,
+            "payload": {"call_id": call_id, "tool": tool, "args": args},
+        }
+        try:
+            from app.runtime.todo_context import get_todo_runtime
+
+            todo = get_todo_runtime()
+            if todo is not None and getattr(todo, "task_id", None):
+                tid = str(todo.task_id)
+                confirm_event["task_id"] = tid
+                confirm_event["payload"] = {**confirm_event["payload"], "task_id": tid}
+        except Exception:
+            pass
+        self._emit(confirm_event)
 
         try:
             ok = await asyncio.wait_for(future, timeout=self._timeout_seconds)

@@ -1,7 +1,9 @@
 /**
  * Adapted from eigent: src/store/pageTabStore.ts (SessionPreviewSlice / tab kinds).
  */
-import { create } from "zustand";
+import { createStore } from "zustand";
+
+import { registerAndBindPreview } from "./projectRuntime";
 import { fileBasename, normalizeFsPath } from "@/lib/fsPath";
 
 export interface SessionBrowserNavigationState {
@@ -54,7 +56,7 @@ export type SessionPreviewTab =
 
 export type PreviewTabKind = Exclude<SessionPreviewTab["type"], "chooser">;
 
-interface PreviewState {
+export interface PreviewState {
   open: boolean;
   tabs: SessionPreviewTab[];
   activeTabId: string | null;
@@ -128,7 +130,8 @@ function isHtmlPath(p: string): boolean {
   return /\.html?$/i.test(fileBasename(p));
 }
 
-export const usePreviewStore = create<PreviewState>((set, get) => ({
+export function createPreviewStore() {
+  return createStore<PreviewState>()((set, get) => ({
   open: false,
   tabs: [],
   activeTabId: null,
@@ -222,6 +225,26 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
       if (isHtmlPath(p)) {
         const id = get().openBrowser(toFileUrl(p), safeTitle);
         if (i === 0) firstId = id;
+        continue;
+      }
+      const existing = get().tabs.find(
+        (t) => t.type === "file" && normalizeFsPath(t.path) === p,
+      );
+      if (existing && existing.type === "file") {
+        if (i === 0) firstId = existing.id;
+        set((s) => ({
+          open: true,
+          tabs: s.tabs.map((t) =>
+            t.id === existing.id && t.type === "file"
+              ? {
+                  ...t,
+                  title: safeTitle || t.title,
+                  refreshKey: (t.refreshKey ?? 0) + 1,
+                }
+              : t,
+          ),
+          activeTabId: existing.id,
+        }));
         continue;
       }
       const id = newTabId("file");
@@ -363,10 +386,13 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
           { focus: false },
         );
       }
-    } else if (type === "artifact.screenshot" && payload.path) {
-      get().openFile(String(payload.path), "截图");
+    } else if (type === "artifact.screenshot") {
+      // Intermediate browser/plot dumps — graph.end opens the final image.
     }
   },
 
   reset: () => set({ open: false, tabs: [], activeTabId: null, dirtyPaths: {} }),
-}));
+  }));
+}
+
+export const usePreviewStore = registerAndBindPreview(createPreviewStore);

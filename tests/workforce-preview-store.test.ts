@@ -3,12 +3,16 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { dropAllProjectRuntimes } from "../renderer/src/store/projectRuntime";
 import { usePreviewStore } from "../renderer/src/store/preview";
 import { useWorkforceStore } from "../renderer/src/store/workforce";
 import { SessionMode } from "../renderer/src/types/workforce";
 
+import "../renderer/src/store/session";
+
 describe("workforce + preview stores", () => {
   beforeEach(() => {
+    dropAllProjectRuntimes();
     useWorkforceStore.getState().reset();
     usePreviewStore.getState().reset();
     useWorkforceStore.getState().setSessionMode(SessionMode.WORKFORCE);
@@ -151,7 +155,16 @@ describe("workforce + preview stores", () => {
     expect(usePreviewStore.getState().open).toBe(true);
     expect(usePreviewStore.getState().tabs.some((t) => t.type === "browser")).toBe(true);
     pv.handlePreviewEvent("artifact.screenshot", { path: "/tmp/shot.png" });
-    expect(usePreviewStore.getState().tabs.some((t) => t.type === "file")).toBe(true);
+    expect(usePreviewStore.getState().tabs.some((t) => t.type === "file")).toBe(false);
+  });
+
+  it("reuses a file tab when the same path opens twice", () => {
+    const pv = usePreviewStore.getState();
+    pv.openFile("/tmp/gold.png", "截图");
+    pv.openFile("/tmp/gold.png", "现货黄金.png");
+    const files = usePreviewStore.getState().tabs.filter((t) => t.type === "file");
+    expect(files).toHaveLength(1);
+    expect(files[0]?.type === "file" && files[0].title).toBe("现货黄金.png");
   });
 
   it("opens terminal with assign_id (not session task_id) and keeps output", () => {

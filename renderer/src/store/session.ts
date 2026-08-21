@@ -1,12 +1,17 @@
-import { create } from "zustand";
+import { createStore, type StoreApi } from "zustand";
 
 import type { SSEvent } from "../api/sse";
-import { usePreviewStore } from "./preview";
 import { usePageTabStore } from "./pageTab";
-import { applyToProject } from "./livePark";
-import { useWorkforceStore } from "./workforce";
-import { decodeUnicodeEscapes, fileBasename } from "@/lib/fsPath";
-import { isDeliverableOutputPath } from "@/lib/outputFiles";
+import { registerAndBindSession } from "./projectRuntime";
+import type { PreviewState } from "./preview";
+import type { WorkforceState } from "./workforce";
+import { decodeUnicodeEscapes, fileBasename, normalizeFsPath } from "@/lib/fsPath";
+import { extractFinalOutputFileList } from "@/lib/extractFinalOutputFiles";
+import { isPreviewImagePath, isVisibleAgentPath } from "@/lib/outputFiles";
+import { isProcessNarration, stripProcessNarration } from "@/lib/processNarration";
+
+import "./preview";
+import "./workforce";
 
 export interface FileArtifact {
   name: string;
@@ -85,6 +90,8 @@ export interface SessionState {
   outputTokens: number;
   /** Model context window size (sent by backend when known). */
   contextLimit: number;
+  /** Last prompt occupancy from ``budget.update`` (context window fill, not run total). */
+  contextTokens: number;
   /** Tools the user chose "always allow" for in this chat session only (not persisted). */
   alwaysAllowTools: string[];
   /** Live agent thinking state — drives ThoughtDisplay component. */
@@ -94,6 +101,8 @@ export interface SessionState {
     startedAtMs: number;
     agentId?: string;
   } | null;
+  /** Raw step.delta buffers keyed by agent — used to stream the post-think answer. */
+  answerStreamByAgent: Record<string, string>;
   addUserMessage: (text: string) => void;
   appendDelta: (delta: string) => void;
   appendStep: (type: string, payload: Record<string, unknown>) => void;
@@ -108,6 +117,13 @@ export interface SessionState {
   /** Optimistic: show WorkLog immediately on send (before SSE graph.start). */
   beginRun: () => void;
   handleEvent: (event: SSEvent, projectId?: string) => void;
+}
+
+/** Injected collaborators so handleEvent never touches another project's stores. */
+export interface SessionStoreDeps {
+  getWorkforce: () => WorkforceState;
+  getPreview: () => PreviewState;
+  isProjectActive: () => boolean;
 }
 
 async function autoApproveConfirm(callId: string): Promise<boolean> {
@@ -232,18 +248,48 @@ function pushPendingArtifact(
   artifact: FileArtifact,
   callId = "",
 ): void {
-  if (!isDeliverableOutputPath(artifact.path)) return;
+  if (!isVisibleAgentPath(artifact.path)) return;
   const existing = updates.pendingArtifacts ?? state.pendingArtifacts;
   if (existing.some((a) => a.path === artifact.path)) return;
   updates.pendingArtifacts = [...existing, { ...artifact, call_id: callId }];
+}
+
+function openFinalImagePreview(
+  pending: Array<FileArtifact & { call_id?: string }>,
+  deps: SessionStoreDeps,
+): void {
+  const images = pending.filter(
+    (a) => isVisibleAgentPath(a.path) && isPreviewImagePath(a.path),
+  );
+  const chosen = images.at(-1) ?? null;
+  const preview = deps.getPreview();
+  const keep = chosen ? normalizeFsPath(chosen.path) : "";
+  for (const tab of [...preview.tabs]) {
+    if (tab.type !== "file" || !isPreviewImagePath(tab.path)) continue;
+    if (keep && normalizeFsPath(tab.path) === keep) continue;
+    preview.closeTab(tab.id);
+  }
+  if (!chosen) return;
+  preview.openFile(chosen.path, chosen.name);
+  if (deps.isProjectActive()) {
+    usePageTabStore.getState().openPreviewFoldSide();
+  }
 }
 
 function isConfirmMessage(message: Message | undefined): boolean {
   return Boolean(message?.confirm);
 }
 
-function lastContentAssistant(messages: Message[]): Message | undefined {
+function lastUserIndex(messages: Message[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return i;
+  }
+  return -1;
+}
+
+function lastContentAssistant(messages: Message[]): Message | undefined {
+  const from = lastUserIndex(messages);
+  for (let i = messages.length - 1; i > from; i--) {
     const message = messages[i];
     if (message.role === "assistant" && !isConfirmMessage(message)) return message;
   }
@@ -255,12 +301,19 @@ function flushArtifactsToMessages(
   updates: Partial<SessionState>,
 ): void {
   const pending = updates.pendingArtifacts ?? state.pendingArtifacts;
-  const arts = pending.map(({ call_id: _c, ...a }) => a);
+  const base = updates.messages ?? state.messages;
+  const lastAsst = lastContentAssistant(base);
+  const extracted = extractFinalOutputFileList(lastAsst?.content ?? "").filter(
+    (a) => isVisibleAgentPath(a.path),
+  );
+  const arts = [
+    ...pending.map(({ call_id: _c, ...a }) => a),
+    ...extracted,
+  ];
   if (!arts.length) {
     updates.pendingArtifacts = [];
     return;
   }
-  const base = updates.messages ?? state.messages;
   const next = base.slice();
   let last = next[next.length - 1];
   // Confirm cards are UI-only — never hang deliverables on them or the
@@ -301,6 +354,18 @@ function appendAssistant(messages: Message[], content: string): Message[] {
   return [...next, { id: nextId(), role: "assistant", content }];
 }
 
+function lastThinkIsOpen(content: string): boolean {
+  const lower = content.toLowerCase();
+  const openAt = lower.lastIndexOf("<think>");
+  if (openAt < 0) return false;
+  return openAt > lower.lastIndexOf("</think>");
+}
+
+function closeOpenThink(content: string): string {
+  if (!lastThinkIsOpen(content)) return content;
+  return `${content.replace(/\s*$/, "")}</think>\n`;
+}
+
 function appendDeltaText(messages: Message[], delta: string): Message[] {
   if (!delta) return messages;
   const next = messages.slice();
@@ -312,22 +377,18 @@ function appendDeltaText(messages: Message[], delta: string): Message[] {
   return [...next, { id: nextId(), role: "assistant", content: delta, createdAt: Date.now() }];
 }
 
-function lastMessageText(update: unknown): string {
-  if (!update || typeof update !== "object") return "";
-  const messages = (update as { messages?: unknown }).messages;
-  if (!Array.isArray(messages) || messages.length === 0) return "";
-  const last = messages[messages.length - 1] as { content?: unknown };
-  return typeof last?.content === "string" ? last.content.trim() : "";
+function replaceLastAssistantContent(messages: Message[], content: string): Message[] {
+  const next = messages.slice();
+  const from = lastUserIndex(next);
+  for (let i = next.length - 1; i > from; i--) {
+    if (next[i].role === "assistant" && !isConfirmMessage(next[i])) {
+      next[i] = { ...next[i], content };
+      return next;
+    }
+  }
+  if (!content) return messages;
+  return [...next, { id: nextId(), role: "assistant", content, createdAt: Date.now() }];
 }
-
-/** Drop supervisor routing noise / truncated junk like "68;" */
-const WORKFORCE_WORKER_NODES = new Set([
-  "developer_agent",
-  "browser_agent",
-  "document_agent",
-  "multi_modal_agent",
-  "coordinator",
-]);
 
 function isGarbageAssistantText(text: string): boolean {
   const t = text.trim();
@@ -396,21 +457,163 @@ export function isWorkforceProcessMeta(text: string): boolean {
   return false;
 }
 
-/** Prefer <summary> body; drop process-meta leftovers for AgentMessageCard. */
+/** Prefer <summary> body; drop process-meta leftovers for copy / history. */
 export function formalAnswerFromContent(content: string): string {
   const summary = content.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim();
   if (summary) return summary;
-  let withoutThink = content.replace(/<think>[\s\S]*?<\/think>/gi, "\n");
+  let withoutThink = content;
+  // AionUI MiniMax: thinking text then a lone </think> before the answer.
+  if (!/<\s*think\b/i.test(withoutThink) && /<\s*\/\s*think(?:ing)?\s*>/i.test(withoutThink)) {
+    withoutThink = withoutThink.replace(/^[\s\S]*?<\s*\/\s*think(?:ing)?\s*>/i, "\n");
+  }
+  withoutThink = withoutThink.replace(/<think>[\s\S]*?<\/think>/gi, "\n");
   // Drop unclosed trailing think (streaming).
   withoutThink = withoutThink.replace(/<think>[\s\S]*$/i, "\n");
-  withoutThink = withoutThink.replace(/<\/?think>/gi, "");
+  withoutThink = withoutThink.replace(/<\/?think(?:ing)?>/gi, "");
   withoutThink = withoutThink.replace(/正在调用工具[.。…\s]*/g, "").trim();
   withoutThink = stripProcessTail(withoutThink);
   if (!withoutThink || isWorkforceProcessMeta(withoutThink)) return "";
   // Drop leading English meta paragraphs if a Chinese/markdown body follows.
   const chunks = withoutThink.split(/\n{2,}/);
   const kept = chunks.filter((c) => !isWorkforceProcessMeta(c) && !isOfficeProcessChunk(c));
-  return kept.join("\n\n").trim();
+  const body = stripProcessNarration(kept.join("\n\n").trim());
+  if (!body || isProcessNarration(body)) return "";
+  return body;
+}
+
+/**
+ * Eigent `resolveEndMessageText`: prefer <summary>, else the payload after
+ * think tags. Do not run process-narration filters — END is the user card.
+ */
+const STREAM_ANSWER_AGENTS = new Set(["", "single_agent", "synthesize"]);
+const SKIP_STREAM_AGENTS = new Set([
+  "browser_agent",
+  "document_agent",
+  "developer_agent",
+  "multi_modal_agent",
+  "supervisor",
+  "coordinator",
+  "file_worker",
+  "doc_worker",
+  "web_worker",
+  "msg_worker",
+]);
+
+export function shouldStreamAnswerAgent(agentId: string): boolean {
+  const id = agentId.trim();
+  if (SKIP_STREAM_AGENTS.has(id)) return false;
+  return STREAM_ANSWER_AGENTS.has(id);
+}
+
+/**
+ * Visible chat-bubble text from a growing token buffer.
+ * Think / MiniMax reasoning stay hidden; after `</think>` the answer streams in.
+ */
+export function streamingAnswerFromRaw(raw: string): string {
+  if (!raw) return "";
+  if (lastThinkIsOpen(raw)) return "";
+
+  const hadOpen = /<\s*think\b/i.test(raw);
+  const hadClose = /<\s*\/\s*think(?:ing)?\s*>/i.test(raw);
+  let body = raw;
+  if (!hadOpen && hadClose) {
+    body = raw.replace(/^[\s\S]*?<\s*\/\s*think(?:ing)?\s*>/i, "\n");
+  } else if (hadOpen) {
+    body = raw.replace(/<think>[\s\S]*?<\/think>/gi, "\n");
+    body = body.replace(/<\/?think(?:ing)?>/gi, "");
+  }
+  body = body.trim();
+  if (!body) return "";
+
+  const stripped = stripProcessNarration(body);
+  const visible = stripped || (isProcessNarration(body) ? "" : body);
+  if (!visible || isProcessNarration(visible)) return "";
+
+  if (!hadOpen && !hadClose) {
+    // Untagged MiniMax reasoning sits in the same buffer; start from the report.
+    const lines = visible.split("\n");
+    let start = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s{0,3}#{1,3}\s/.test(line)) {
+        start = i;
+        break;
+      }
+      if (
+        /^\s{0,3}\|.+\|/.test(line) &&
+        i + 1 < lines.length &&
+        /\|[-: ]+\|/.test(lines[i + 1])
+      ) {
+        start = i;
+        break;
+      }
+      if (/^[一二三四五六七八九十]+[、．.]/.test(line.trim())) {
+        start = i;
+        break;
+      }
+    }
+    if (start < 0) return "";
+    return lines.slice(start).join("\n").trim();
+  }
+  return visible;
+}
+
+export function resolveEndMessageText(raw: string): string {
+  const tagged = raw.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim();
+  if (tagged) return tagged;
+  let body = raw || "";
+  if (!/<\s*think\b/i.test(body) && /<\s*\/\s*think(?:ing)?\s*>/i.test(body)) {
+    body = body.replace(/^[\s\S]*?<\s*\/\s*think(?:ing)?\s*>/i, "\n");
+  }
+  body = body.replace(/<think>[\s\S]*?<\/think>/gi, "\n");
+  body = body.replace(/<think>[\s\S]*$/i, "\n");
+  body = body.replace(/<\/?think(?:ing)?>/gi, "").trim();
+  if (!body || isGarbageAssistantText(body) || isWorkforceProcessMeta(body)) {
+    return "";
+  }
+  if (isProcessNarration(body)) return "";
+  return stripProcessNarration(body) || body;
+}
+
+export function endCardFromContent(content: string): string {
+  return resolveEndMessageText(content) || formalAnswerFromContent(content);
+}
+
+function leftoverProcess(rest: string, card: string): string {
+  const t = rest.trim();
+  if (!t) return "";
+  if (!card) return t;
+  if (t === card) return "";
+  if (card.includes(t) && t.length >= 8) return "";
+  if (t.includes(card)) return t.split(card).join("").trim();
+  return t;
+}
+
+/**
+ * WorkBuddy: keep process in a closed <think>, put the end card after it.
+ * The bubble collapses think and shows the final answer.
+ */
+export function composeCollapsedEnd(raw: string, card: string): string {
+  const src = closeOpenThink(raw || "");
+  const thinkBodies: string[] = [];
+  const re = /<think>([\s\S]*?)<\/think>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    const body = m[1].trim();
+    if (body) thinkBodies.push(body);
+  }
+  const rest = src
+    .replace(/<think>[\s\S]*?<\/think>/gi, "\n")
+    .replace(/<summary>[\s\S]*?<\/summary>/gi, "\n")
+    .replace(/<\/?think(?:ing)?>/gi, "")
+    .trim();
+  const extra = stripProcessNarration(leftoverProcess(stripProcessTail(rest), card));
+  if (extra && extra !== card) thinkBodies.push(extra);
+  const process = thinkBodies.join("\n\n").trim();
+  if (card && process && process !== card) {
+    return `<think>${process}</think>\n\n${card}`;
+  }
+  return card || "";
 }
 
 const PROCESS_TAIL_RE =
@@ -438,7 +641,10 @@ function isOfficeProcessChunk(text: string): boolean {
   );
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export function createSessionStore(
+  deps: SessionStoreDeps,
+): StoreApi<SessionState> {
+  return createStore<SessionState>()((set, get) => ({
   messages: [],
   trace: [],
   traceNodes: [],
@@ -459,7 +665,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   inputTokens: 0,
   outputTokens: 0,
   contextLimit: 0,
+  contextTokens: 0,
   thinking: null,
+  answerStreamByAgent: {},
 
   addUserMessage: (text) =>
     set((state) => ({
@@ -577,7 +785,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       inputTokens: 0,
       outputTokens: 0,
       contextLimit: 0,
+      contextTokens: 0,
       thinking: null,
+      answerStreamByAgent: {},
     }),
 
   beginRun: () =>
@@ -592,8 +802,10 @@ export const useSessionStore = create<SessionState>((set) => ({
         budgetSteps: 0,
         inputTokens: 0,
         outputTokens: 0,
-        contextLimit: 0,
+        contextLimit: state.contextLimit,
+        contextTokens: state.contextTokens,
         thinking: { subject: "开始分析任务", description: "", startedAtMs: Date.now() },
+        answerStreamByAgent: {},
         confirmQueue: [],
         settledConfirmIds: [],
         autoApprovingConfirmIds: [],
@@ -612,12 +824,13 @@ export const useSessionStore = create<SessionState>((set) => ({
 
     if (event.type === "graph.start") {
       // Keep seeded Progress plan; only clear agent roster / running slots.
-      const plan = useWorkforceStore
-        .getState()
-        .taskInfo.filter((t) => t.id.startsWith("todo_"));
-      useWorkforceStore.getState().reset();
-      if (plan.length) useWorkforceStore.getState().seedPlan(plan);
-      usePreviewStore.getState().reset();
+      const workforce = deps.getWorkforce();
+      const plan = workforce.taskInfo.filter(
+        (t) => t.id.startsWith("todo_") && t.id !== "todo_planning",
+      );
+      workforce.reset();
+      if (plan.length) workforce.seedPlan(plan);
+      deps.getPreview().reset();
     }
     if (
       event.type.startsWith("agent.") ||
@@ -627,10 +840,19 @@ export const useSessionStore = create<SessionState>((set) => ({
       event.type === "task_state" ||
       event.type === "decompose_text"
     ) {
-      useWorkforceStore.getState().handleWorkforceEvent(event.type, payload);
+      deps.getWorkforce().handleWorkforceEvent(event.type, payload);
     }
-    if (event.type === "preview.open" || event.type === "artifact.screenshot") {
-      usePreviewStore.getState().handlePreviewEvent(event.type, payload);
+    if (event.type === "preview.open") {
+      const kind = String(payload.kind ?? "browser");
+      const path = String(payload.path ?? "");
+      if (kind === "file" && path && isPreviewImagePath(path)) {
+        // Images wait for graph.end so only the final chart/photo opens.
+      } else {
+        deps.getPreview().handlePreviewEvent(event.type, payload);
+      }
+    }
+    if (event.type === "graph.end") {
+      openFinalImagePreview(get().pendingArtifacts, deps);
     }
     if (event.type === "artifact.file") {
       const art = artifactFromPath(String(payload.path ?? ""));
@@ -640,13 +862,9 @@ export const useSessionStore = create<SessionState>((set) => ({
           pushPendingArtifact(state, updates, art);
           return { ...state, ...updates };
         });
-        if (/\.md$/i.test(art.name || art.path)) {
-          usePageTabStore.getState().openPreviewFoldSide();
-          usePreviewStore.getState().openFile(art.path, art.name);
-        }
       }
     }
-    // artifact.cleanup: disk cleanup only — keep Trace, do not touch UI artifacts.
+    // artifact.cleanup is unused (Eigent does not delete process files).
 
     set((state) => {
       // New task → reset live Trace so the panel matches the current run.
@@ -673,7 +891,9 @@ export const useSessionStore = create<SessionState>((set) => ({
           inputTokens: 0,
           outputTokens: 0,
           contextLimit: state.contextLimit,
+          contextTokens: state.contextTokens,
           thinking: { subject: "开始分析任务", description: "", startedAtMs: Date.now() },
+          answerStreamByAgent: {},
         };
       }
 
@@ -697,6 +917,9 @@ export const useSessionStore = create<SessionState>((set) => ({
         if (payload.context_limit != null) {
           updates.contextLimit = Number(payload.context_limit);
         }
+        if (payload.context_tokens != null) {
+          updates.contextTokens = Number(payload.context_tokens);
+        }
       } else if (event.type === "memory.injected") {
         updates.memoryInjectedCount = Number(payload.count ?? 0);
       } else if (event.type === "tool.confirm_request") {
@@ -712,21 +935,16 @@ export const useSessionStore = create<SessionState>((set) => ({
               : [...state.autoApprovingConfirmIds, callId];
             updates.autoApprovingConfirmIds = approving;
             void autoApproveConfirm(callId).then((ok) => {
-              const finish = () => {
-                const s = useSessionStore.getState();
-                if (ok) {
-                  s.resolveConfirm(callId, true);
-                  return;
-                }
-                s.enqueueConfirm(request);
-                useSessionStore.setState({
-                  autoApprovingConfirmIds: useSessionStore
-                    .getState()
-                    .autoApprovingConfirmIds.filter((id) => id !== callId),
-                });
-              };
-              if (projectId) applyToProject(projectId, finish);
-              else finish();
+              if (ok) {
+                get().resolveConfirm(callId, true);
+                return;
+              }
+              get().enqueueConfirm(request);
+              set({
+                autoApprovingConfirmIds: get().autoApprovingConfirmIds.filter(
+                  (id) => id !== callId,
+                ),
+              });
             });
           } else {
             const already = state.confirmQueue.some((c) => c.call_id === callId);
@@ -793,30 +1011,25 @@ export const useSessionStore = create<SessionState>((set) => ({
             },
           ];
         }
-        // Worker narrative: workforce intermediate stays in WorkLog (Eigent);
-        // only single-agent / non-worker nodes stream into the formal answer.
-        // Skip if step.delta already filled the assistant bubble.
-        const text = lastMessageText(payload.update);
-        const msgsNow = updates.messages ?? state.messages;
-        const lastAsst = lastContentAssistant(msgsNow);
-        const alreadyStreamed =
-          Boolean(lastAsst?.content) &&
-          text.length > 0 &&
-          lastAsst!.content.includes(text.slice(0, Math.min(48, text.length)));
-        if (
-          text &&
-          !alreadyStreamed &&
-          node !== "supervisor" &&
-          !WORKFORCE_WORKER_NODES.has(node) &&
-          !isGarbageAssistantText(text)
-        ) {
-          updates.messages = appendAssistant(msgsNow, text);
-        }
       } else if (event.type === "step.delta") {
         const delta = String(payload.delta ?? "");
-        // Token chunks must not go through isGarbageAssistantText (filters short tokens).
-        if (delta) {
-          updates.messages = appendDeltaText(state.messages, delta);
+        if (delta && state.thinking) {
+          updates.thinking = { ...state.thinking, subject: "正在生成回答" };
+        }
+        const agentId = String(payload.agent_id ?? "");
+        if (delta && shouldStreamAnswerAgent(agentId)) {
+          const buf = {
+            ...(updates.answerStreamByAgent ?? state.answerStreamByAgent),
+          };
+          buf[agentId] = (buf[agentId] ?? "") + delta;
+          updates.answerStreamByAgent = buf;
+          const visible = streamingAnswerFromRaw(buf[agentId]);
+          if (visible) {
+            updates.messages = replaceLastAssistantContent(
+              updates.messages ?? state.messages,
+              visible,
+            );
+          }
         }
       } else if (event.type === "graph.end") {
         const started = state.taskStartedAt;
@@ -824,28 +1037,12 @@ export const useSessionStore = create<SessionState>((set) => ({
           (started ? Date.now() - started : 0) + state.taskElapsedMs;
         updates.taskStartedAt = null;
         updates.taskElapsedMs = elapsed;
+        updates.thinking = null;
         const endSummary = String(payload.summary ?? "").trim();
         const msgs = updates.messages ?? state.messages;
-        const lastAssistant = lastContentAssistant(msgs);
-        const alreadyStreamed = Boolean(
-          lastAssistant && formalAnswerFromContent(lastAssistant.content).trim(),
-        );
-        if (
-          endSummary &&
-          !isGarbageAssistantText(endSummary) &&
-          !alreadyStreamed
-        ) {
-          // Eigent AgentStep.END: one formal answer bubble when nothing streamed yet.
-          updates.messages = appendAssistant(msgs, endSummary);
-        } else if (
-          endSummary &&
-          !isGarbageAssistantText(endSummary) &&
-          alreadyStreamed &&
-          lastAssistant &&
-          !formalAnswerFromContent(lastAssistant.content).includes(endSummary.slice(0, 80))
-        ) {
-          // Streamed body exists but summary adds new substance — append once.
-          updates.messages = appendAssistant(msgs, endSummary);
+        const card = resolveEndMessageText(endSummary);
+        if (card) {
+          updates.messages = replaceLastAssistantContent(msgs, card);
         }
         if (payload.status === "cancelled") {
           updates.runStatus = "done";
@@ -854,9 +1051,7 @@ export const useSessionStore = create<SessionState>((set) => ({
             updates,
           );
           if (
-            !(updates.messages ?? state.messages).some(
-              (m) => m.role === "assistant" && m.content.trim(),
-            )
+            !lastContentAssistant(updates.messages ?? state.messages)?.content.trim()
           ) {
             updates.messages = appendAssistant(
               updates.messages ?? state.messages,
@@ -946,16 +1141,12 @@ export const useSessionStore = create<SessionState>((set) => ({
           startedAtMs: state.thinking?.startedAtMs ?? Date.now(),
           agentId: state.thinking?.agentId ?? String(payload.agent_id ?? ""),
         };
-      } else if (event.type === "step.delta") {
-        const delta = String(payload.delta ?? "");
-        if (delta && state.thinking) {
-          updates.thinking = { ...state.thinking, subject: "正在生成回答" };
-        }
-      } else if (event.type === "graph.end") {
-        updates.thinking = null;
       }
 
       return updates;
     });
   },
-}));
+  }));
+}
+
+export const useSessionStore = registerAndBindSession(createSessionStore);
