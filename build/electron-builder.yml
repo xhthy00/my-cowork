@@ -11,6 +11,8 @@ files:
   - "!dist-electron/*.blockmap"
   - "!dist-electron/builder-debug.yml"
 mac:
+  icon: build/icon.png
+  identity: null
   target:
     - dmg
   category: public.app-category.productivity
@@ -25,6 +27,10 @@ mac:
         - "!**/*.pyc"
     - from: resources/bin/officecli
       to: bin/officecli
+    - from: resources/example-skills
+      to: resources/example-skills
+    - from: skills
+      to: skills
 win:
   icon: build/icon.ico
   target:

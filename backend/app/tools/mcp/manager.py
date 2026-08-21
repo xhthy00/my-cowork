@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import subprocess
 import threading
 from contextvars import ContextVar, Token
@@ -35,6 +36,13 @@ def get_enabled_mcp() -> list[str] | None:
 
 def reset_enabled_mcp(token: Token) -> None:
     _enabled_mcp.reset(token)
+
+
+def mcp_name_token(name: str) -> str:
+    """Composer ``@`` slug: spaces → ``_``, drop non-ASCII/punctuation, casefold."""
+    slug = re.sub(r"\s+", "_", str(name).strip())
+    slug = re.sub(r"[^A-Za-z0-9_-]", "", slug)
+    return slug.casefold()
 
 
 @dataclass
@@ -189,13 +197,13 @@ def filter_mcp_tools(tools: list[Any] | None, enabled_mcp: list[str] | None) -> 
     items = list(tools or [])
     if enabled_mcp is None:
         return items
-    allowed = {str(s) for s in enabled_mcp}
+    allowed = {mcp_name_token(s) for s in enabled_mcp}
     out: list[Any] = []
     for tool in items:
         server = _mcp_server_of(tool)
         if server is None:
             out.append(tool)
-        elif server in allowed:
+        elif mcp_name_token(server) in allowed:
             out.append(tool)
     return out
 
@@ -609,7 +617,9 @@ class McpManager:
 
         def _invoke(**kwargs: Any) -> str:
             allowed = get_enabled_mcp()
-            if allowed is not None and server not in allowed:
+            if allowed is not None and mcp_name_token(server) not in {
+                mcp_name_token(s) for s in allowed
+            }:
                 return (
                     f"[ERROR] MCP server {server!r} is not enabled for this message."
                 )

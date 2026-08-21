@@ -821,7 +821,7 @@ async def run_graph(
                         "tokens": budget.tokens,
                         "max_tokens": budget.max_total_tokens,
                         "steps": budget.steps,
-                        "context_limit": context_window_limit(budget),
+                        "context_limit": context_window_limit(),
                     }
                     if ctx_n:
                         extra["context_tokens"] = ctx_n

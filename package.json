@@ -1,6 +1,6 @@
 {
   "name": "my-cowork",
-  "version": "0.1.0",
+  "version": "0.0.3",
   "description": "Desktop office automation agent",
   "license": "MIT",
   "main": "dist-electron/main.js",

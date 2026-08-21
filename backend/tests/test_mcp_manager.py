@@ -97,6 +97,32 @@ def test_filter_mcp_tools_enabled_list():
     assert all_names == ["mcp_playwright_nav", "bash"]
 
 
+def test_filter_mcp_tools_matches_composer_slug():
+    from langchain_core.tools import StructuredTool
+
+    from app.tools.mcp.manager import filter_mcp_tools
+
+    spaced = StructuredTool.from_function(
+        lambda: "a",
+        name="mcp_my_server_nav",
+        description="d",
+        metadata={"mcp_server": "My Server"},
+    )
+    punct = StructuredTool.from_function(
+        lambda: "b",
+        name="mcp_foo_bar_x",
+        description="d",
+        metadata={"mcp_server": "foo.bar"},
+    )
+    bash = StructuredTool.from_function(lambda: "c", name="bash", description="d")
+    names = [t.name for t in filter_mcp_tools([spaced, punct, bash], ["My_Server"])]
+    assert names == ["mcp_my_server_nav", "bash"]
+    case_names = [t.name for t in filter_mcp_tools([spaced, bash], ["my_server"])]
+    assert case_names == ["mcp_my_server_nav", "bash"]
+    punct_names = [t.name for t in filter_mcp_tools([punct, bash], ["foobar"])]
+    assert punct_names == ["mcp_foo_bar_x", "bash"]
+
+
 def test_wrapper_blocks_when_server_not_enabled(manager: McpManager):
     from app.tools.mcp.manager import reset_enabled_mcp, set_enabled_mcp
 
@@ -109,6 +135,29 @@ def test_wrapper_blocks_when_server_not_enabled(manager: McpManager):
     try:
         result = registry.get("mcp.test.echo").invoke({"text": "hello"})
         assert "not enabled" in result
+    finally:
+        reset_enabled_mcp(token)
+
+
+def test_wrapper_allows_composer_slug_and_case(manager: McpManager):
+    from app.tools.mcp.manager import reset_enabled_mcp, set_enabled_mcp
+
+    registry = ToolRegistry()
+    manager.connect(
+        McpServerConfig(name="My Server", command="python3", args=[str(ECHO)]),
+        registry,
+    )
+    token = set_enabled_mcp(["My_Server"])
+    try:
+        result = registry.get("mcp.My Server.echo").invoke({"text": "hello-slug"})
+        assert "hello-slug" in result
+    finally:
+        reset_enabled_mcp(token)
+
+    token = set_enabled_mcp(["my_server"])
+    try:
+        result = registry.get("mcp.My Server.echo").invoke({"text": "hello-case"})
+        assert "hello-case" in result
     finally:
         reset_enabled_mcp(token)
 

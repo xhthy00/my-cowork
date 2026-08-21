@@ -22,18 +22,20 @@ from app.runtime.budget_context import (
 
 
 class TestContextWindowLimit:
-    def test_prefers_budget_max(self):
-        budget = Budget(max_steps=10, max_total_tokens=192_000)
-        assert context_window_limit(budget) == 192_000
+    def test_default_ignores_task_budget_env(self, monkeypatch):
+        monkeypatch.delenv("MY_COWORK_CONTEXT_LIMIT", raising=False)
+        monkeypatch.delenv("MY_COWORK_MAX_TOKENS", raising=False)
+        assert context_window_limit() == 200_000
 
     def test_env_override(self, monkeypatch):
         monkeypatch.setenv("MY_COWORK_CONTEXT_LIMIT", "131072")
-        budget = Budget(max_steps=10, max_total_tokens=200_000)
-        assert context_window_limit(budget) == 131072
+        monkeypatch.setenv("MY_COWORK_MAX_TOKENS", "50000")
+        assert context_window_limit() == 131072
 
 
 class TestRecordLlmTokens:
-    def test_emit_budget_update(self):
+    def test_emit_budget_update(self, monkeypatch):
+        monkeypatch.delenv("MY_COWORK_CONTEXT_LIMIT", raising=False)
         bus = TraceBus()
         events: list[dict] = []
         bus.subscribe(events.append)
@@ -47,7 +49,8 @@ class TestRecordLlmTokens:
             assert any(
                 e.get("type") == "budget.update"
                 and e.get("tokens") == 1200
-                and e.get("context_limit") == 100_000
+                and e.get("max_tokens") == 100_000
+                and e.get("context_limit") == 200_000
                 for e in events
             )
         finally:
@@ -89,7 +92,8 @@ class TestBudgetTokenCallback:
         finally:
             reset_budget_runtime(token)
 
-    def test_prefers_provider_usage(self):
+    def test_prefers_provider_usage(self, monkeypatch):
+        monkeypatch.delenv("MY_COWORK_CONTEXT_LIMIT", raising=False)
         bus = TraceBus()
         events: list[dict] = []
         bus.subscribe(events.append)
@@ -112,7 +116,8 @@ class TestBudgetTokenCallback:
             cb.on_llm_end(result, run_id=run_id)
             assert budget.tokens == 42
             ctx = next(e for e in events if e.get("type") == "budget.update")
-            assert ctx["context_limit"] == 100_000
+            assert ctx["max_tokens"] == 100_000
+            assert ctx["context_limit"] == 200_000
             assert ctx["context_tokens"] > 0
         finally:
             reset_budget_runtime(token)

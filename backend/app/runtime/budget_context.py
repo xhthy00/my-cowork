@@ -37,8 +37,12 @@ def get_budget_runtime() -> BudgetRuntime | None:
     return _budget_runtime.get()
 
 
-def context_window_limit(budget: Budget | None = None) -> int:
-    """Model / task context window shown in the chat footer."""
+def context_window_limit() -> int:
+    """Model context window for the occupancy ring.
+
+    Not the task cost cap (``Budget.max_total_tokens`` / ``MY_COWORK_MAX_TOKENS``).
+    Override with ``MY_COWORK_CONTEXT_LIMIT``.
+    """
     raw = os.environ.get("MY_COWORK_CONTEXT_LIMIT")
     if raw:
         try:
@@ -47,17 +51,7 @@ def context_window_limit(budget: Budget | None = None) -> int:
                 return n
         except ValueError:
             pass
-    if budget is not None and getattr(budget, "max_total_tokens", 0):
-        try:
-            n = int(budget.max_total_tokens)
-            if n > 0:
-                return n
-        except (TypeError, ValueError):
-            pass
-    try:
-        return int(os.environ.get("MY_COWORK_MAX_TOKENS", str(_DEFAULT_CONTEXT_LIMIT)))
-    except ValueError:
-        return _DEFAULT_CONTEXT_LIMIT
+    return _DEFAULT_CONTEXT_LIMIT
 
 
 def record_llm_tokens(
@@ -81,7 +75,7 @@ def record_llm_tokens(
         "tokens": rt.budget.tokens,
         "max_tokens": rt.budget.max_total_tokens,
         "steps": rt.budget.steps,
-        "context_limit": context_window_limit(rt.budget),
+        "context_limit": context_window_limit(),
     }
     if context_tokens > 0:
         event["context_tokens"] = int(context_tokens)

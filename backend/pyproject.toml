@@ -1,6 +1,6 @@
 [project]
 name = "my-cowork-backend"
-version = "0.1.0"
+version = "0.0.3"
 description = "Backend for my-cowork agent harness"
 license = "MIT"
 requires-python = ">=3.11"
