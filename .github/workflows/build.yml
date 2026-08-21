@@ -14,6 +14,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Build + smoke backend
         run: bash scripts/build-python-macos.sh
+      - name: Upload macOS smoke log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-macos
+          path: build/pyinstaller/smoke-macos.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: my-cowork-backend-macos
@@ -21,12 +28,21 @@ jobs:
 
   python-windows:
     runs-on: windows-latest
+    env:
+      UV_LINK_MODE: copy
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Build + smoke backend
         shell: pwsh
         run: ./scripts/build-python-windows.ps1
+      - name: Upload Windows smoke log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-windows
+          path: build/pyinstaller/smoke-windows*.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: my-cowork-backend-windows
@@ -67,6 +83,9 @@ jobs:
         with:
           name: my-cowork-backend-windows
           path: dist
+      - name: Ensure Windows extraResources exist
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path dist/win-python | Out-Null
       - run: npm ci
       - run: bash scripts/fetch-officecli.sh
       - run: npm run build

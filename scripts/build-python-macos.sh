@@ -6,22 +6,46 @@ cd "$ROOT/backend"
 uv sync
 uv run pyinstaller "$ROOT/build/pyinstaller/macos.spec" --distpath "$ROOT/dist" --workpath "$ROOT/build/pyinstaller/work-macos" -y
 BIN="$ROOT/dist/my-cowork-backend"
+if [[ ! -f "$BIN" ]]; then
+  echo "binary missing: $BIN" >&2
+  ls -la "$ROOT/dist" || true
+  exit 1
+fi
+chmod +x "$BIN"
+ls -lh "$BIN"
+
+mkdir -p "$ROOT/build/pyinstaller"
+LOG="$ROOT/build/pyinstaller/smoke-macos.log"
 export MY_COWORK_API_KEY="${MY_COWORK_API_KEY:-smoke-test-key}"
 export MY_COWORK_PROVIDER="${MY_COWORK_PROVIDER:-openai_compat}"
 export MY_COWORK_MODEL="${MY_COWORK_MODEL:-gpt-4o-mini}"
 export MY_COWORK_ENABLE_SCHEDULER=0
+export MY_COWORK_CHANNEL_AUTOSTART=0
 export PYTHONUNBUFFERED=1
-# Smoke: start briefly and look for listen line.
-# Stock macOS has no GNU timeout(1); background + kill is enough.
-"$BIN" --port 8765 >"$ROOT/build/pyinstaller/smoke-macos.log" 2>&1 &
+
+# One-file PyInstaller first boot extracts then create_app() compiles graphs.
+"$BIN" --port 8765 >"$LOG" 2>&1 &
 PID=$!
 cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; }
 trap cleanup EXIT
-sleep 5
-if grep -E "Uvicorn running|127\\.0\\.0\\.1:" "$ROOT/build/pyinstaller/smoke-macos.log"; then
+
+ok=0
+for _ in $(seq 1 60); do
+  if ! kill -0 "$PID" 2>/dev/null; then
+    echo "backend exited before becoming healthy"
+    break
+  fi
+  if curl -sf --max-time 2 "http://127.0.0.1:8765/health" >/dev/null; then
+    ok=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$ok" -eq 1 ]]; then
   echo "SMOKE OK"
   exit 0
 fi
 echo "SMOKE FAIL — log:"
-cat "$ROOT/build/pyinstaller/smoke-macos.log" || true
+cat "$LOG" || true
 exit 1
