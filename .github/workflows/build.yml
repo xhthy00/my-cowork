@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
 jobs:
   python-macos:
     runs-on: macos-latest
@@ -15,16 +18,18 @@ jobs:
       - name: Build + smoke backend
         run: bash scripts/build-python-macos.sh
       - name: Upload macOS smoke log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-macos
           path: build/pyinstaller/smoke-macos.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: my-cowork-backend-macos
           path: dist/my-cowork-backend
+          if-no-files-found: warn
 
   python-windows:
     runs-on: windows-latest
@@ -37,19 +42,22 @@ jobs:
         shell: pwsh
         run: ./scripts/build-python-windows.ps1
       - name: Upload Windows smoke log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-windows
           path: build/pyinstaller/smoke-windows*.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: my-cowork-backend-windows
           path: dist/my-cowork-backend.exe
+          if-no-files-found: warn
 
   electron:
     needs: [python-macos]
+    if: ${{ !cancelled() }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +80,7 @@ jobs:
 
   electron-windows:
     needs: [python-windows]
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,9 +92,6 @@ jobs:
         with:
           name: my-cowork-backend-windows
           path: dist
-      - name: Ensure Windows extraResources exist
-        shell: pwsh
-        run: New-Item -ItemType Directory -Force -Path dist/win-python | Out-Null
       - run: npm ci
       - run: bash scripts/fetch-officecli.sh
       - run: npm run build

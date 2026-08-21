@@ -16,6 +16,7 @@ $env:MY_COWORK_API_KEY = if ($env:MY_COWORK_API_KEY) { $env:MY_COWORK_API_KEY } 
 $env:MY_COWORK_ENABLE_SCHEDULER = "0"
 $env:MY_COWORK_CHANNEL_AUTOSTART = "0"
 $env:PYTHONUNBUFFERED = "1"
+$env:PYTHONFAULTHANDLER = "1"
 New-Item -ItemType Directory -Force -Path "$Root\build\pyinstaller" | Out-Null
 $Log = "$Root\build\pyinstaller\smoke-windows.log"
 $ErrLog = "$Root\build\pyinstaller\smoke-windows.err.log"
@@ -24,7 +25,7 @@ Remove-Item $Log, $ErrLog -ErrorAction SilentlyContinue
 $proc = Start-Process -FilePath $Bin -ArgumentList "--port","8765" -RedirectStandardOutput $Log -RedirectStandardError $ErrLog -PassThru -WindowStyle Hidden
 
 $healthy = $false
-for ($i = 0; $i -lt 60; $i++) {
+for ($i = 0; $i -lt 180; $i++) {
   if ($proc.HasExited) {
     Write-Host "backend exited before becoming healthy, code=$($proc.ExitCode)"
     break

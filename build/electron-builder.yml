@@ -33,11 +33,10 @@ mac:
       to: skills
 win:
   icon: build/icon.ico
+  signAndEditExecutable: false
   target:
     - nsis
   extraResources:
-    - from: dist/win-python
-      to: python_runtime
     - from: dist/my-cowork-backend.exe
       to: python_bin.exe
     - from: resources/prebuilt
@@ -46,6 +45,7 @@ win:
         - "**/*"
         - "!cache/**"
         - "!**/*.pyc"
+        - "!.gitignore"
     - from: resources/bin/officecli.exe
       to: bin/officecli.exe
     - from: resources/example-skills

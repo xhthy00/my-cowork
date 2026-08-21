@@ -1,3 +1,4 @@
 # Built by scripts/preinstall-terminal-deps.cjs — large; keep marker only in git.
 *
 !.gitignore
+!keep.txt

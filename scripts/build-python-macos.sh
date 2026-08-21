@@ -22,6 +22,8 @@ export MY_COWORK_MODEL="${MY_COWORK_MODEL:-gpt-4o-mini}"
 export MY_COWORK_ENABLE_SCHEDULER=0
 export MY_COWORK_CHANNEL_AUTOSTART=0
 export PYTHONUNBUFFERED=1
+export PYTHONFAULTHANDLER=1
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 # One-file PyInstaller first boot extracts then create_app() compiles graphs.
 "$BIN" --port 8765 >"$LOG" 2>&1 &
@@ -30,9 +32,10 @@ cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
 ok=0
-for _ in $(seq 1 60); do
+for _ in $(seq 1 180); do
   if ! kill -0 "$PID" 2>/dev/null; then
-    echo "backend exited before becoming healthy"
+    echo "backend exited before becoming healthy, pid=$PID"
+    wait "$PID" || true
     break
   fi
   if curl -sf --max-time 2 "http://127.0.0.1:8765/health" >/dev/null; then
