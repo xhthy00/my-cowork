@@ -58,6 +58,11 @@ case "$PLATFORM" in
 esac
 
 DEST_PATH="$OUT_DIR/$DEST"
+if [[ -f "$DEST_PATH" ]] && "$DEST_PATH" --version >/dev/null 2>&1; then
+  echo "OfficeCLI already present → ${DEST_PATH}"
+  "$DEST_PATH" --version
+  exit 0
+fi
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 

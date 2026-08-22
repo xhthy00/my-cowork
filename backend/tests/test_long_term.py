@@ -26,6 +26,17 @@ def test_query_disabled_without_semantic_embed(tmp_path: Path):
     store.close()
 
 
+def test_store_starts_without_sqlite_load_extension(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.memory.long_term._load_sqlite_vec", lambda _conn: False)
+    store = LongTermStore(tmp_path / "m-novec.db", embed_fn=lambda t: local_embed(t, dim=64))
+    assert store.vec_ready is False
+    assert store.semantic_enabled is False
+    store.write("喜欢喝美式咖啡", kind="pref")
+    assert store.list_recent()[0]["content"] == "喜欢喝美式咖啡"
+    assert store.query("咖啡偏好", k=3) == []
+    store.close()
+
+
 def test_remember_keyword_extract():
     assert extract_remember_content("请记住 我喜欢用简洁模板") == "我喜欢用简洁模板"
     assert extract_remember_content("写个 PPT") is None

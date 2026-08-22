@@ -16,6 +16,30 @@ EmbedFn = Callable[[str], list[float]]
 _DEFAULT_DIM = 64
 
 
+def _load_sqlite_vec(conn: sqlite3.Connection) -> bool:
+    """Load sqlite-vec. Returns False when this Python/sqlite cannot load extensions.
+
+    python.org / some uv standalone macOS builds omit Connection.enable_load_extension.
+    """
+    enable = getattr(conn, "enable_load_extension", None)
+    load_ext = getattr(conn, "load_extension", None)
+    if not callable(enable) or not callable(load_ext):
+        return False
+    try:
+        enable(True)
+        try:
+            load_ext(sqlite_vec.loadable_path())
+        finally:
+            enable(False)
+        return True
+    except Exception:
+        try:
+            enable(False)
+        except Exception:
+            pass
+        return False
+
+
 def _pack(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
@@ -41,9 +65,9 @@ class LongTermStore:
         self.dim = dim
         self.semantic_enabled = embed_fn is not None
         self._conn = sqlite3.connect(str(self.db_path))
-        self._conn.enable_load_extension(True)
-        self._conn.load_extension(sqlite_vec.loadable_path())
-        self._conn.enable_load_extension(False)
+        self.vec_ready = _load_sqlite_vec(self._conn)
+        if not self.vec_ready:
+            self.semantic_enabled = False
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -61,13 +85,14 @@ class LongTermStore:
             """
         )
         # vec0 virtual table — rowid aligns with memory.id
-        try:
-            self._conn.execute(
-                f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory USING vec0(embedding float[{self.dim}])"
-            )
-        except sqlite3.OperationalError:
-            # Already exists with same schema
-            pass
+        if self.vec_ready:
+            try:
+                self._conn.execute(
+                    f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory USING vec0(embedding float[{self.dim}])"
+                )
+            except sqlite3.OperationalError:
+                # Already exists with same schema
+                pass
         self._conn.commit()
 
     def _vector(self, text: str) -> list[float]:
@@ -104,15 +129,19 @@ class LongTermStore:
             (task_id, kind, content, blob, now, expires_at),
         )
         rowid = int(cur.lastrowid)
-        self._conn.execute(
-            "INSERT INTO vec_memory(rowid, embedding) VALUES (?, ?)",
-            (rowid, blob),
-        )
+        if self.vec_ready:
+            try:
+                self._conn.execute(
+                    "INSERT INTO vec_memory(rowid, embedding) VALUES (?, ?)",
+                    (rowid, blob),
+                )
+            except sqlite3.OperationalError:
+                pass
         self._conn.commit()
         return rowid
 
     def query(self, text: str, k: int = 3) -> list[dict[str, Any]]:
-        if not self.semantic_enabled:
+        if not self.semantic_enabled or not self.vec_ready:
             return []
         vec = self._vector(text)
         blob = _pack(vec)

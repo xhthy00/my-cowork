@@ -18,6 +18,7 @@ electron-builder.env
 dist/
 dist-electron/
 dist-renderer/
+release/
 *.tsbuildinfo
 
 # Python

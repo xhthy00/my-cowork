@@ -1,15 +1,11 @@
 appId: com.my-cowork.app
 productName: MyCowork
 directories:
-  output: dist-electron
+  output: release
 files:
   - dist-electron/**/*
   - dist-renderer/**/*
   - package.json
-  - "!dist-electron/win-unpacked/**"
-  - "!dist-electron/*.exe"
-  - "!dist-electron/*.blockmap"
-  - "!dist-electron/builder-debug.yml"
 mac:
   icon: build/icon.png
   identity: null

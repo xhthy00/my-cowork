@@ -3,7 +3,24 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/backend"
+
+sqlite_ext_ok() {
+  uv run python -c "import sqlite3; sqlite3.connect(':memory:').enable_load_extension(True)" 2>/dev/null
+}
+
 uv sync
+if ! sqlite_ext_ok; then
+  echo "sqlite3 cannot load extensions; switching to Homebrew CPython"
+  if brew install python@3.12; then
+    uv sync --python "$(brew --prefix python@3.12)/bin/python3.12" || true
+  fi
+fi
+if sqlite_ext_ok; then
+  echo "sqlite3.enable_load_extension: OK"
+else
+  echo "WARNING: sqlite-vec extensions unavailable; LongTermStore will degrade"
+fi
+
 uv run pyinstaller "$ROOT/build/pyinstaller/macos.spec" --distpath "$ROOT/dist" --workpath "$ROOT/build/pyinstaller/work-macos" -y
 BIN="$ROOT/dist/my-cowork-backend"
 if [[ ! -f "$BIN" ]]; then

@@ -76,7 +76,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: my-cowork-dmg
-          path: dist-electron/*.dmg
+          path: release/*.dmg
 
   electron-windows:
     needs: [python-windows]
@@ -93,11 +93,23 @@ jobs:
           name: my-cowork-backend-windows
           path: dist
       - run: npm ci
-      - run: bash scripts/fetch-officecli.sh
+      - name: Fetch OfficeCLI
+        shell: bash
+        env:
+          OFFICECLI_PLATFORM: win-x64
+        run: bash scripts/fetch-officecli.sh
+      - name: Verify extraResources
+        shell: bash
+        run: |
+          test -f dist/my-cowork-backend.exe
+          test -f resources/bin/officecli.exe
+          ls -lh dist/my-cowork-backend.exe resources/bin/officecli.exe resources/prebuilt
       - run: npm run build
       - name: Package NSIS installer
         run: npx electron-builder --config build/electron-builder.yml --win
       - uses: actions/upload-artifact@v4
         with:
           name: my-cowork-win
-          path: dist-electron/*.{exe,yml}
+          path: |
+            release/*.exe
+            release/*.yml
