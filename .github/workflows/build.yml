@@ -64,19 +64,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - uses: astral-sh/setup-uv@v5
       - name: Fetch backend binary
         uses: actions/download-artifact@v4
         with:
           name: my-cowork-backend-macos
           path: dist
-      - run: chmod +x dist/my-cowork-backend || true
+      - run: chmod +x dist/my-cowork-backend
       - run: npm ci
-      - run: bash scripts/build-electron.sh --mac
+      - name: Fetch OfficeCLI
+        env:
+          OFFICECLI_PLATFORM: mac-arm64
+        run: bash scripts/fetch-officecli.sh
+      - name: Verify extraResources
+        run: |
+          test -f dist/my-cowork-backend
+          test -x resources/bin/officecli
+          ls -lh dist/my-cowork-backend resources/bin/officecli resources/prebuilt
+      - run: npm run build
+      - name: Package macOS app
+        env:
+          DEBUG: electron-builder
+        run: npx electron-builder --config build/electron-builder.yml --mac --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: my-cowork-dmg
-          path: release/*.dmg
+          name: my-cowork-mac
+          path: |
+            release/*.dmg
+            release/*.zip
 
   electron-windows:
     needs: [python-windows]
@@ -105,11 +119,14 @@ jobs:
           test -f resources/bin/officecli.exe
           ls -lh dist/my-cowork-backend.exe resources/bin/officecli.exe resources/prebuilt
       - run: npm run build
-      - name: Package NSIS installer
-        run: npx electron-builder --config build/electron-builder.yml --win
+      - name: Package Windows installer
+        env:
+          DEBUG: electron-builder
+        run: npx electron-builder --config build/electron-builder.yml --win --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: my-cowork-win
           path: |
             release/*.exe
+            release/*.zip
             release/*.yml

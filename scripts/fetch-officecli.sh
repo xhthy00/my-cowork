@@ -81,14 +81,20 @@ resolve_version() {
   return 1
 }
 
+fetch_url() {
+  local url="$1"
+  curl -fsSL --retry 5 --retry-delay 2 \
+    --max-time 120 --connect-timeout 15 "$url" -o "$TMP"
+}
+
 fetch_with_fallback() {
   local primary="$1" fallback="$2"
-  if curl -fsSL --max-time 300 --connect-timeout 5 "$primary" -o "$TMP"; then
+  if fetch_url "$primary"; then
     echo "  (via primary)"
     return 0
   fi
   echo "  primary failed, trying fallback..."
-  curl -fsSL --max-time 300 "$fallback" -o "$TMP"
+  fetch_url "$fallback"
 }
 
 VERSION="${OFFICECLI_VERSION:-}"
@@ -99,10 +105,15 @@ fi
 echo "Fetching OfficeCLI ${VERSION:-latest} (${PLATFORM}) → ${DEST_PATH}"
 
 OK=0
-if [[ -n "$VERSION" ]]; then
-  if fetch_with_fallback \
-    "$MIRROR_BASE/releases/download/${VERSION}/${ASSET}" \
-    "https://github.com/iOfficeAI/OfficeCLI/releases/download/${VERSION}/${ASSET}"; then
+GH_ASSET="https://github.com/iOfficeAI/OfficeCLI/releases/download/${VERSION:-latest}/${ASSET}"
+MIRROR_ASSET="$MIRROR_BASE/releases/download/${VERSION:-latest}/${ASSET}"
+# GitHub Actions reaches github.com more reliably than the OfficeCLI mirror.
+if [[ "${CI:-}" == "true" && -n "$VERSION" ]]; then
+  if fetch_with_fallback "$GH_ASSET" "$MIRROR_ASSET"; then
+    OK=1
+  fi
+elif [[ -n "$VERSION" ]]; then
+  if fetch_with_fallback "$MIRROR_ASSET" "$GH_ASSET"; then
     OK=1
   fi
 fi

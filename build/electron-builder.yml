@@ -11,6 +11,7 @@ mac:
   identity: null
   target:
     - dmg
+    - zip
   category: public.app-category.productivity
   extraResources:
     - from: dist/my-cowork-backend
@@ -29,9 +30,9 @@ mac:
       to: skills
 win:
   icon: build/icon.ico
-  signAndEditExecutable: false
   target:
     - nsis
+    - zip
   extraResources:
     - from: dist/my-cowork-backend.exe
       to: python_bin.exe
@@ -51,4 +52,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  warningsAsErrors: false
+dmg:
+  sign: false
 asar: true
