@@ -276,13 +276,6 @@ class TaskManager:
             if a:
                 enabled_skill_ids = list(a.get("enabled_skills") or [])
 
-        from app.runtime.v2.flag import is_v2
-
-        if not is_v2():
-            prefix = _assistant_skill_prefix(assistant_id, enabled_skill_ids or None)
-            if prefix:
-                text = prefix + text
-
         self._set_status(task_id, "RUNNING", source=source, text=text)
         self._seed_short_term(task_id, req_obj)
         other_running = any(

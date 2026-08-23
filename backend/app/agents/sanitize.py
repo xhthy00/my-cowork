@@ -22,12 +22,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from langchain.agents.middleware.types import (
-    AgentMiddleware,
-    ExtendedModelResponse,
-    ModelRequest,
-    ModelResponse,
-)
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 
 _INVALID_CALL_TEMPLATE = (
@@ -299,23 +293,3 @@ def _fold_instructions_into_tools(messages: list[AnyMessage]) -> list[AnyMessage
             continue
         out.append(msg)
     return out
-
-
-class ToolResponsesMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Agent middleware that patches tool responses before each model call."""
-
-    def wrap_model_call(
-        self,
-        request: ModelRequest[Any],
-        handler: Any,
-    ) -> ModelResponse[Any] | AIMessage | ExtendedModelResponse[Any]:
-        sanitized = prepare_model_messages(ensure_tool_responses(list(request.messages)))
-        return handler(request.override(messages=sanitized))
-
-    async def awrap_model_call(
-        self,
-        request: ModelRequest[Any],
-        handler: Any,
-    ) -> ModelResponse[Any] | AIMessage | ExtendedModelResponse[Any]:
-        sanitized = prepare_model_messages(ensure_tool_responses(list(request.messages)))
-        return await handler(request.override(messages=sanitized))

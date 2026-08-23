@@ -82,8 +82,12 @@ async def test_m3_pdf_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
-async def test_m3_pptx_via_chat_route(tmp_path: Path):
+async def test_m3_pptx_via_chat_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Workforce → document_agent → pptx_gen with confirm auto-approved."""
+    monkeypatch.setattr(
+        "app.runtime.v2.office.officecli_available",
+        lambda: False,
+    )
     pptx_gen.ensure_templates()
     out = tmp_path / "via-chat.pptx"
     desk = str(out)

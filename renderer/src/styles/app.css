@@ -85,6 +85,16 @@ input, textarea, select { font-family: inherit; color: inherit; }
 ::-webkit-scrollbar-thumb { background: var(--ds-icon-neutral-muted-default); border-radius: 99px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* Markdown GFM tables — chat answer + file preview */
 .md-table-wrap {
   scrollbar-gutter: stable;

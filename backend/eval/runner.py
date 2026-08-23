@@ -1,4 +1,4 @@
-"""Golden-set runner for v1/v2 cognition quality gates.
+"""Golden-set runner for cognition quality gates.
 
 Usage (from backend/):
 
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -95,7 +94,7 @@ def score_case(case: dict[str, Any]) -> dict[str, Any]:
         "next": verdict.next,
         "missing": verdict.missing,
         "reasons": reasons,
-        "runtime": os.environ.get("MY_COWORK_RUNTIME") or "v2",
+        "runtime": "v2",
     }
 
 

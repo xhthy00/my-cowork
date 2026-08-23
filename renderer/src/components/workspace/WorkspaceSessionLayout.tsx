@@ -87,7 +87,7 @@ export default function WorkspaceSessionLayout({
 }: {
   chat: ReactNode;
   preview: ReactNode;
-  side: ReactNode;
+  side?: ReactNode;
 }) {
   const pagePreviewOpen = usePageTabStore((s) => s.previewOpen);
   const storeOpen = usePreviewStore((s) => s.open);
@@ -217,12 +217,14 @@ export default function WorkspaceSessionLayout({
         </>
       ) : null}
 
-      <div
-        id="session-side-panel"
-        className="flex min-h-0 shrink-0 flex-col overflow-hidden"
-      >
-        {side}
-      </div>
+      {side ? (
+        <div
+          id="session-side-panel"
+          className="flex min-h-0 shrink-0 flex-col overflow-hidden"
+        >
+          {side}
+        </div>
+      ) : null}
     </div>
   );
 }

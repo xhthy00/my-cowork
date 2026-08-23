@@ -1,13 +1,9 @@
 from typing import Any, Optional, Sequence
-import os
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
-
-# Existing tests target the v1 create_agent graphs. Product default is v2.
-os.environ.setdefault("MY_COWORK_RUNTIME", "v1")
 
 
 class FakeChatModel(BaseChatModel):
@@ -21,7 +17,7 @@ class FakeChatModel(BaseChatModel):
         tools: Any,
         **kwargs: Any,
     ) -> "FakeChatModel":
-        """Return self so create_react_agent tool-binding is a no-op."""
+        """Return self so tool-binding is a no-op."""
         return self
 
     def _generate(

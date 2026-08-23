@@ -152,7 +152,7 @@ async def test_loop_emits_tool_start_before_result():
 
 @pytest.mark.asyncio
 async def test_floor_retry_forces_search_after_preamble():
-    from app.graphs.v2_single import run_with_floor_retries
+    from app.graphs.single_agent import run_with_floor_retries
     from app.runtime.v2.critic import floor_analysis
 
     @langchain_tool
@@ -191,7 +191,7 @@ async def test_floor_retry_forces_search_after_preamble():
 
 @pytest.mark.asyncio
 async def test_floor_retry_forces_fetch_after_search():
-    from app.graphs.v2_single import run_with_floor_retries
+    from app.graphs.single_agent import run_with_floor_retries
     from app.runtime.v2.critic import floor_analysis
 
     @langchain_tool
@@ -231,7 +231,7 @@ async def test_floor_retry_forces_fetch_after_search():
 
 @pytest.mark.asyncio
 async def test_floor_retry_search_gap_without_tool():
-    from app.graphs.v2_single import run_with_floor_retries
+    from app.graphs.single_agent import run_with_floor_retries
     from app.runtime.v2.critic import floor_analysis
 
     user = "调研扬州最新购房政策"
@@ -246,7 +246,7 @@ async def test_floor_retry_search_gap_without_tool():
 
 @pytest.mark.asyncio
 async def test_floor_retry_does_not_nudge_complete_qa():
-    from app.graphs.v2_single import run_with_floor_retries
+    from app.graphs.single_agent import run_with_floor_retries
 
     user = "Python 里 list 和 tuple 的区别"
     model = FakeChatModel(responses=[make_ai("list 可变，tuple 不可变。")])

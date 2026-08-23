@@ -1,13 +1,6 @@
-"""Agent factory for workforce workers and single-agent ReAct agents."""
+"""Prompt loaders for workforce workers and the single agent."""
 
 from pathlib import Path
-
-from langchain.agents import create_agent
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.tools import BaseTool
-
-from app.agents.sanitize import ToolResponsesMiddleware
-from app.agents.workers import WORKER_IDS
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -52,47 +45,3 @@ def load_worker_prompt(worker_name: str) -> str:
 def load_single_agent_prompt() -> str:
     """Load the Eigent-aligned Single Agent system prompt template."""
     return _load_prompt("single_agent.md")
-
-
-def create_supervisor(model: BaseChatModel, tools: list[BaseTool] | None = None):
-    """Deprecated no-op agent (workforce uses coordinator function node)."""
-    return create_agent(
-        model,
-        tools or [],
-        system_prompt="You are unused. Reply FINISH.",
-        middleware=[ToolResponsesMiddleware()],
-    )
-
-
-def create_worker(
-    name: str,
-    system_prompt: str,
-    model: BaseChatModel,
-    tools: list[BaseTool] | None = None,
-):
-    """Create a named worker ReAct agent as a compiled graph."""
-    _ = name
-    return create_agent(
-        model,
-        tools or [],
-        system_prompt=system_prompt,
-        middleware=[ToolResponsesMiddleware()],
-    )
-
-
-def create_single_agent(
-    system_prompt: str,
-    model: BaseChatModel,
-    tools: list[BaseTool] | None = None,
-):
-    """Create the Eigent-style Single Agent (full tool set, no routing)."""
-    return create_agent(
-        model,
-        tools or [],
-        system_prompt=system_prompt,
-        middleware=[ToolResponsesMiddleware()],
-    )
-
-
-def known_worker_ids() -> tuple[str, ...]:
-    return WORKER_IDS

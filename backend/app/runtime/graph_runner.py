@@ -30,7 +30,6 @@ from app.runtime.budget_context import (
 )
 from app.runtime.compressor import maybe_compress
 from app.runtime.context import (
-    inject_memories,
     looks_like_workspace_dump,
     strip_think_blocks,
 )
@@ -62,7 +61,6 @@ from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
 )
-from app.runtime.v2.flag import is_v2
 from app.runtime.v2.synthesize import (
     extract_worker_summary,
     is_process_meta as _is_process_meta,
@@ -103,18 +101,9 @@ def build_initial_state(
 ) -> dict[str, Any]:
     """Build the initial WorkforceState / single-agent state from a task."""
     text = getattr(task, "text", "") or ""
-    memory_enabled = getattr(task, "memory_enabled", True)
-    history = getattr(task, "history", None)
-    if is_v2():
-        from langchain_core.messages import HumanMessage
+    from langchain_core.messages import HumanMessage
 
-        messages = [HumanMessage(content=text)]
-    else:
-        messages = inject_memories(
-            text,
-            long_term if memory_enabled else None,
-            history=history,
-        )
+    messages = [HumanMessage(content=text)]
     state: dict[str, Any] = {
         "messages": messages,
         "task_id": getattr(task, "task_id", ""),
@@ -872,7 +861,7 @@ async def run_graph(
         can_complete = workers_ran > 0 and (
             not wants_document(plan_ask) or doc_ok or session_mode == "workforce"
         )
-        if is_v2() and session_mode != "workforce" and can_complete:
+        if session_mode != "workforce" and can_complete:
             from app.runtime.v2.critic import heuristic_critic
 
             can_complete = heuristic_critic(plan_ask, run_messages).next == "answer"
@@ -932,7 +921,7 @@ async def run_graph(
         if session_mode == "workforce":
             summary = ""
             # Prefer synthesize node's compose; never use a worker last-AI dump.
-            if is_v2() and last_graph_node == "synthesize":
+            if last_graph_node == "synthesize":
                 summary = _end_card_summary(_last_ai_text(run_messages))
             if not summary:
                 summary = _end_card_summary(
@@ -940,7 +929,7 @@ async def run_graph(
                 )
             if summary:
                 end_extra["summary"] = summary
-        elif is_v2():
+        else:
             from app.runtime.v2.synthesize import best_user_facing_text
 
             last = _end_card_summary(

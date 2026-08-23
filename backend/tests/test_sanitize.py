@@ -11,10 +11,10 @@ from langchain_core.messages import (
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool as langchain_tool
 
-from app.agents.factory import create_single_agent
 from app.agents.sanitize import ensure_tool_responses, prepare_model_messages, strip_model_junk
 from app.graphs.single_agent import compile_single_agent_graph
 from app.graphs.state import WorkforceState
+from tests.conftest import FakeChatModel, make_ai
 
 
 def _ids_answered_by(messages) -> set[str]:
@@ -307,14 +307,16 @@ class TestAgentRoundTrip:
                     ],
                 ),
                 AIMessage(content="done"),
+                AIMessage(content="done"),
+                AIMessage(content="done"),
+                AIMessage(content="done"),
             ]
         )
-        agent = create_single_agent(
-            system_prompt="You are the Single Agent.",
+        graph = compile_single_agent_graph(
             model=model,
             tools=[_mock_tool],
+            synthesize_llm=FakeChatModel(responses=[make_ai("done")] * 8),
         )
-        graph = compile_single_agent_graph(agent)
         result = await graph.ainvoke(
             WorkforceState(
                 messages=[HumanMessage(content="do the thing")],

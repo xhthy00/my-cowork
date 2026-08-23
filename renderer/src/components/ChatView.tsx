@@ -14,6 +14,7 @@ import GridPatternBackground from "./Background/GridPatternBackground";
 import ChatBar from "./chat/ChatBar";
 import ChatConfirmCard, { ChatConfirmRecordGroup } from "./chat/ChatConfirmCard";
 import WorkspaceOverlaysBar from "./workspace/WorkspaceOverlaysBar";
+import OnboardingHint from "./workspace/OnboardingHint";
 import MessageContent from "./chat/MessageContent";
 import { UserMessageRichContent } from "./chat/UserMessageRichContent";
 import PlanTaskBox from "./chat/PlanTaskBox";
@@ -523,7 +524,7 @@ export default function ChatView() {
       <section className="main relative z-[1] flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <GridPatternBackground />
         <div className="relative z-[1] mx-auto flex h-full w-full max-w-[560px] min-h-0 flex-col px-4">
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto py-4">
+          <div className="scrollbar-hide flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-x-hidden overflow-y-auto py-4">
             <div className="flex w-full flex-col items-center">
               <img
                 src={
@@ -592,6 +593,7 @@ export default function ChatView() {
                   stopping={stopping}
                   onStop={() => void stopTask()}
                 />
+                <OnboardingHint />
               </div>
             </div>
           </div>

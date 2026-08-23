@@ -8,7 +8,6 @@ import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool as langchain_tool
 
-from app.agents.factory import create_worker
 from app.graphs.routing import (
     infer_default_worker,
     needs_forced_delegation,
@@ -16,6 +15,7 @@ from app.graphs.routing import (
     ready_subtasks,
     route_after_coordinator,
 )
+from app.graphs.single_agent import compile_single_agent_graph
 from app.graphs.state import WorkforceState
 from app.graphs.workforce import compile_workforce_graph
 from app.observability.trace import TraceBus
@@ -26,6 +26,33 @@ from app.runtime.graph_runner import (
     run_graph,
 )
 from tests.conftest import FakeChatModel, make_ai
+
+
+def _planner() -> FakeChatModel:
+    return FakeChatModel(responses=[make_ai("ok")] * 16)
+
+
+def _workforce(
+    models: dict[str, FakeChatModel] | None = None,
+    tools: list | None = None,
+):
+    workers = {
+        name: {
+            "model": model,
+            "tools": tools or [],
+            "prompt_name": name.replace("_agent", ""),
+        }
+        for name, model in (models or {}).items()
+    }
+    return compile_workforce_graph(workers=workers, planner_llm=_planner())
+
+
+def _single(model: FakeChatModel, tools: list | None = None):
+    return compile_single_agent_graph(
+        model=model,
+        tools=tools or [],
+        synthesize_llm=_planner(),
+    )
 
 
 def _mock_tool():
@@ -131,16 +158,7 @@ class TestWorkforceGraph:
     @pytest.mark.asyncio
     async def test_coordinator_runs_developer_then_ends(self):
         developer = FakeChatModel(responses=[make_ai(content="file done")])
-        graph = compile_workforce_graph(
-            {
-                "developer_agent": create_worker(
-                    "developer_agent",
-                    system_prompt="dev",
-                    model=developer,
-                    tools=[],
-                )
-            }
-        )
+        graph = _workforce({"developer_agent": developer})
         state = WorkforceState(
             messages=[],
             task_id="t2",
@@ -168,14 +186,10 @@ class TestWorkforceGraph:
     async def test_parallel_independent_subtasks(self):
         browser = FakeChatModel(responses=[make_ai(content="browser ok")])
         developer = FakeChatModel(responses=[make_ai(content="dev ok")])
-        graph = compile_workforce_graph(
+        graph = _workforce(
             {
-                "browser_agent": create_worker(
-                    "browser_agent", "b", model=browser, tools=[]
-                ),
-                "developer_agent": create_worker(
-                    "developer_agent", "d", model=developer, tools=[]
-                ),
+                "browser_agent": browser,
+                "developer_agent": developer,
             }
         )
         state = WorkforceState(
@@ -242,7 +256,7 @@ def test_round_reducer_new_turn_wins():
 class TestGraphRunner:
     @pytest.mark.asyncio
     async def test_run_graph_trivial_skips_workforce(self):
-        graph = compile_workforce_graph({})
+        graph = _workforce()
         bus = TraceBus()
         events = []
         async for ev in run_graph(_Task(task_id="t3", text="hello"), graph, bus):
@@ -255,9 +269,6 @@ class TestGraphRunner:
 class TestSingleAgentGraph:
     @pytest.mark.asyncio
     async def test_single_agent_solves_with_tools_no_supervisor(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-
         model = FakeChatModel(
             responses=[
                 make_ai(
@@ -272,13 +283,9 @@ class TestSingleAgentGraph:
                 ),
                 make_ai(content="single agent done"),
             ]
+            + [make_ai(content="single agent done")] * 8
         )
-        agent = create_single_agent(
-            system_prompt="You are the Single Agent.",
-            model=model,
-            tools=[_mock_tool()],
-        )
-        graph = compile_single_agent_graph(agent)
+        graph = _single(model, tools=[_mock_tool()])
         state = WorkforceState(
             messages=[HumanMessage(content="do the thing")],
             task_id="sa-1",
@@ -292,13 +299,8 @@ class TestSingleAgentGraph:
 
     @pytest.mark.asyncio
     async def test_run_graph_emits_single_agent_roster(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-
-        model = FakeChatModel(responses=[make_ai(content="ok")])
-        graph = compile_single_agent_graph(
-            create_single_agent("prompt", model, tools=[])
-        )
+        model = FakeChatModel(responses=[make_ai(content="ok")] * 8)
+        graph = _single(model)
         bus = TraceBus()
         events = []
         async for ev in run_graph(
@@ -316,18 +318,10 @@ class TestSingleAgentGraph:
 
     @pytest.mark.asyncio
     async def test_run_graph_errors_when_gongwen_regen_writes_no_file(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-
         model = FakeChatModel(
-            responses=[
-                make_ai(content="已按规范重新生成"),
-                make_ai(content="已按规范重新生成"),
-            ]
+            responses=[make_ai(content="已按规范重新生成")] * 8
         )
-        graph = compile_single_agent_graph(
-            create_single_agent("prompt", model, tools=[])
-        )
+        graph = _single(model)
         bus = TraceBus()
         events = []
         async for ev in run_graph(
@@ -348,16 +342,10 @@ class TestSingleAgentGraph:
 
     @pytest.mark.asyncio
     async def test_remote_channel_does_not_fail_graph_when_doc_missing(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
         from app.guardrails.approval import reset_remote_channel, set_remote_channel
 
-        model = FakeChatModel(
-            responses=[make_ai(content="清单如下……"), make_ai(content="清单如下……")]
-        )
-        graph = compile_single_agent_graph(
-            create_single_agent("prompt", model, tools=[])
-        )
+        model = FakeChatModel(responses=[make_ai(content="清单如下……")] * 8)
+        graph = _single(model)
         bus = TraceBus()
         events = []
         token = set_remote_channel(True)
@@ -382,16 +370,12 @@ class TestSingleAgentGraph:
 
     @pytest.mark.asyncio
     async def test_remote_channel_errors_when_claimed_file_missing(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
         from app.guardrails.approval import reset_remote_channel, set_remote_channel
 
         fake = "/Users/tanghaoyu/.my-cowork/spaces/space-local/projects/x/runs/x/江苏兴化旅游攻略.docx"
         reply = f"最终交付文件\n- 路径：`{fake}`"
-        model = FakeChatModel(responses=[make_ai(content=reply), make_ai(content=reply)])
-        graph = compile_single_agent_graph(
-            create_single_agent("prompt", model, tools=[])
-        )
+        model = FakeChatModel(responses=[make_ai(content=reply)] * 8)
+        graph = _single(model)
         bus = TraceBus()
         events = []
         token = set_remote_channel(True)
@@ -416,17 +400,10 @@ class TestSingleAgentGraph:
 
     @pytest.mark.asyncio
     async def test_run_graph_errors_when_claimed_xlsx_missing(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-
         fake_path = "/Users/tanghaoyu/Documents/AIS/200P算力中心建设投资估算.xlsx"
         reply = f"交付文件\n{fake_path}"
-        model = FakeChatModel(
-            responses=[make_ai(content=reply), make_ai(content=reply)]
-        )
-        graph = compile_single_agent_graph(
-            create_single_agent("prompt", model, tools=[])
-        )
+        model = FakeChatModel(responses=[make_ai(content=reply)] * 8)
+        graph = _single(model)
         bus = TraceBus()
         events = []
         async for ev in run_graph(
@@ -449,9 +426,6 @@ class TestSingleAgentGraph:
 
     @pytest.mark.asyncio
     async def test_single_agent_does_not_preplan_word_todos(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-
         planner = FakeChatModel(
             responses=[
                 make_ai(
@@ -462,13 +436,7 @@ class TestSingleAgentGraph:
                 )
             ]
         )
-        graph = compile_single_agent_graph(
-            create_single_agent(
-                "prompt",
-                FakeChatModel(responses=[make_ai(content="ok")]),
-                tools=[],
-            )
-        )
+        graph = _single(FakeChatModel(responses=[make_ai(content="ok")] * 8))
         bus = TraceBus()
         events = []
         async for ev in run_graph(

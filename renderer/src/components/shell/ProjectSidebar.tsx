@@ -198,13 +198,13 @@ export default function ProjectSidebar({
               }}
             >
               <Plus className="h-4 w-4 shrink-0" />
-              <span>新建项目</span>
+              <span>新建对话</span>
             </button>
 
             <div className="mb-1 px-3 pt-1 text-[11px] font-semibold tracking-wide text-ds-text-neutral-subtle-default">
               项目
             </div>
-            <div className="min-h-0 min-w-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-0.5">
+            <div className="scrollbar-hide min-h-0 min-w-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-0.5">
               {projects.map((s) => (
                 <div
                   key={s.id}

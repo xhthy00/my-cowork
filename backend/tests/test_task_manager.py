@@ -3,9 +3,11 @@ from dataclasses import dataclass
 
 import pytest
 
+from app.graphs.single_agent import compile_single_agent_graph
 from app.graphs.workforce import compile_workforce_graph
 from app.observability.trace import TraceBus
 from app.orchestrator.task_manager import TaskManager, TaskRequest
+from tests.conftest import FakeChatModel, make_ai
 
 
 @dataclass
@@ -15,7 +17,18 @@ class _Task:
 
 
 def _make_graph():
-    return compile_workforce_graph({})
+    return compile_workforce_graph(
+        workers={},
+        planner_llm=FakeChatModel(responses=[make_ai("ok")] * 8),
+    )
+
+
+def _make_single(model: FakeChatModel):
+    return compile_single_agent_graph(
+        model=model,
+        tools=[],
+        synthesize_llm=FakeChatModel(responses=[make_ai("ok")] * 8),
+    )
 
 
 class TestTaskManagerSubmit:
@@ -64,14 +77,8 @@ class TestTaskManagerHandle:
 
     @pytest.mark.asyncio
     async def test_handle_routes_single_agent_graph(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-        from tests.conftest import FakeChatModel, make_ai
-
-        sa_model = FakeChatModel(responses=[make_ai(content="solo ok")])
-        sa_graph = compile_single_agent_graph(
-            create_single_agent("prompt", sa_model, tools=[])
-        )
+        sa_model = FakeChatModel(responses=[make_ai(content="solo ok")] * 8)
+        sa_graph = _make_single(sa_model)
         tm = TaskManager(
             graph=_make_graph(),
             tools=[],
@@ -96,14 +103,10 @@ class TestTaskManagerHandle:
 class TestTaskManagerIsolation:
     @pytest.mark.asyncio
     async def test_concurrent_handles_do_not_mix_events(self):
-        from app.agents.factory import create_single_agent
-        from app.graphs.single_agent import compile_single_agent_graph
-        from tests.conftest import FakeChatModel, make_ai
-
-        sa_model = FakeChatModel(responses=[make_ai(content="solo a"), make_ai(content="solo b")])
-        sa_graph = compile_single_agent_graph(
-            create_single_agent("prompt", sa_model, tools=[])
+        sa_model = FakeChatModel(
+            responses=[make_ai(content="solo a"), make_ai(content="solo b")] * 8
         )
+        sa_graph = _make_single(sa_model)
         tm = TaskManager(
             graph=_make_graph(),
             tools=[],

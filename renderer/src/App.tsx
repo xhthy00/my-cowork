@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import ChatView from "./components/ChatView";
 import PreviewPanel from "./components/preview/PreviewPanel";
 import SessionSidePanel from "./components/session/SessionSidePanel";
-import InstructionsPanel from "./components/workspace/InstructionsPanel";
 import WorkspaceSessionLayout from "./components/workspace/WorkspaceSessionLayout";
 import WorkspaceShell from "./components/workspace/WorkspaceShell";
 import HubView from "./components/hub/HubView";
@@ -76,13 +75,7 @@ export default function App() {
               <WorkspaceSessionLayout
                 chat={<ChatView />}
                 preview={<PreviewPanel />}
-                side={
-                  messageCount === 0 ? (
-                    <InstructionsPanel />
-                  ) : (
-                    <SessionSidePanel />
-                  )
-                }
+                side={messageCount === 0 ? null : <SessionSidePanel />}
               />
             }
           />

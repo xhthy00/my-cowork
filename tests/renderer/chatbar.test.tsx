@@ -173,6 +173,11 @@ describe("ChatBar", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("shows a compact session-mode label in the composer footer", () => {
+    render(<ChatBar onEvent={vi.fn()} />);
+    expect(screen.getByLabelText("会话模式: 单智能体")).toBeTruthy();
+  });
+
   it("shows a context usage ring next to the model picker", async () => {
     const { useSessionStore } = await import("../../renderer/src/store/session");
     useSessionStore.setState({

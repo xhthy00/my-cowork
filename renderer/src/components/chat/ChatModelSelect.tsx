@@ -154,7 +154,7 @@ export default function ChatModelSelect() {
         onClick={navigateToModelsConfig}
         aria-label="去配置模型"
       >
-        <span className="min-w-0 truncate !text-label-xs font-semibold">
+        <span className="min-w-0 truncate text-body-xs font-medium">
           去配置模型
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" strokeWidth={2} />
@@ -174,7 +174,7 @@ export default function ChatModelSelect() {
           className={cn(
             modelTriggerShellClass,
             "min-w-0 cursor-pointer border-0 text-left",
-            "duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] justify-between font-semibold transition-[background-color,box-shadow,opacity]",
+            "duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] justify-between font-medium transition-[background-color,box-shadow,opacity]",
             "hover:bg-ds-bg-neutral-subtle-default active:bg-ds-bg-neutral-subtle-default data-[state=open]:bg-ds-bg-neutral-subtle-default",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-border-neutral-strong-default focus-visible:ring-offset-2",
             "disabled:pointer-events-none disabled:opacity-50",
@@ -183,7 +183,7 @@ export default function ChatModelSelect() {
         >
           <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             {active && <VendorIcon profile={active} size="xs" />}
-            <span className="min-w-0 flex-1 truncate text-left !text-label-xs text-ds-text-neutral-default-default">
+            <span className="min-w-0 flex-1 truncate text-left text-body-xs text-ds-text-neutral-default-default">
               {triggerName}
             </span>
           </span>

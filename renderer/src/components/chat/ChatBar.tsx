@@ -545,14 +545,15 @@ export default function ChatBar({
       </div>
 
       {showFooter && (
-        <div className="flex w-full items-center justify-between gap-2 px-3 py-1">
+        <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
           <button
             type="button"
             disabled={!modeInteractive}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-xl bg-ds-bg-neutral-default-default px-2 py-1 text-label-xs font-semibold text-ds-text-neutral-default-default",
-              modeInteractive && "hover:bg-ds-bg-neutral-subtle-default",
-              !modeInteractive && "pointer-events-none bg-transparent",
+              "inline-flex items-center gap-1.5 rounded-xl px-2 py-1 font-medium text-ds-text-neutral-default-default",
+              modeInteractive &&
+                "bg-ds-bg-neutral-default-default hover:bg-ds-bg-neutral-subtle-default",
+              !modeInteractive && "pointer-events-none",
             )}
             onClick={() => {
               if (!modeInteractive) return;
@@ -564,11 +565,11 @@ export default function ChatBar({
             aria-label={`会话模式: ${modeLabel}`}
           >
             <ModeIcon className="size-3.5 shrink-0" strokeWidth={2} aria-hidden />
-            <span>{modeLabel}</span>
+            <span className="text-label-xs">{modeLabel}</span>
             {modeInteractive && (
               <span className="inline-flex flex-col leading-none" aria-hidden>
-                <ChevronUp className="-mb-1 size-3 opacity-80" strokeWidth={2} />
-                <ChevronDown className="size-3 opacity-80" strokeWidth={2} />
+                <ChevronUp className="-mb-0.5 size-3 opacity-70" strokeWidth={2} />
+                <ChevronDown className="size-3 opacity-70" strokeWidth={2} />
               </span>
             )}
           </button>
