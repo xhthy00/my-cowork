@@ -32,6 +32,7 @@ import {
 } from "@/lib/progressFromTrace";
 import { isVisibleAgentPath } from "@/lib/outputFiles";
 import {
+  artifactIdentity,
   decodeUnicodeEscapes,
   fileBasename,
   isCorruptBasename,
@@ -118,10 +119,11 @@ export default function SessionSidePanel() {
         .filter(Boolean);
       for (const p of lines) {
         const decoded = decodeUnicodeEscapes(p);
-        if (!decoded || seen.has(decoded) || !isVisibleAgentPath(decoded)) {
+        const id = artifactIdentity(decoded);
+        if (!decoded || !id || seen.has(id) || !isVisibleAgentPath(decoded)) {
           continue;
         }
-        seen.add(decoded);
+        seen.add(id);
         const base = fileBasename(decoded);
         const label =
           nameHint && !isCorruptBasename(nameHint) ? nameHint : base || decoded;

@@ -59,6 +59,8 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
   const messages = useSessionStore((s) => s.messages);
   const pendingArtifacts = useSessionStore((s) => s.pendingArtifacts);
   const thinking = useSessionStore((s) => s.thinking);
+  const lastContentAt = useSessionStore((s) => s.lastContentAt);
+  const lastBeatAt = useSessionStore((s) => s.lastBeatAt);
   const taskInfo = useWorkforceStore((s) => s.taskInfo);
   const taskRunning = useWorkforceStore((s) => s.taskRunning);
   const [now, setNow] = useState(() => Date.now());
@@ -119,6 +121,13 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
 
   const inflight = useMemo(() => findInFlightTool(trace), [trace]);
 
+  const quietMs = lastContentAt
+    ? Math.max(0, now - lastContentAt)
+    : taskStartedAt
+      ? Math.max(0, now - taskStartedAt)
+      : 0;
+  const beating = lastBeatAt != null && now - lastBeatAt < 5000;
+
   const activity = useMemo(
     () =>
       deriveLiveActivity({
@@ -129,6 +138,8 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
         pendingArtifactCount: pendingArtifacts?.length ?? 0,
         thinkingSubject: thinking?.subject,
         hasPrepStep: steps.some((s) => s.kind === "prep"),
+        quietMs,
+        beating,
       }),
     [
       inflight,
@@ -139,6 +150,8 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
       pendingArtifacts?.length,
       thinking?.subject,
       steps,
+      quietMs,
+      beating,
     ],
   );
   const liveLabel = activity.label;
@@ -146,7 +159,9 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
   const liveElapsed =
     runStatus === "running" && inflight?.startedAtMs
       ? formatSplittingElapsed(now - inflight.startedAtMs)
-      : null;
+      : runStatus === "running" && quietMs >= 4000
+        ? formatSplittingElapsed(quietMs)
+        : null;
 
   if (runStatus === "idle") return null;
   if (runStatus !== "running" && steps.length === 0 && elapsedMs < 1000) return null;

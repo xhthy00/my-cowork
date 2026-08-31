@@ -27,7 +27,7 @@ import { resolveEndMessageText, useSessionStore } from "../store/session";
 import { dispatchProjectEvent, getProjectTaskId } from "../store/livePark";
 import { getProjectRuntime } from "../store/projectRuntime";
 import { isVisibleAgentPath } from "@/lib/outputFiles";
-import { fileBasename, isCorruptBasename, normalizeFsPath } from "@/lib/fsPath";
+import { artifactIdentity, fileBasename, isCorruptBasename, normalizeFsPath } from "@/lib/fsPath";
 import { cn } from "@/lib/utils";
 import { usePreviewStore } from "../store/preview";
 import { usePageTabStore } from "../store/pageTab";
@@ -239,8 +239,9 @@ function mergeAssistantContent(assistants: Message[]): {
         continue;
       }
       const path = normalizeFsPath(a.path) || a.path;
-      if (seen.has(path)) continue;
-      seen.add(path);
+      const id = artifactIdentity(path);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
       const name =
         a.name && !isCorruptBasename(a.name) ? a.name : fileBasename(path) || a.name;
       artifacts.push({ ...a, path, name });
@@ -266,8 +267,9 @@ function collectArtifacts(
       return;
     }
     const path = normalizeFsPath(a.path) || a.path;
-    if (seen.has(path)) return;
-    seen.add(path);
+    const id = artifactIdentity(path);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
     const name =
       a.name && !isCorruptBasename(a.name) ? a.name : fileBasename(path) || a.name;
     artifacts.push({ ...a, path, name });

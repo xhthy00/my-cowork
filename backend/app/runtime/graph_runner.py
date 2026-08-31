@@ -16,6 +16,7 @@ from app.graphs.routing import (
     has_office_deliverable,
     markdown_only,
     wants_document,
+    wants_html_file,
     wants_pptx,
 )
 from app.guardrails.approval import is_remote_channel
@@ -371,8 +372,6 @@ def _emit_graph_end(
 
 def _deliverable_constraint(plan_ask: str) -> str:
     """Format-specific workspace hint — do not advertise docx when the user asked for md."""
-    from app.graphs.routing import wants_html_file
-
     notes = (
         "- 过程发现、草稿路径写入笔记（`create_note` / "
         "`append_note(\"shared_files\", …)`），不要当作最终交付。\n"
@@ -867,9 +866,19 @@ async def run_graph(
         claimed_missing = _missing_claimed_office_files(
             _last_ai_text(run_messages), workdir=workdir
         )
+        need_html = wants_html_file(plan_ask) and not wants_document(plan_ask)
+        html_ok = True
+        if need_html:
+            from app.runtime.v2.critic import heuristic_critic as _html_critic
+
+            html_ok = _html_critic(
+                plan_ask, run_messages, apply_research=False
+            ).deliverable_ok
         can_complete = workers_ran > 0 and (
             not wants_document(plan_ask) or doc_ok or session_mode == "workforce"
         )
+        if need_html and not html_ok and session_mode != "workforce":
+            can_complete = False
         if session_mode != "workforce" and can_complete:
             from app.runtime.v2.critic import heuristic_critic
 
@@ -879,7 +888,12 @@ async def run_graph(
             if all(t.get("status") == "completed" for t in todos):
                 pass
             elif workers_ran > 0:
-                todos = advance_todos(todos, complete_all=can_complete and doc_ok if wants_document(plan_ask) else can_complete)
+                office_done = (
+                    can_complete and doc_ok if wants_document(plan_ask) else can_complete
+                )
+                todos = advance_todos(
+                    todos, complete_all=office_done and html_ok
+                )
             todo_rt.todos = todos
             done_plan = _event(task_id, "todo_state", agent_id=agent_id, todos=todos)
             bus.emit(done_plan)
@@ -927,6 +941,9 @@ async def run_graph(
                 f"回复中列出了交付文件，但磁盘上不存在：{shown}。"
                 "请重试并真正写入文件；若弹出写入确认，请点击允许。"
             )
+        elif need_html and not html_ok:
+            end_status = "error"
+            end_extra["error"] = "未生成 HTML 文件。请重试；若弹出写入确认，请点击允许。"
         if session_mode == "workforce":
             summary = ""
             # Prefer synthesize node's compose; never use a worker last-AI dump.

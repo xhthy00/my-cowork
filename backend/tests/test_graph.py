@@ -104,6 +104,9 @@ class TestInferDefaultWorker:
         assert infer_default_worker("做成一份报告") == "document_agent"
         assert infer_default_worker("写一份报告") == "document_agent"
 
+    def test_web_game_goes_to_developer_agent(self):
+        assert infer_default_worker("帮我开发一个坦克大战的web网页游戏") == "developer_agent"
+
 
 class TestReadySubtasks:
     def test_dependency_order(self):

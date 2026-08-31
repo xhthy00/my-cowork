@@ -8,6 +8,7 @@ from app.graphs.routing import (
     wants_file_document,
     wants_html_file,
     wants_markdown_file,
+    wants_web_app,
     wants_pptx,
     wants_unspecified_document,
 )
@@ -99,6 +100,19 @@ def test_wants_document_not_mere_mention():
     assert wants_file_document("帮我整合成数据分析html")
     assert not wants_unspecified_document("帮我整合成数据分析html")
     assert wants_document("生成md文档再出一份 word 版")
+
+
+def test_wants_html_file_web_game():
+    game = "帮我开发一个坦克大战的web网页游戏"
+    assert wants_web_app(game)
+    assert wants_html_file(game)
+    assert wants_file_document(game)
+    assert not wants_document(game)
+    assert not wants_html_file("这个网页讲了什么")
+    assert not wants_html_file("网页游戏怎么玩")
+    assert not wants_web_app("调研扬州最新购房政策")
+    assert wants_html_file("帮我写个贪吃蛇小游戏")
+    assert wants_html_file("develop a tank battle web game")
 
 
 def test_document_tools_docx_gen_counts():

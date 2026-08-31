@@ -21,6 +21,8 @@ import { useSpacesStore } from "@/store/spaces";
 
 const isElectron =
   typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
+const isMac =
+  typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
 export default function TopBar() {
   const folded = usePageTabStore((s) => s.projectSidebarFolded);
@@ -95,7 +97,7 @@ export default function TopBar() {
   return (
     <header
       className={`relative z-50 flex h-10 shrink-0 items-center gap-1 py-1 ${
-        isElectron ? "pl-[72px] pr-2" : "px-2"
+        isElectron ? (isMac ? "pl-[72px] pr-2" : "pl-2 pr-2") : "px-2"
       }`}
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >

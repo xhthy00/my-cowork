@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, protocol, screen, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerSaveBlocker, protocol, screen, session, shell } from "electron";
 import type { ChildProcess } from "child_process";
 import { readFile } from "fs/promises";
 import * as fs from "fs";
@@ -45,6 +45,7 @@ import {
   readPreviewFileBuffer,
   writePreviewFileBuffer,
 } from "./fileReader";
+import { isLocalfileAllowed, localfileUrlToFsPath } from "./localfile";
 
 let backendUrl = "";
 let backendProc: ChildProcess | null = null;
@@ -205,7 +206,12 @@ ipcMain.handle(
     }
     if (input.activate !== false) {
       state = setActiveId(id);
-      await applyModelAndRestart();
+      // Don't block the renderer on backend restart — it can take seconds to
+      // minutes (venv prep + uvicorn startup + 15s health check). The profile
+      // and key are already persisted; chat will work once the new backend is up.
+      void applyModelAndRestart().catch((err) => {
+        console.error("Background backend restart failed:", err);
+      });
     }
     return state;
   },
@@ -232,7 +238,10 @@ ipcMain.handle("models:remove", async (_event, id: string) => {
 
 ipcMain.handle("models:setActive", async (_event, id: string) => {
   const state = setActiveId(id);
-  await applyModelAndRestart();
+  // Fire-and-forget restart; see models:upsert for rationale.
+  void applyModelAndRestart().catch((err) => {
+    console.error("Background backend restart failed:", err);
+  });
   return state;
 });
 
@@ -485,11 +494,7 @@ function registerLocalfileProtocol(): void {
   const handler = async (request: Request): Promise<Response> => {
     const filePath = localfileUrlToFsPath(request.url);
     const allowed = [os.homedir(), app.getPath("userData"), app.getPath("temp")];
-    const ok = allowed.some((base) => {
-      const b = path.resolve(base);
-      return filePath === b || filePath.startsWith(b + path.sep);
-    });
-    if (!ok) {
+    if (!isLocalfileAllowed(filePath, allowed)) {
       console.warn("[localfile] forbidden:", filePath, "from", request.url);
       return new Response("Forbidden", { status: 403 });
     }
@@ -533,45 +538,8 @@ function registerLocalfileProtocol(): void {
   }
 }
 
-/**
- * Chromium (standard scheme) turns localfile:///Users/x into
- * localfile://users/x (hostname=users). Reconstruct a real absolute path.
- */
-function localfileUrlToFsPath(requestUrl: string): string {
-  try {
-    const u = new URL(requestUrl);
-    if (u.hostname) {
-      // localfile://users/tanghaoyu/Desktop/a.html
-      let abs = path.posix.normalize(
-        `/${u.hostname}${decodeURIComponent(u.pathname)}`,
-      );
-      if (process.platform === "darwin" && /^\/users\//i.test(abs)) {
-        abs = "/Users" + abs.slice("/users".length);
-      }
-      if (process.platform === "win32") {
-        // localfile://c/Users/... → C:\Users\...
-        const m = abs.match(/^\/([a-zA-Z])\/(.*)$/);
-        if (m) return path.resolve(`${m[1]}:\\${m[2].replace(/\//g, "\\")}`);
-      }
-      return path.resolve(abs);
-    }
-    let p = decodeURIComponent(u.pathname || "");
-    p = p.replace(/^\/([A-Za-z]:[\\/])/, "$1");
-    return path.resolve(path.normalize(p));
-  } catch {
-    let raw = decodeURIComponent(requestUrl.replace(/^localfile:\/\//i, ""));
-    raw = raw.replace(/^\/([A-Za-z]:[\\/])/, "$1");
-    if (!raw.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(raw)) {
-      raw = `/${raw}`;
-    }
-    if (process.platform === "darwin" && /^\/users\//i.test(raw)) {
-      raw = "/Users" + raw.slice("/users".length);
-    }
-    return path.resolve(path.normalize(raw));
-  }
-}
-
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   registerLocalfileProtocol();
   const userData = app.getPath("userData");
   initKeychain(userData);

@@ -5,7 +5,7 @@ import { usePageTabStore } from "./pageTab";
 import { registerAndBindSession } from "./projectRuntime";
 import type { PreviewState } from "./preview";
 import type { WorkforceState } from "./workforce";
-import { decodeUnicodeEscapes, fileBasename, normalizeFsPath } from "@/lib/fsPath";
+import { artifactIdentity, decodeUnicodeEscapes, fileBasename, normalizeFsPath } from "@/lib/fsPath";
 import { extractFinalOutputFileList } from "@/lib/extractFinalOutputFiles";
 import {
   isPreviewImagePath,
@@ -228,8 +228,10 @@ function artifactsFromPathBlob(raw: string): FileArtifact[] {
   const seen = new Set<string>();
   for (const part of parts) {
     const art = artifactFromPath(part);
-    if (!art || seen.has(art.path)) continue;
-    seen.add(art.path);
+    if (!art) continue;
+    const id = artifactIdentity(art.path);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
     out.push(art);
   }
   return out;
@@ -255,7 +257,8 @@ function pushPendingArtifact(
 ): void {
   if (!isVisibleAgentPath(artifact.path) || isProcessCodePath(artifact.path)) return;
   const existing = updates.pendingArtifacts ?? state.pendingArtifacts;
-  if (existing.some((a) => a.path === artifact.path)) return;
+  const id = artifactIdentity(artifact.path);
+  if (existing.some((a) => artifactIdentity(a.path) === id)) return;
   updates.pendingArtifacts = [...existing, { ...artifact, call_id: callId }];
 }
 
@@ -328,10 +331,11 @@ function flushArtifactsToMessages(
     last = next[next.length - 1];
   }
   const merged = [...(last.artifacts ?? [])];
-  const seen = new Set(merged.map((a) => a.path));
+  const seen = new Set(merged.map((a) => artifactIdentity(a.path)));
   for (const a of arts) {
-    if (seen.has(a.path)) continue;
-    seen.add(a.path);
+    const id = artifactIdentity(a.path);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
     merged.push(a);
   }
   next[next.length - 1] = { ...last, artifacts: merged };

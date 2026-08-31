@@ -15,7 +15,12 @@ from app.agents.sanitize import (
     prepare_model_messages,
     strip_model_junk,
 )
-from app.runtime.agent_stream import _emit_step_delta, _message_content_text
+from app.runtime.agent_stream import (
+    _emit_llm_progress,
+    _emit_step_delta,
+    _message_content_text,
+    llm_heartbeat,
+)
 from app.runtime.context import is_user_facing_answer, looks_like_process_narration
 from app.runtime.v2.office import office_bypass_refuse, paths_from_text, validate_office_file
 from app.runtime.v2.critic import collect_evidence, fetch_candidates
@@ -250,32 +255,66 @@ def _as_ai_message(acc: Any, pieces: list[str]) -> AIMessage:
     return AIMessage(content=content, tool_calls=tool_calls)
 
 
+def _tool_call_chunk_progress(chunk: Any) -> tuple[str, int]:
+    """Return ``(tool_name, arg_chars)`` from a streamed tool-call delta."""
+    name = ""
+    chars = 0
+    pieces = getattr(chunk, "tool_call_chunks", None) or []
+    for tc in pieces:
+        if isinstance(tc, dict):
+            n = str(tc.get("name") or "")
+            args = tc.get("args") or ""
+        else:
+            n = str(getattr(tc, "name", None) or "")
+            args = getattr(tc, "args", None) or ""
+        if n:
+            name = n
+        if args:
+            chars += len(args if isinstance(args, str) else json.dumps(args, ensure_ascii=False))
+    return name, chars
+
+
 async def _invoke_model(model: Any, messages: list[Any]) -> AIMessage:
     """Stream tokens to TraceBus when possible; return the final AIMessage."""
     if hasattr(model, "astream"):
         pieces: list[str] = []
         reasoning_open = False
         acc: Any = None
-        async for chunk in model.astream(messages):
-            if acc is None:
-                acc = chunk
-            else:
-                try:
-                    acc = acc + chunk
-                except TypeError:
+        tool_name = ""
+        tool_chars = 0
+        last_progress = 0.0
+        async with llm_heartbeat():
+            async for chunk in model.astream(messages):
+                if acc is None:
                     acc = chunk
-            reasoning, text = _message_content_text(chunk)
-            if reasoning:
-                if not reasoning_open:
-                    _emit_step_delta("<think>")
-                    reasoning_open = True
-                _emit_step_delta(reasoning)
-            if text:
-                if reasoning_open:
-                    _emit_step_delta("</think>\n")
-                    reasoning_open = False
-                pieces.append(text)
-                _emit_step_delta(text)
+                else:
+                    try:
+                        acc = acc + chunk
+                    except TypeError:
+                        acc = chunk
+                reasoning, text = _message_content_text(chunk)
+                if reasoning:
+                    if not reasoning_open:
+                        _emit_step_delta("<think>")
+                        reasoning_open = True
+                    _emit_step_delta(reasoning)
+                if text:
+                    if reasoning_open:
+                        _emit_step_delta("</think>\n")
+                        reasoning_open = False
+                    pieces.append(text)
+                    _emit_step_delta(text)
+                name, extra = _tool_call_chunk_progress(chunk)
+                if name:
+                    tool_name = name
+                if extra:
+                    tool_chars += extra
+                    now = time.monotonic()
+                    if now - last_progress >= 0.4:
+                        last_progress = now
+                        _emit_llm_progress(tool=tool_name or "tool", chars=tool_chars)
+        if tool_chars and time.monotonic() - last_progress >= 0.05:
+            _emit_llm_progress(tool=tool_name or "tool", chars=tool_chars)
         if reasoning_open:
             _emit_step_delta("</think>\n")
         return _as_ai_message(acc, pieces)

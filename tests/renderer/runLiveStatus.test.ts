@@ -76,4 +76,19 @@ describe("deriveLiveActivity", () => {
     expect(out.label).toContain("等待确认");
     expect(out.phase).toBe("等待你确认工具调用");
   });
+
+  it("shows a ticking quiet phase while the model is silent", () => {
+    const out = deriveLiveActivity({
+      trace: [{ id: "1", type: "graph.start", payload: {} }],
+      taskInfo: [],
+      taskRunning: [],
+      confirmCount: 0,
+      pendingArtifactCount: 0,
+      thinkingSubject: "正在生成回答",
+      quietMs: 32_000,
+      beating: true,
+    });
+    expect(out.phase).toContain("已静默");
+    expect(out.phase).toContain("连接正常");
+  });
 });

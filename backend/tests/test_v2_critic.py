@@ -243,6 +243,68 @@ def test_critic_rejects_unspecified_report_without_html():
     assert any("HTML" in m for m in v.missing)
 
 
+def test_critic_rejects_web_game_without_html():
+    user = "帮我开发一个坦克大战的web网页游戏"
+    v = heuristic_critic(
+        user,
+        [
+            HumanMessage(content=user),
+            AIMessage(
+                content=(
+                    "已确认目录，开始构建游戏文件，包括玩家坦克、AI 敌人、"
+                    "地图、道具、爆炸效果和关卡系统。"
+                )
+            ),
+        ],
+    )
+    assert v.next == "act"
+    assert any("HTML" in m for m in v.missing)
+
+
+def test_critic_accepts_web_game_html_write():
+    user = "帮我开发一个坦克大战的web网页游戏"
+    v = heuristic_critic(
+        user,
+        [
+            HumanMessage(content=user),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"id": "c1", "name": "fs.write", "args": {"path": "/tmp/tank.html"}}
+                ],
+            ),
+            ToolMessage(
+                content="Wrote 12000 characters to /tmp/tank.html",
+                tool_call_id="c1",
+                name="fs.write",
+            ),
+            AIMessage(content="坦克大战已写入 /tmp/tank.html，用浏览器打开即可游玩。"),
+        ],
+    )
+    assert v.next == "answer"
+
+
+def test_critic_accepts_explicit_html_write():
+    user = "帮我整合成数据分析html"
+    v = heuristic_critic(
+        user,
+        [
+            HumanMessage(content=user),
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "c1", "name": "fs_write", "args": {"path": "/tmp/a.html"}}],
+            ),
+            ToolMessage(
+                content="Wrote 800 characters to /tmp/a.html",
+                tool_call_id="c1",
+                name="fs_write",
+            ),
+            AIMessage(content="已写入 HTML：/tmp/a.html"),
+        ],
+    )
+    assert v.next == "answer"
+
+
 def test_critic_accepts_unspecified_report_html_write():
     v = heuristic_critic(
         "做成一份报告",

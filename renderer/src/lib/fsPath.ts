@@ -36,3 +36,15 @@ export function normalizeFsPath(raw: string): string {
       .find(Boolean) || ""
   );
 }
+
+/**
+ * Canonical identity for a deliverable path so mixed separators / drive
+ * letter case collapse to one chip (`C:\a\b.html` ≡ `C:/a/b.html`).
+ */
+export function artifactIdentity(raw: string): string {
+  let p = normalizeFsPath(raw).replace(/\\/g, "/");
+  p = p.replace(/\/+/g, "/");
+  p = p.replace(/^([a-zA-Z]):/, (_, d: string) => `${d.toUpperCase()}:`);
+  if (p.length > 3) p = p.replace(/\/+$/, "");
+  return p;
+}

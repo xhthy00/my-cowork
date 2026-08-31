@@ -284,12 +284,19 @@ def _wants_file(user_text: str) -> bool:
 def _file_written(messages: list[Any], user_text: str = "") -> bool:
     from app.graphs.routing import (
         wants_document,
+        wants_html_file,
         wants_markdown_file,
         wants_unspecified_document,
     )
 
     tools = _tool_names(messages)
-    blob = " ".join(str(getattr(m, "content", "") or "") for m in messages).lower()
+    parts = [str(getattr(m, "content", "") or "") for m in messages]
+    for m in messages:
+        for call in _tool_calls(m):
+            args = call.get("args") or {}
+            if isinstance(args, dict):
+                parts.append(str(args.get("path") or ""))
+    blob = " ".join(parts).lower()
     fs_ok = bool(tools & {"fs.write", "fs_write"})
     office_ext = (".docx", ".pptx", ".xlsx", ".pdf", ".doc", ".ppt", ".xls")
     if wants_document(user_text):
@@ -300,7 +307,7 @@ def _file_written(messages: list[Any], user_text: str = "") -> bool:
         return fs_ok and any(ext in blob for ext in office_ext)
     if wants_markdown_file(user_text):
         return fs_ok and ".md" in blob
-    if wants_unspecified_document(user_text):
+    if wants_html_file(user_text) or wants_unspecified_document(user_text):
         return fs_ok and (".html" in blob or ".htm" in blob)
     return False
 
@@ -367,10 +374,7 @@ def heuristic_critic(
         elif wants_document(user_text):
             missing.append("Write a real office file with officecli or a gen tool.")
         else:
-            missing.append(
-                "Write an HTML file with fs_write "
-                "(no specified format for the document/report/paper)."
-            )
+            missing.append("Write an HTML file with fs_write.")
     if not body.strip():
         missing.append("Produce a non-empty user-facing reply.")
     sources_ok = True

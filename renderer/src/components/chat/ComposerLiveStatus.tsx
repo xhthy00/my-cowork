@@ -23,6 +23,8 @@ export default function ComposerLiveStatus() {
   const trace = useSessionStore((s) => s.trace) ?? [];
   const pendingArtifacts = useSessionStore((s) => s.pendingArtifacts) ?? [];
   const thinking = useSessionStore((s) => s.thinking);
+  const lastContentAt = useSessionStore((s) => s.lastContentAt);
+  const lastBeatAt = useSessionStore((s) => s.lastBeatAt);
   const taskInfo = useWorkforceStore((s) => s.taskInfo) ?? [];
   const taskRunning = useWorkforceStore((s) => s.taskRunning) ?? [];
   const [now, setNow] = useState(() => Date.now());
@@ -32,6 +34,13 @@ export default function ComposerLiveStatus() {
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, [runStatus, taskStartedAt]);
+
+  const quietMs = lastContentAt
+    ? Math.max(0, now - lastContentAt)
+    : taskStartedAt
+      ? Math.max(0, now - taskStartedAt)
+      : 0;
+  const beating = lastBeatAt != null && now - lastBeatAt < 5000;
 
   const activity = useMemo(
     () =>
@@ -45,6 +54,8 @@ export default function ComposerLiveStatus() {
         hasPrepStep: trace.some(
           (e) => e.type === "agent.create" || e.type === "agent.activate",
         ),
+        quietMs,
+        beating,
       }),
     [
       trace,
@@ -53,6 +64,8 @@ export default function ComposerLiveStatus() {
       confirmQueue.length,
       pendingArtifacts.length,
       thinking?.subject,
+      quietMs,
+      beating,
     ],
   );
 

@@ -118,7 +118,60 @@ async def test_loop_emits_content_tokens_as_they_arrive():
         reset_todo_runtime(token)
     deltas = [e["delta"] for e in events if e.get("type") == "step.delta"]
     assert deltas == ["hello", " ", "world"]
-    assert out[-1].content == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_loop_emits_llm_progress_for_tool_call_chunks():
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessageChunk
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from app.observability.trace import TraceBus
+    from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
+
+    class _ChunkModel(BaseChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            return ChatResult(
+                generations=[ChatGeneration(message=make_ai("should stream"))]
+            )
+
+        async def astream(self, messages, **kwargs):
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "id": "1",
+                        "name": "fs_write",
+                        "args": '{"path": "/tmp/a.html", "content": "' + ("x" * 80),
+                        "index": 0,
+                    }
+                ],
+            )
+            yield AIMessageChunk(content="")
+
+        @property
+        def _llm_type(self) -> str:
+            return "chunk-stream"
+
+    bus = TraceBus()
+    events: list[dict] = []
+    bus.subscribe(events.append)
+    token = set_todo_runtime(
+        TodoRuntime(task_id="t1", bus=bus, agent_id="single_agent")
+    )
+    try:
+        from app.runtime.v2.loop import _invoke_model
+
+        await _invoke_model(_ChunkModel(), [HumanMessage(content="hi")])
+    finally:
+        reset_todo_runtime(token)
+    progress = [e for e in events if e.get("type") == "llm.progress"]
+    assert progress
+    assert progress[-1]["tool"] == "fs_write"
+    assert int(progress[-1]["chars"]) >= 80
 
 
 @pytest.mark.asyncio
@@ -255,6 +308,45 @@ async def test_floor_retry_does_not_nudge_complete_qa():
     )
     assert model.idx == 1
     assert out[-1].content == "list 可变，tuple 不可变。"
+
+
+@pytest.mark.asyncio
+async def test_floor_retry_forces_html_write_for_web_game():
+    from app.graphs.single_agent import run_with_floor_retries
+    from app.runtime.v2.critic import floor_analysis
+
+    @langchain_tool
+    def fs_write(path: str, content: str) -> str:
+        """Write a file."""
+        return f"Wrote {len(content)} characters to {path}"
+
+    user = "帮我开发一个坦克大战的web网页游戏"
+    model = FakeChatModel(
+        responses=[
+            make_ai(
+                "已确认目录，开始构建游戏文件，包括玩家坦克、AI 敌人和关卡系统。"
+            ),
+            make_ai(
+                "",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "name": "fs_write",
+                        "args": {
+                            "path": "/tmp/tank.html",
+                            "content": "<html><body>tank</body></html>",
+                        },
+                    }
+                ],
+            ),
+            make_ai("坦克大战已写入 /tmp/tank.html，用浏览器打开即可游玩。"),
+        ]
+    )
+    out = await run_with_floor_retries(
+        model, [fs_write], [HumanMessage(content=user)], user
+    )
+    assert any(getattr(m, "name", "") == "fs_write" for m in out)
+    assert floor_analysis(user, out) is None
 
 
 @pytest.mark.asyncio

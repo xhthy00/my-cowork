@@ -3,6 +3,7 @@
  */
 import type { TraceEvent } from "../store/session";
 import type { TaskInfo } from "../types/workforce";
+import { formatSplittingElapsed } from "./formatElapsed";
 import {
   humanizeAgent,
   humanizeAssignContent,
@@ -15,6 +16,8 @@ export type LiveActivity = {
   phase: string;
 };
 
+const QUIET_MS = 4000;
+
 export function deriveLiveActivity(opts: {
   trace: TraceEvent[];
   taskInfo: TaskInfo[];
@@ -23,6 +26,10 @@ export function deriveLiveActivity(opts: {
   pendingArtifactCount: number;
   thinkingSubject?: string | null;
   hasPrepStep?: boolean;
+  /** Milliseconds since last model token / tool progress (heartbeats ignored). */
+  quietMs?: number;
+  /** True when the backend is still pinging during an in-flight LLM call. */
+  beating?: boolean;
 }): LiveActivity {
   const trace = Array.isArray(opts.trace) ? opts.trace : [];
   const taskInfo = Array.isArray(opts.taskInfo) ? opts.taskInfo : [];
@@ -76,8 +83,14 @@ export function deriveLiveActivity(opts: {
   let phase = "正在启动任务";
   if (opts.confirmCount > 0) phase = "等待你确认工具调用";
   else if (inflight) phase = "工具执行中";
-  else if (/生成回答|撰写|正在写/.test(thinking)) phase = "正在组织回答";
-  else if (opts.pendingArtifactCount > 0) phase = "文件已生成，任务收尾中";
+  else if ((opts.quietMs ?? 0) >= QUIET_MS) {
+    const quiet = formatSplittingElapsed(opts.quietMs ?? 0);
+    phase = opts.beating
+      ? `深度思考中 · 已静默 ${quiet}（连接正常）`
+      : `深度思考中 · 已静默 ${quiet}`;
+  } else if (/生成回答|撰写|正在写|正在组装|正在写入/.test(thinking)) {
+    phase = "正在组织回答";
+  } else if (opts.pendingArtifactCount > 0) phase = "文件已生成，任务收尾中";
   else if (trace.some((e) => e.type === "todo_state")) phase = "按计划执行中";
   else if (trace.some((e) => e.type === "graph.start")) phase = "已连接后端";
 

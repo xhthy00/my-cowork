@@ -626,6 +626,36 @@ describe("session store", () => {
     );
   });
 
+  it("collapses the same html path written with mixed separators", () => {
+    const winPath = "C:\\Users\\xhthy\\.my-cowork\\spaces\\s1\\评估报告.html";
+    const posixPath = "C:/Users/xhthy/.my-cowork/spaces/s1/评估报告.html";
+    useSessionStore.getState().handleEvent({
+      type: "artifact.file",
+      payload: { path: winPath },
+    });
+    useSessionStore.getState().handleEvent({
+      type: "tool.result",
+      payload: {
+        tool: "fs.write",
+        output: `Wrote 1200 characters to ${posixPath}`,
+      },
+    });
+    useSessionStore.getState().handleEvent({
+      type: "graph.end",
+      payload: {
+        status: "ok",
+        summary: `已生成。\n文件路径: ${winPath}`,
+      },
+    });
+    const withArts = useSessionStore
+      .getState()
+      .messages.filter((m) => (m.artifacts?.length ?? 0) > 0);
+    expect(withArts).toHaveLength(1);
+    expect(withArts[0].artifacts).toHaveLength(1);
+    expect(withArts[0].artifacts?.[0].name).toBe("评估报告.html");
+    expect(useSessionStore.getState().pendingArtifacts).toHaveLength(0);
+  });
+
   it("graph.end keeps only the last deliverable image in preview", () => {
     usePreviewStore.getState().openFile("/tmp/screenshot.png", "截图");
     usePreviewStore.getState().openFile("/tmp/plot1.png", "截图");

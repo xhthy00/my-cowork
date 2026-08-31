@@ -133,6 +133,19 @@ _HTML_FILE_RE = re.compile(
     r"生成\s*html|写成?\s*html|输出\s*html|整合成?\s*.{0,12}html)",
     re.IGNORECASE,
 )
+# Build/write a web page or browser game — not "这个网页讲了什么".
+_WEB_APP_RE = re.compile(
+    r"(?:"
+    r"(?:开发|做|写|实现|制作|创建|帮我做|帮我写|帮我开发|做一个|写一个|帮我实现)"
+    r".{0,40}"
+    r"(?:网页游戏|web\s*网页游戏|web\s*游戏|小游戏|网页|网站|"
+    r"web\s*(?:page|app|game)|html5?\s*游戏|canvas)"
+    r"|"
+    r"(?:help\s+me\s+)?(?:develop|build|create|make)\s+"
+    r"(?:an?\s+)?(?:.{0,40}?)(?:web\s+game|html5?\s+game|website|web\s+app|web\s+page)"
+    r")",
+    re.IGNORECASE,
+)
 _OFFICE_FORMAT_RE = re.compile(
     r"\b(?:docx?|xlsx|pptx?|pdf|word)\b|word\s*版|word\s*文档|excel|"
     r"幻灯片|演示文稿|公文|请示|\.docx\b|\.pptx\b|\.xlsx\b",
@@ -176,10 +189,16 @@ def wants_markdown_file(user_text: str) -> bool:
     return bool(q and _MD_FILE_RE.search(q))
 
 
-def wants_html_file(user_text: str) -> bool:
-    """True when the user asked for an HTML page / .html file."""
+def wants_web_app(user_text: str) -> bool:
+    """True when the user asked to build a web page, site, or browser game."""
     q = _intent_text(user_text)
-    return bool(q and _HTML_FILE_RE.search(q))
+    return bool(q and _WEB_APP_RE.search(q))
+
+
+def wants_html_file(user_text: str) -> bool:
+    """True when the user asked for an HTML page / .html file / web game."""
+    q = _intent_text(user_text)
+    return bool(q and (_HTML_FILE_RE.search(q) or wants_web_app(q)))
 
 
 _UNSPECIFIED_DOC_RE = re.compile(
@@ -558,6 +577,8 @@ def needs_forced_delegation(user_text: str) -> bool:
 def infer_default_worker(user_text: str) -> str:
     q = user_text or ""
     ql = q.lower()
+    if wants_web_app(q):
+        return "developer_agent"
     if wants_file_document(q):
         return "document_agent"
     if any(k in q for k in ("飞书", "lark", "slack", "消息", "通知")):

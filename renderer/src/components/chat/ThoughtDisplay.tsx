@@ -30,7 +30,7 @@ const BASE_CLASS =
 export function orbStateFromSubject(subject?: string | null): OrbState {
   const t = (subject ?? "").toLowerCase();
   if (/search|搜|检索|浏览|browser|fetch|抓取|读取网页/.test(t)) return "searching";
-  if (/生成回答|撰写|草稿|composing|正在写/.test(t)) return "composing";
+  if (/生成回答|撰写|草稿|composing|正在写|正在组装|正在写入/.test(t)) return "composing";
   if (/完成|solve|校验/.test(t)) return "solving";
   if (/连接|mcp|connect|配对/.test(t)) return "connecting";
   if (/plan|拆解|规划|todo|编织/.test(t)) return "weaving";
