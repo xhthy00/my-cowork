@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isAgentTaskRootEntry,
+  isProcessCodePath,
   isVisibleAgentPath,
 } from "../../renderer/src/lib/outputFiles";
 
@@ -15,6 +16,8 @@ describe("isVisibleAgentPath", () => {
     expect(isVisibleAgentPath("/tmp/proj/data.json")).toBe(true);
     expect(isVisibleAgentPath("/tmp/proj/现货黄金近期波动折线图.png")).toBe(true);
     expect(isVisibleAgentPath("/tmp/proj/script.py")).toBe(true);
+    expect(isProcessCodePath("/tmp/proj/_gen_gongwen_ops.py")).toBe(true);
+    expect(isProcessCodePath("/tmp/proj/report.docx")).toBe(false);
   });
 
   it("hides camel_logs and .venv", () => {

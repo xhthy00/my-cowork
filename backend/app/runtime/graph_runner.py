@@ -90,7 +90,9 @@ _WRITE_TOOLS = frozenset(
     }
 )
 _BASH_TOOLS = frozenset({"bash", "exec.bash"})
-_OFFICE_SUFFIXES = (".pptx", ".docx", ".xlsx", ".ppt", ".doc", ".xls", ".pdf")
+_PROCESS_CODE_SUFFIXES = frozenset(
+    {".py", ".pyw", ".sh", ".bash", ".zsh", ".ps1", ".js", ".mjs", ".cjs", ".ts", ".tsx"}
+)
 
 
 def build_initial_state(
@@ -255,6 +257,11 @@ def _missing_claimed_office_files(
     return missing
 
 
+def _is_process_code_file(path: str) -> bool:
+    """Helper scripts written to drive officecli are not chat deliverables."""
+    return Path(path).suffix.lower() in _PROCESS_CODE_SUFFIXES
+
+
 def _hide_office_artifact(path: str) -> bool:
     """Markdown-only tasks must not surface Word/PPT/Excel chips."""
     from app.runtime.todo_context import get_todo_runtime
@@ -289,6 +296,8 @@ def _emit_artifact_file(
         except OSError:
             return None
     if _hide_office_artifact(existing):
+        return None
+    if _is_process_code_file(existing):
         return None
     _track_path(written_paths, existing, workdir=workdir)
     art = _event(task_id, "artifact.file", path=existing, agent_id=agent_id)
@@ -1057,8 +1066,8 @@ def _tool_result_events(
             if tool_name in _BASH_TOOLS:
                 for m in _OFFICE_ABS_FILE_RE.finditer(result_text):
                     _track_path(written_paths, m.group("path"), workdir=workdir)
-        # Eigent FileToolkit / pptx toolkit: only write-family tools surface
-        # files. officecli via bash is the Word/PPT/Excel equivalent.
+        # Eigent FileToolkit: only write-family tools become chat artifacts.
+        # officecli via bash is tracked for completion gating, not surfaced.
         candidate_paths: list[str] = []
         write_name = tool_name.lower()
         is_write = write_name in _WRITE_TOOLS or write_name.endswith("fs_write")
@@ -1068,11 +1077,6 @@ def _tool_result_events(
             last = result_text.strip().splitlines()[-1] if result_text.strip() else ""
             if last:
                 candidate_paths.append(last)
-        if tool_name in _BASH_TOOLS:
-            for m in _OFFICE_ABS_FILE_RE.finditer(result_text):
-                p = m.group("path").strip().rstrip("`'\".,;:)")
-                if p.lower().endswith(_OFFICE_SUFFIXES):
-                    candidate_paths.append(p)
 
         seen_art: set[str] = set()
         for cand in candidate_paths:

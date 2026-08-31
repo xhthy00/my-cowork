@@ -62,3 +62,10 @@ export function isVisibleAgentPath(filePath: string): boolean {
 export function isPreviewImagePath(filePath: string): boolean {
   return /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(filePath.replace(/\\/g, "/"));
 }
+
+/** Helper scripts (e.g. `_gen_*.py`) are not chat/work-log deliverables. */
+export function isProcessCodePath(filePath: string): boolean {
+  return /\.(py|pyw|sh|bash|zsh|ps1|js|mjs|cjs|ts|tsx)$/i.test(
+    basename(filePath),
+  );
+}

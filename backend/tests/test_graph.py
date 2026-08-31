@@ -515,6 +515,29 @@ def test_fs_write_emits_artifact_file(tmp_path: Path):
     assert any(str(md) in str(e.get("path")) for e in arts)
 
 
+def test_fs_write_does_not_emit_process_code(tmp_path: Path):
+    py = tmp_path / "_gen_gongwen_ops.py"
+    py.write_text("print(1)", encoding="utf-8")
+    bus = _CollectBus()
+    events = _tool_result_events(
+        bus,
+        "t-write-py",
+        {
+            "messages": [
+                {
+                    "type": "tool",
+                    "name": "fs_write",
+                    "content": f"Wrote 8 characters to {py}",
+                }
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=set(),
+        min_mtime=time.time() - 10,
+    )
+    assert not any(e.get("type") == "artifact.file" for e in events)
+
+
 def test_bash_ls_does_not_emit_py_artifact(tmp_path: Path):
     py = tmp_path / "script.py"
     py.write_text("print(1)", encoding="utf-8")
@@ -553,10 +576,11 @@ def test_create_note_does_not_emit_artifact():
     assert not any(e.get("type") == "artifact.file" for e in events)
 
 
-def test_bash_officecli_emits_docx(tmp_path: Path):
-    docx = tmp_path / "report.docx"
+def test_bash_officecli_does_not_emit_artifact(tmp_path: Path):
+    docx = tmp_path / "empty.docx"
     docx.write_bytes(b"PK")
     bus = _CollectBus()
+    written = set()
     events = _tool_result_events(
         bus,
         "t-office",
@@ -570,11 +594,11 @@ def test_bash_officecli_emits_docx(tmp_path: Path):
             ]
         },
         workdir=tmp_path,
-        written_paths=set(),
+        written_paths=written,
         min_mtime=time.time() - 10,
     )
-    arts = [e for e in events if e.get("type") == "artifact.file"]
-    assert any(str(docx) in str(e.get("path")) for e in arts)
+    assert not any(e.get("type") == "artifact.file" for e in events)
+    assert any(str(docx) in p for p in written)
 
 
 def test_preview_events_do_not_open_png_tabs(tmp_path: Path):

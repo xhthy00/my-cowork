@@ -7,7 +7,11 @@ import type { PreviewState } from "./preview";
 import type { WorkforceState } from "./workforce";
 import { decodeUnicodeEscapes, fileBasename, normalizeFsPath } from "@/lib/fsPath";
 import { extractFinalOutputFileList } from "@/lib/extractFinalOutputFiles";
-import { isPreviewImagePath, isVisibleAgentPath } from "@/lib/outputFiles";
+import {
+  isPreviewImagePath,
+  isProcessCodePath,
+  isVisibleAgentPath,
+} from "@/lib/outputFiles";
 import { isProcessNarration, stripProcessNarration } from "@/lib/processNarration";
 
 import "./preview";
@@ -202,6 +206,7 @@ function artifactFromPath(path: string): FileArtifact | null {
   }
   const name = fileBasename(trimmed);
   if (!name || name === trimmed) return null;
+  if (isProcessCodePath(trimmed)) return null;
   const lower = name.toLowerCase();
   let kind: FileArtifact["kind"] = "file";
   if (lower.endsWith(".pptx")) kind = "pptx";
@@ -248,7 +253,7 @@ function pushPendingArtifact(
   artifact: FileArtifact,
   callId = "",
 ): void {
-  if (!isVisibleAgentPath(artifact.path)) return;
+  if (!isVisibleAgentPath(artifact.path) || isProcessCodePath(artifact.path)) return;
   const existing = updates.pendingArtifacts ?? state.pendingArtifacts;
   if (existing.some((a) => a.path === artifact.path)) return;
   updates.pendingArtifacts = [...existing, { ...artifact, call_id: callId }];

@@ -593,6 +593,21 @@ describe("session store", () => {
     expect(useSessionStore.getState().pendingArtifacts).toHaveLength(0);
   });
 
+  it("does not surface process helper scripts as chat artifacts", () => {
+    useSessionStore.getState().handleEvent({
+      type: "artifact.file",
+      payload: { path: "/tmp/_gen_gongwen_ops.py" },
+    });
+    useSessionStore.getState().handleEvent({
+      type: "tool.result",
+      payload: {
+        tool: "fs.write",
+        result: "Wrote 120 characters to /tmp/_gen_gongwen_ops.py",
+      },
+    });
+    expect(useSessionStore.getState().pendingArtifacts).toHaveLength(0);
+  });
+
   it("graph.end attaches html path scraped from the summary (Eigent)", () => {
     useSessionStore.getState().handleEvent({
       type: "graph.end",

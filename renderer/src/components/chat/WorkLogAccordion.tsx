@@ -24,8 +24,6 @@ import { usePreviewStore } from "@/store/preview";
 import { useSessionStore } from "@/store/session";
 import { useWorkforceStore } from "@/store/workforce";
 
-const HEIGHT_MOTION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
-
 function StepThinkList({
   thinks,
   running,
@@ -232,16 +230,14 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
         )}
       </button>
 
-      <AnimatePresence initial={false}>
-        {outerOpen ? (
-          <motion.div
-            key="work-log-body"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={HEIGHT_MOTION}
-            className="overflow-hidden"
-          >
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
+          outerOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+        )}
+        aria-hidden={!outerOpen}
+      >
+        <div className="min-h-0 overflow-hidden">
             <div className="flex min-w-0 flex-col gap-1.5 pb-1 pl-0">
               {running ? (
                 <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
@@ -295,7 +291,6 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                       <motion.button
                         key={step.id}
                         type="button"
-                        layout
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         className="flex w-full items-center gap-1.5 py-1 text-left text-body-sm font-medium text-ds-text-neutral-muted-default hover:underline"
@@ -327,7 +322,6 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                   return (
                     <motion.div
                       key={step.id}
-                      layout
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="flex min-w-0 flex-col gap-0.5"
@@ -363,9 +357,8 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                 <StepThinkList thinks={thinkAssign.leftover} running={running} />
               ) : null}
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+        </div>
+      </div>
     </div>
   );
 }
