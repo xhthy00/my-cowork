@@ -80,16 +80,17 @@ export function deriveLiveActivity(opts: {
     }
   }
 
+  const composing = /生成回答|撰写|正在写|正在组装|正在写入/.test(thinking);
+
   let phase = "正在启动任务";
   if (opts.confirmCount > 0) phase = "等待你确认工具调用";
   else if (inflight) phase = "工具执行中";
+  else if (composing) phase = "正在组织回答";
   else if ((opts.quietMs ?? 0) >= QUIET_MS) {
     const quiet = formatSplittingElapsed(opts.quietMs ?? 0);
     phase = opts.beating
       ? `深度思考中 · 已静默 ${quiet}（连接正常）`
       : `深度思考中 · 已静默 ${quiet}`;
-  } else if (/生成回答|撰写|正在写|正在组装|正在写入/.test(thinking)) {
-    phase = "正在组织回答";
   } else if (opts.pendingArtifactCount > 0) phase = "文件已生成，任务收尾中";
   else if (trace.some((e) => e.type === "todo_state")) phase = "按计划执行中";
   else if (trace.some((e) => e.type === "graph.start")) phase = "已连接后端";

@@ -115,6 +115,7 @@ def build_initial_state(
         "user_text": text,
         "assistant_id": getattr(task, "assistant_id", None) or "",
         "enabled_skill_ids": list(getattr(task, "enabled_skill_ids", None) or []),
+        "knowledge_bases": list(getattr(task, "knowledge_bases", None) or []),
         "round": 0,
         "assigned_task_id": None,
         "coord_action": "",

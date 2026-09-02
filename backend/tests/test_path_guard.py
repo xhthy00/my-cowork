@@ -104,3 +104,9 @@ class TestResolveWritePath:
             assert keep == (work / "keep.pdf").resolve()
         finally:
             reset_workspace_runtime(tok)
+
+    def test_unc_network_path_rejected(self):
+        with pytest.raises(PathGuardError, match="Remote/UNC"):
+            normalize_user_path(
+                r"\\res-pkb.ima.qq.com\2\eWDaG8YFwTyPDl1e8fofxe\file_manager\a.docx"
+            )

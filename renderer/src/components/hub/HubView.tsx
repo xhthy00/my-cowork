@@ -12,6 +12,7 @@ import SkillsView from "@/components/skills/SkillsView";
 import MemoryView from "@/components/memory/MemoryView";
 import Settings from "@/components/settings/Settings";
 import McpConnectorsPanel from "@/components/settings/McpConnectorsPanel";
+import KnowledgeView from "@/components/knowledge/KnowledgeView";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -303,6 +304,14 @@ export default function HubView() {
             {visited.includes("agents") && (
               <div className={hubTab === "agents" ? "contents" : "hidden"} aria-hidden={hubTab !== "agents"}>
                 <AgentsHub />
+              </div>
+            )}
+            {visited.includes("knowledge") && (
+              <div
+                className={hubTab === "knowledge" ? "contents" : "hidden"}
+                aria-hidden={hubTab !== "knowledge"}
+              >
+                <KnowledgeView />
               </div>
             )}
             {visited.includes("connectors") && (

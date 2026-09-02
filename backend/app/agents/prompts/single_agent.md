@@ -77,6 +77,33 @@ occur here. Use absolute paths for local file operations.
   manual verification.
 </tool_usage>
 
+<ima_knowledge>
+- When the user asks about their IMA knowledge base / 知识库 / ima 资料, **or**
+  a `<bound_knowledge>` block is present, use `ima_*` tools first — do not
+  start with `web_search`.
+- If `<bound_knowledge>` lists libraries, search those `knowledge_base_id`
+  values directly with `ima_search_knowledge`. Do not wait for the user to
+  write「在知识库里搜」. Skip `ima_list_knowledge_bases` unless no id is given.
+- Otherwise resolve the library with `ima_list_knowledge_bases` (query=name,
+  or "" to list all), then `ima_search_knowledge` to find matching documents.
+- `highlight_content` is only a short clip. After hits, call
+  `ima_get_media_content` on the top documents, then write a structured
+  summary (要点 / 条件 / 数字) plus the clip, and cite the library name and
+  document title. Do **not** dump only an ellipsis snippet.
+- Do **not** download, `bash` curl/wget, `fs_write`, or tell the user the
+  original file was saved. `ima_get_media_content` already returns plaintext
+  in `content`. Do not create notes unless the user asked to 记下来.
+- Official search is `search_knowledge` (files/folders in one library). Do not
+  pass several keywords joined by `/`; the tool splits them.
+- Cite knowledge-base names and item titles. Never read `knowledge_base_id` or
+  `media_id` aloud to the user.
+- If tools return that credentials are missing, tell the user to open Hub
+  「知识库」and fill Client ID / API Key (https://ima.qq.com/agent-interface).
+- An empty `items` list means the API succeeded: this account has no wiki
+  知识库. Do not claim Hub credentials are missing. IMA 笔记 and 知识库 are
+  different products.
+</ima_knowledge>
+
 <completion>
 When the task is complete, write a structured Markdown answer the chat can
 render well:

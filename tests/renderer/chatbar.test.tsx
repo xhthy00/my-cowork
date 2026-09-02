@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatBar from "../../renderer/src/components/chat/ChatBar";
+import { useSessionsStore } from "../../renderer/src/store/sessions";
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
@@ -49,6 +50,8 @@ describe("ChatBar", () => {
     window.api = {
       ...window.api,
       getBackendUrl: vi.fn().mockResolvedValue(BACKEND_URL),
+      getKey: vi.fn().mockResolvedValue(null),
+      restartBackend: vi.fn().mockResolvedValue(BACKEND_URL),
     };
     const { useSessionStore } = await import("../../renderer/src/store/session");
     useSessionStore.setState({
@@ -196,5 +199,138 @@ describe("ChatBar", () => {
     expect(screen.queryByTitle("发送")).toBeNull();
     await userEvent.click(screen.getByLabelText("停止任务"));
     expect(onStop).toHaveBeenCalled();
+  });
+
+  it("POSTs bound knowledge bases so search does not need wording in the prompt", async () => {
+    useSessionsStore.setState({
+      sessions: [
+        {
+          id: "p-kb",
+          title: "test",
+          spaceId: "space-local",
+          workdirMode: "artifact-only",
+          createdAt: 1,
+          updatedAt: 1,
+          status: "idle",
+          boundKnowledgeBases: [
+            { id: "kb1", name: "唐浩宇的知识库", source: "ima" },
+          ],
+        },
+      ],
+      activeId: "p-kb",
+      messagesById: { "p-kb": [] },
+    });
+    render(<ChatBar onEvent={vi.fn()} />);
+    await userEvent.type(screen.getByRole("textbox"), "总体集成甲级条件");
+    await userEvent.click(screen.getByTitle("发送"));
+
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => String(c[0]).includes("/api/chat"),
+    );
+    expect(call).toBeTruthy();
+    const body = JSON.parse(call![1].body as string);
+    expect(body.text).toBe("总体集成甲级条件");
+    expect(body.knowledge_bases).toEqual([
+      { id: "kb1", name: "唐浩宇的知识库", source: "ima" },
+    ]);
+  });
+
+  it("lets the user bind a knowledge base from the composer picker", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/ima/knowledge-bases")) {
+          return {
+            ok: true,
+            json: async () => ({
+              configured: true,
+              items: [{ id: "kb1", name: "唐浩宇的知识库", source: "ima" }],
+            }),
+          } as Response;
+        }
+        return makeResponse([]);
+      },
+    );
+    useSessionsStore.setState({
+      sessions: [
+        {
+          id: "p-kb",
+          title: "test",
+          spaceId: "space-local",
+          workdirMode: "artifact-only",
+          createdAt: 1,
+          updatedAt: 1,
+          status: "idle",
+        },
+      ],
+      activeId: "p-kb",
+      messagesById: { "p-kb": [] },
+    });
+    render(<ChatBar onEvent={vi.fn()} />);
+    await userEvent.click(screen.getByTitle("知识库"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /唐浩宇的知识库/ })).toBeTruthy();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /唐浩宇的知识库/ }));
+    await waitFor(() => {
+      expect(useSessionsStore.getState().sessions[0].boundKnowledgeBases).toEqual([
+        { id: "kb1", name: "唐浩宇的知识库", source: "ima" },
+      ]);
+    });
+  });
+
+  it("reloads backend when Hub keys exist but the list API says unconfigured", async () => {
+    window.api.getKey = vi.fn().mockImplementation(async (account: string) => {
+      if (account === "ima:client_id") return "cid";
+      if (account === "ima:api_key") return "secret";
+      return null;
+    });
+    useSessionsStore.setState({
+      sessions: [
+        {
+          id: "p-kb-reload",
+          title: "test",
+          spaceId: "space-local",
+          workdirMode: "artifact-only",
+          createdAt: 1,
+          updatedAt: 1,
+          status: "idle",
+          boundKnowledgeBases: [],
+        },
+      ],
+      activeId: "p-kb-reload",
+      messagesById: { "p-kb-reload": [] },
+    });
+    let listed = 0;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/ima/knowledge-bases")) {
+          listed += 1;
+          if (listed === 1) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ configured: false, items: [] }),
+            } as Response;
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              configured: true,
+              items: [{ id: "kb1", name: "唐浩宇的知识库", source: "ima" }],
+            }),
+          } as Response;
+        }
+        return makeResponse([]);
+      },
+    );
+    render(<ChatBar onEvent={vi.fn()} />);
+    await userEvent.click(screen.getByTitle("知识库"));
+    await waitFor(() => {
+      expect(window.api.restartBackend).toHaveBeenCalled();
+      expect(
+        screen.getByRole("button", { name: /^唐浩宇的知识库/ }),
+      ).toBeTruthy();
+    });
   });
 });

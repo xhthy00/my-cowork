@@ -73,6 +73,17 @@
 
   --shadow-button: 0 1px 2px rgba(0, 0, 0, 0.04);
 
+  /* Chat reading surfaces — paper / code / table sit above the muted canvas */
+  --ds-bg-chat-paper: #fffcfb;
+  --ds-bg-code: #eceae8;
+  --ds-bg-table: #fffcfb;
+  --ds-bg-callout-warning: #fff7ed;
+  --ds-bg-callout-success: #ecfdf5;
+  --ds-bg-callout-note: #f4f1f0;
+  --ds-border-callout-warning: #fdba74;
+  --ds-border-callout-success: #86efac;
+  --ds-border-callout-note: rgba(29, 29, 29, 0.12);
+
   /* Eigent borderRadius contract */
   --borderRadius-sm: 4px;
   --borderRadius-lg: 8px;
@@ -130,18 +141,18 @@
 .dark {
   color-scheme: dark;
 
-  --ds-bg-neutral-subtle-default: #2e2c2a;
-  --ds-bg-neutral-default-default: #252422;
-  --ds-bg-neutral-default-hover: #2a2826;
-  --ds-bg-neutral-strong-default: #222120;
-  --ds-bg-neutral-muted-default: #1c1b1a;
+  --ds-bg-neutral-subtle-default: #353330;
+  --ds-bg-neutral-default-default: #262422;
+  --ds-bg-neutral-default-hover: #2e2c2a;
+  --ds-bg-neutral-strong-default: #1f1e1c;
+  --ds-bg-neutral-muted-default: #161514;
   --ds-bg-brand-subtle-default: #252422;
   --ds-bg-brand-default-default: #f5f2f0;
   --ds-bg-brand-subtle-disabled: #252422;
 
-  --ds-text-neutral-default-default: #f5f2f0;
-  --ds-text-neutral-muted-default: #c4c0bd;
-  --ds-text-neutral-subtle-default: #9a9693;
+  --ds-text-neutral-default-default: #f7f4f1;
+  --ds-text-neutral-muted-default: #c9c4bf;
+  --ds-text-neutral-subtle-default: #a19c97;
   --ds-text-brand-default-default: #f5f2f0;
   --ds-text-brand-subtle-default: #9a9693;
   --ds-text-brand-muted-default: #c4c0bd;
@@ -159,10 +170,10 @@
   --ds-icon-status-splitting-default-default: #38bdf8;
   --ds-text-status-splitting-default: #7dd3fc;
 
-  --ds-border-neutral-default-default: rgba(255, 255, 255, 0.12);
-  --ds-border-neutral-subtle-default: rgba(255, 255, 255, 0.08);
-  --ds-border-neutral-subtle-disabled: rgba(255, 255, 255, 0.05);
-  --ds-border-neutral-strong-default: rgba(255, 255, 255, 0.18);
+  --ds-border-neutral-default-default: rgba(255, 255, 255, 0.14);
+  --ds-border-neutral-subtle-default: rgba(255, 255, 255, 0.09);
+  --ds-border-neutral-subtle-disabled: rgba(255, 255, 255, 0.06);
+  --ds-border-neutral-strong-default: rgba(255, 255, 255, 0.22);
   --ds-border-information-default-default: #60a5fa;
 
   --ds-icon-neutral-muted-default: #9a9693;
@@ -196,5 +207,15 @@
   --shadow-soft:
     0 8px 20px -2px rgba(0, 0, 0, 0.35),
     0 32px 48px -12px rgba(0, 0, 0, 0.4);
-  --shiny-text-highlight: #f5f2f0;
+  --shiny-text-highlight: #f7f4f1;
+
+  --ds-bg-chat-paper: #2c2a27;
+  --ds-bg-code: #1a1917;
+  --ds-bg-table: #302e2b;
+  --ds-bg-callout-warning: rgba(230, 184, 77, 0.12);
+  --ds-bg-callout-success: rgba(74, 222, 128, 0.1);
+  --ds-bg-callout-note: rgba(255, 255, 255, 0.04);
+  --ds-border-callout-warning: rgba(230, 184, 77, 0.45);
+  --ds-border-callout-success: rgba(74, 222, 128, 0.4);
+  --ds-border-callout-note: rgba(255, 255, 255, 0.12);
 }

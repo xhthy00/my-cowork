@@ -15,7 +15,7 @@ from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks,
 from app.graphs.single_agent import run_with_floor_retries
 from app.graphs.state import WorkforceState
 from app.runtime.todo_context import todo_agent_scope
-from app.runtime.v2.assemble import render_agent_prompt
+from app.runtime.v2.assemble import format_bound_knowledge_block, render_agent_prompt
 from app.runtime.v2.critic import (
     analyze_task,
     evidence_digest,
@@ -54,7 +54,9 @@ def compile_workforce_graph(
     async def coordinator_node(state: WorkforceState) -> dict:
         subtasks = apply_retry_or_fail(list(state.get("subtasks") or []))
         user_text = str(state.get("user_text") or "")
-        decision = await coordinate(user_text, subtasks, planner_llm)
+        bound = format_bound_knowledge_block(state.get("knowledge_bases"))
+        coord_text = f"{bound}\n\n{user_text}" if bound else user_text
+        decision = await coordinate(coord_text, subtasks, planner_llm)
         action = str(decision.get("action") or "finish")
         if action == "rework":
             by_id = {str(t.get("id")): t for t in subtasks}
@@ -162,6 +164,9 @@ def compile_workforce_graph(
                 content=brief,
             )
             system = render_agent_prompt(prompt_name)
+            bound = format_bound_knowledge_block(state.get("knowledge_bases"))
+            if bound:
+                system = f"{system.rstrip()}\n\n{bound}\n"
             invoke = [SystemMessage(content=system), HumanMessage(content=prompt)]
             # Gate office on the original user ask, not a planner brief that
             # invented「再生成 Word」after the user only wanted Markdown.

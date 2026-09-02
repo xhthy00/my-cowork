@@ -177,6 +177,13 @@ def test_looks_like_workspace_dump():
     from app.runtime.context import looks_like_process_narration, is_user_facing_answer
 
     assert looks_like_process_narration("Now let me set up page layout and build the cover page.")
+    assert looks_like_process_narration(
+        "I notice the Unicode escapes in HTML won't be interpreted - "
+        "I need to convert them to actual UTF-8 characters in HTML context:"
+    )
+    assert not is_user_facing_answer(
+        "I notice the Unicode escapes in HTML won't be interpreted - I need to convert them."
+    )
     assert not is_user_facing_answer("我来调研扬州最新购房政策。先并行搜索几个关键方向。")
     assert is_user_facing_answer("扬州目前已全面取消限购、限售，门槛处于历史最宽松阶段。")
 

@@ -1,0 +1,29 @@
+{
+  "_comment": "捕获型 hook 草案（跨工具通用，增量配置，不合并进 hooks.json）。matcher 并集覆盖 CodeBuddy/Trae/Cursor 写盘动作 + 命令执行动作；Claude Code/Codex/OpenClaw 可额外在 UserPromptSubmit 挂 capture_learning.py --mode correction 以捕获用户纠错（最准）。确认后由 install_hooks.py 替换占位符并并入 hooks.json 的 PostToolUse 段，不影响现有 15 个防护 hook。",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit|Bash|execute_command|run_command|run_in_terminal|terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON_BIN}} \"{{HOOKS_DIR}}/capture_learning.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON_BIN}} \"{{HOOKS_DIR}}/capture_learning.py\" --mode correction",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

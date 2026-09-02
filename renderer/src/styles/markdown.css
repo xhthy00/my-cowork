@@ -7,23 +7,19 @@
 .aion-md {
   --aion-text-primary: var(--ds-text-neutral-default-default);
   --aion-text-secondary: var(--ds-text-neutral-muted-default);
-  --aion-bg-1: var(--ds-bg-neutral-subtle-default);
-  --aion-bg-2: var(--ds-bg-neutral-default-default);
-  --aion-bg-3: var(--ds-bg-neutral-strong-default);
-  --aion-primary: var(--accent, #000000);
+  --aion-bg-1: var(--ds-bg-chat-paper, var(--ds-bg-neutral-subtle-default));
+  --aion-bg-2: var(--ds-bg-code, var(--ds-bg-neutral-default-default));
+  --aion-bg-3: var(--ds-bg-code, var(--ds-bg-neutral-strong-default));
+  --aion-primary: var(--ds-text-information-default-default, var(--accent, #000000));
   width: 100%;
   min-width: 0;
   max-width: 100%;
   color: var(--aion-text-primary);
-  font-size: 15px;
+  font-size: 15.5px;
   line-height: 1.75;
   word-break: break-word;
   overflow-wrap: anywhere;
   letter-spacing: 0.01em;
-}
-
-.aion-md * {
-  color: inherit;
 }
 
 .aion-md > :first-child {
@@ -120,22 +116,23 @@
 }
 
 .aion-md h1 {
-  font-size: 1.375rem;
+  font-size: 1.4rem;
   font-weight: 700;
-  margin: 0 0 0.85em;
+  margin: 0 0 0.9em;
 }
 
 .aion-md h2 {
-  font-size: 1.125rem;
-  margin: 1.35em 0 0.65em;
-  padding-bottom: 0.35em;
+  font-size: 1.18rem;
+  font-weight: 700;
+  margin: 1.5em 0 0.7em;
+  padding-bottom: 0.4em;
   border-bottom: 1px solid var(--ds-border-neutral-subtle-default);
 }
 
 .aion-md h3 {
-  font-size: 1.02rem;
+  font-size: 1.05rem;
   font-weight: 650;
-  margin: 1.25em 0 0.4em;
+  margin: 1.35em 0 0.45em;
   letter-spacing: -0.015em;
   line-height: 1.4;
 }
@@ -254,15 +251,32 @@
 }
 
 .aion-md blockquote {
-  margin: 0.7em 0 0;
-  padding: 8px 12px;
+  margin: 0.85em 0;
+  padding: 10px 14px;
   border: none;
   border-left: 3px solid var(--ds-border-neutral-default-default);
-  border-radius: 0 8px 8px 0;
-  background: var(--aion-bg-1);
+  border-radius: 0 10px 10px 0;
+  background: var(--ds-bg-callout-note, var(--aion-bg-1));
   color: var(--aion-text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.aion-md blockquote.md-callout-warning {
+  background: var(--ds-bg-callout-warning);
+  border-left-color: var(--ds-border-callout-warning);
+  color: var(--aion-text-primary);
+}
+
+.aion-md blockquote.md-callout-success {
+  background: var(--ds-bg-callout-success);
+  border-left-color: var(--ds-border-callout-success);
+  color: var(--aion-text-primary);
+}
+
+.aion-md blockquote.md-callout-note {
+  background: var(--ds-bg-callout-note);
+  border-left-color: var(--ds-border-callout-note);
 }
 
 .aion-md blockquote p {
@@ -284,7 +298,7 @@
 .aion-md pre,
 .aion-md .hljs {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ds-text-neutral-subtle-default) 45%, transparent) transparent;
 }
 
 .aion-md pre::-webkit-scrollbar,
@@ -302,13 +316,13 @@
 
 .aion-md pre::-webkit-scrollbar-thumb,
 .aion-md .hljs::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: color-mix(in srgb, var(--ds-text-neutral-subtle-default) 40%, transparent);
   border-radius: 3px;
 }
 
 .aion-md pre::-webkit-scrollbar-thumb:hover,
 .aion-md .hljs::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: color-mix(in srgb, var(--ds-text-neutral-muted-default) 55%, transparent);
 }
 
 .aion-md img {
@@ -320,10 +334,11 @@
 .aion-md .md-table-wrap {
   overflow-x: auto;
   max-width: 100%;
-  margin: 0.9em 0;
+  margin: 1em 0;
   border: 1px solid var(--ds-border-neutral-subtle-default);
   border-radius: 12px;
-  background: var(--aion-bg-1);
+  background: var(--ds-bg-table, var(--aion-bg-1));
+  box-shadow: var(--shadow-button);
 }
 
 .aion-md table {

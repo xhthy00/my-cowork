@@ -24,6 +24,14 @@ class ChatHistoryTurn(BaseModel):
     content: str
 
 
+class BoundKnowledgeBase(BaseModel):
+    """Composer-bound knowledge library (IMA today)."""
+
+    id: str = ""
+    name: str = ""
+    source: str = "ima"
+
+
 class ChatRequest(BaseModel):
     """Request body for POST /api/chat."""
 
@@ -39,6 +47,7 @@ class ChatRequest(BaseModel):
     workdir_mode: str | None = None
     assistant_id: str | None = None
     enabled_skill_ids: list[str] | None = None
+    knowledge_bases: list[BoundKnowledgeBase] | None = None
     session_id: str | None = None
 
 
@@ -72,6 +81,7 @@ async def _event_stream(
         workdir_mode=req.workdir_mode,
         assistant_id=req.assistant_id,
         enabled_skill_ids=req.enabled_skill_ids,
+        knowledge_bases=[row.model_dump() for row in (req.knowledge_bases or [])] or None,
         session_id=req.session_id or req.project_id,
     )
     task_id = task_req.task_id or "stream"

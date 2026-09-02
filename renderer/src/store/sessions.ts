@@ -27,6 +27,10 @@ import {
   useSpacesStore,
   type CoworkSpace,
 } from "./spaces";
+import {
+  parseBoundKnowledgeBases,
+  type BoundKnowledgeBase,
+} from "@/lib/knowledgeSources";
 
 export type WorkdirMode =
   | "direct-write"
@@ -49,6 +53,8 @@ export interface Project {
   /** Stable display name; `title` may become the first user query. */
   assistantName?: string;
   enabledSkillIds?: string[];
+  /** Composer-bound IMA libraries; search these by default. */
+  boundKnowledgeBases?: BoundKnowledgeBase[];
   /** Recommended prompts from the bound office assistant (Hub cold-start). */
   assistantPrompts?: string[];
 }
@@ -138,6 +144,7 @@ function migrateProject(raw: Record<string, unknown>): Project {
     enabledSkillIds: Array.isArray(raw.enabledSkillIds)
       ? raw.enabledSkillIds.map(String)
       : undefined,
+    boundKnowledgeBases: parseBoundKnowledgeBases(raw.boundKnowledgeBases),
     assistantPrompts: Array.isArray(raw.assistantPrompts)
       ? raw.assistantPrompts.map(String)
       : undefined,

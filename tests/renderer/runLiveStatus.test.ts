@@ -46,6 +46,21 @@ describe("deriveLiveActivity", () => {
     expect(out.phase).toBe("正在组织回答");
   });
 
+  it("keeps composing copy even when the quiet timer has fired", () => {
+    const out = deriveLiveActivity({
+      trace: [{ id: "1", type: "graph.start", payload: {} }],
+      taskInfo: [],
+      taskRunning: [],
+      confirmCount: 0,
+      pendingArtifactCount: 0,
+      thinkingSubject: "正在生成回答",
+      quietMs: 32_000,
+      beating: true,
+    });
+    expect(out.phase).toBe("正在组织回答");
+    expect(out.phase).not.toContain("已静默");
+  });
+
   it("does not throw on empty first-send state", () => {
     const out = deriveLiveActivity({
       trace: [],
@@ -84,7 +99,7 @@ describe("deriveLiveActivity", () => {
       taskRunning: [],
       confirmCount: 0,
       pendingArtifactCount: 0,
-      thinkingSubject: "正在生成回答",
+      thinkingSubject: "开始分析任务",
       quietMs: 32_000,
       beating: true,
     });

@@ -236,3 +236,26 @@ function replaceLatex(text: string): string {
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_m, content: string) => `$${content}$`);
   return text;
 }
+
+export type MarkdownCalloutKind = "warning" | "success" | "note";
+
+export function flattenMarkdownChildren(node: React.ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(flattenMarkdownChildren).join("");
+  if (typeof node === "object" && "props" in node) {
+    const children = (node as React.ReactElement<{ children?: React.ReactNode }>).props
+      ?.children;
+    return flattenMarkdownChildren(children);
+  }
+  return "";
+}
+
+export function markdownCalloutKind(text: string): MarkdownCalloutKind | null {
+  const t = text.trim();
+  if (!t) return null;
+  if (/^(?:⚠️|⚠|注意|备注|Warning|caution)/i.test(t)) return "warning";
+  if (/^(?:✅|成功|已完成|Success)/i.test(t)) return "success";
+  if (/^(?:💡|提示|说明|Note|Tip)/i.test(t)) return "note";
+  return null;
+}

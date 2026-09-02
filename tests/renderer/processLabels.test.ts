@@ -114,6 +114,7 @@ describe("processLabels", () => {
     const tools = steps.filter((s) => s.kind === "tool");
     expect(tools).toHaveLength(2);
     expect(tools[0].status).toBe("done");
+    expect(tools[0].tool).toBe("bash");
     expect(tools[1].status).toBe("running");
     expect(tools[1].preview).toContain("officecli add");
   });

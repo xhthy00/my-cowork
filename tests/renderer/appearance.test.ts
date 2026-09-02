@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   APPEARANCE_STORAGE_KEY,
   applyDocumentAppearance,
+  readDocumentTheme,
   readStoredAppearance,
   resolveDark,
 } from "../../renderer/src/lib/appearance";
@@ -15,6 +16,7 @@ describe("appearance", () => {
   afterEach(() => {
     window.localStorage.removeItem(APPEARANCE_STORAGE_KEY);
     document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-theme");
     document.documentElement.style.colorScheme = "";
   });
 
@@ -26,6 +28,8 @@ describe("appearance", () => {
     expect(readStoredAppearance()).toBe("dark");
     applyDocumentAppearance(readStoredAppearance());
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(readDocumentTheme()).toBe("dark");
     expect(document.documentElement.style.colorScheme).toBe("dark");
   });
 
@@ -38,5 +42,13 @@ describe("appearance", () => {
   it("resolveDark honors explicit light/dark", () => {
     expect(resolveDark("light")).toBe(false);
     expect(resolveDark("dark")).toBe(true);
+  });
+
+  it("applyDocumentAppearance light clears dark class and data-theme", () => {
+    applyDocumentAppearance("dark");
+    applyDocumentAppearance("light");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(readDocumentTheme()).toBe("light");
   });
 });

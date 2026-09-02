@@ -7,7 +7,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
-from app.graphs.routing import wants_document
+from app.graphs.routing import wants_document, wants_file_document
 from app.graphs.state import SupervisorState
 from app.runtime.agent_stream import _emit_step_delta
 from app.runtime.v2.assemble import assemble_system_messages
@@ -130,6 +130,7 @@ def compile_single_agent_graph(
             agent_prompt_name="single_agent",
             assistant_id=str(state.get("assistant_id") or "") or None,
             enabled_skill_ids=list(state.get("enabled_skill_ids") or []),
+            knowledge_bases=list(state.get("knowledge_bases") or []) or None,
             user_text=user_text,
         )
         prior = [
@@ -154,6 +155,7 @@ def compile_single_agent_graph(
                 result = [*result, AIMessage(content=_SEARCH_GAP_NOTICE)]
         else:
             from app.runtime.context import (
+                is_user_facing_answer,
                 last_ai_text,
                 looks_like_plan_only,
                 looks_like_process_narration,
@@ -167,17 +169,33 @@ def compile_single_agent_graph(
                 last
             )
             thin = looks_like_plan_only(user_text, last) or not (best or last).strip()
-            salvage = junk_last or thin
-            # ChatAgent: the last user-facing reply is the answer. Synthesize
-            # only salvages dump / empty / plan, or office-file delivery.
+            ended_mid_work = _last_ai_called_tools(result) and not is_user_facing_answer(
+                last
+            )
+            salvage = junk_last or thin or ended_mid_work
+            need_file = wants_file_document(user_text)
+            last_is_delivery = (
+                is_user_facing_answer(last)
+                and not looks_like_plan_only(user_text, last)
+                and not junk_last
+            )
+            # ChatAgent: reuse a clean earlier reply for Q&A. File tasks that
+            # stopped on tool chatter need a user-facing delivery summary.
             if (
                 best
                 and salvage
-                and not wants_document(user_text)
+                and not need_file
                 and not looks_like_plan_only(user_text, best)
             ):
                 final = best
-            elif wants_document(user_text) or salvage:
+            elif need_file and not last_is_delivery:
+                final = await synthesize_answer(
+                    user_text,
+                    result,
+                    synthesize_llm or model,
+                    rewrite=True,
+                )
+            elif salvage:
                 final = await synthesize_answer(
                     user_text,
                     result,
@@ -202,6 +220,19 @@ def compile_single_agent_graph(
     graph = builder.compile(checkpointer=checkpointer)
     graph.recursion_limit = recursion_limit
     return graph
+
+
+def _last_ai_called_tools(messages: list) -> bool:
+    """True when the latest assistant message still has tool_calls (no follow-up)."""
+    for msg in reversed(messages or []):
+        role = str(getattr(msg, "type", None) or "")
+        if role in {"tool", "ToolMessage"}:
+            continue
+        if role in {"ai", "AIMessage", "assistant"}:
+            return bool(getattr(msg, "tool_calls", None))
+        if role in {"human", "HumanMessage", "user"}:
+            return False
+    return False
 
 
 def _is_human(msg: Any) -> bool:

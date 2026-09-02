@@ -1,6 +1,6 @@
 /**
  * Adapted from eigent: ChatBox/BottomBox (InputBox + picker overlays + BoxFooter).
- * Layout: [picker panels] → attachments → rich input → [paperclip | hammer | wand] … [send]
+ * Layout: [picker panels] → attachments → rich input → [paperclip | hammer | wand | library] … [send]
  *         → footer [mode | ring + model]
  */
 import {
@@ -10,6 +10,7 @@ import {
   Gamepad2,
   Hammer,
   Joystick,
+  Library,
   Paperclip,
   Sparkles,
   Square,
@@ -25,16 +26,19 @@ import { isMemoryEnabled } from "../memory/MemoryView";
 import { RichChatInput } from "./RichChatInput";
 import {
   ConnectorPickerPanel,
+  KnowledgePickerPanel,
   SkillPickerPanel,
   type PickerItem,
 } from "./PickerPanel";
 import { cn } from "@/lib/utils";
+import { getKnowledgeLogo } from "@/lib/knowledgeLogos";
+import type { BoundKnowledgeBase } from "@/lib/knowledgeSources";
 import { formalAnswerFromContent, useSessionStore, type Message } from "../../store/session";
 import {
   getProjectTaskId,
   rememberProjectTaskId,
 } from "../../store/livePark";
-import { getActiveProjectContext, useSessionsStore } from "../../store/sessions";
+import { ensureActiveSession, getActiveProjectContext, useSessionsStore } from "../../store/sessions";
 import { useWorkforceStore } from "../../store/workforce";
 import { SessionMode } from "../../types/workforce";
 import ChatModelSelect from "./ChatModelSelect";
@@ -57,7 +61,7 @@ export interface ChatAttachment {
   fileName: string;
 }
 
-type PickerPanelKind = "connector" | "skill";
+type PickerPanelKind = "connector" | "skill" | "knowledge";
 
 const HISTORY_MAX_TURNS = 12;
 const HISTORY_MAX_CHARS = 6000;
@@ -120,6 +124,10 @@ export default function ChatBar({
   const boundSkills = useMemo(
     () => activeProject?.enabledSkillIds ?? [],
     [activeProject?.enabledSkillIds],
+  );
+  const boundKnowledge = useMemo(
+    () => activeProject?.boundKnowledgeBases ?? [],
+    [activeProject?.boundKnowledgeBases],
   );
   const boundAssistantTitle = activeProject?.assistantId
     ? activeProject.assistantName || activeProject.title
@@ -210,6 +218,32 @@ export default function ChatBar({
 
   function togglePanel(panel: PickerPanelKind) {
     setOpenPanel((prev) => (prev === panel ? null : panel));
+  }
+
+  function persistBoundKnowledge(next: BoundKnowledgeBase[]) {
+    const id =
+      useSessionsStore.getState().activeId || ensureActiveSession();
+    useSessionsStore.getState().touchSession(id, { boundKnowledgeBases: next });
+  }
+
+  function toggleKnowledge(item: PickerItem) {
+    const key = item.id;
+    const exists = boundKnowledge.some((row) => (row.id || row.name) === key);
+    persistBoundKnowledge(
+      exists
+        ? boundKnowledge.filter((row) => (row.id || row.name) !== key)
+        : [
+            ...boundKnowledge,
+            { id: item.id, name: item.name, source: "ima" },
+          ],
+    );
+  }
+
+  function removeKnowledge(row: BoundKnowledgeBase) {
+    const key = row.id || row.name;
+    persistBoundKnowledge(
+      boundKnowledge.filter((item) => (item.id || item.name) !== key),
+    );
   }
 
   async function handleAddFile() {
@@ -315,6 +349,9 @@ export default function ChatBar({
           ...(project?.enabledSkillIds?.length
             ? { enabled_skill_ids: project.enabledSkillIds }
             : {}),
+          ...(project?.boundKnowledgeBases?.length
+            ? { knowledge_bases: project.boundKnowledgeBases }
+            : {}),
         },
         (ev) => {
           const evTid =
@@ -367,19 +404,26 @@ export default function ChatBar({
                 inputValue={input}
                 onToggleItem={toggleToken}
               />
-            ) : (
+            ) : openPanel === "skill" ? (
               <SkillPickerPanel inputValue={input} onToggleItem={toggleToken} />
+            ) : (
+              <KnowledgePickerPanel
+                selected={boundKnowledge}
+                onToggleItem={toggleKnowledge}
+              />
             )}
           </div>
         </div>
       )}
 
-      {boundAssistantTitle && (
+      {(boundAssistantTitle || boundKnowledge.length > 0) && (
         <div className="mb-2 flex w-full flex-wrap items-center gap-1.5 px-1">
-          <span className="inline-flex items-center gap-1 rounded-md bg-ds-bg-neutral-subtle-default px-2 py-0.5 text-[11px] font-medium text-ds-text-neutral-default-default">
-            <Sparkles className="h-3 w-3 shrink-0" />
-            {boundAssistantTitle}
-          </span>
+          {boundAssistantTitle && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-ds-bg-neutral-subtle-default px-2 py-0.5 text-[11px] font-medium text-ds-text-neutral-default-default">
+              <Sparkles className="h-3 w-3 shrink-0" />
+              {boundAssistantTitle}
+            </span>
+          )}
           {boundSkills.map((sid) => (
             <span
               key={sid}
@@ -387,6 +431,28 @@ export default function ChatBar({
               title={`预加载技能：${sid}`}
             >
               {sid}
+            </span>
+          ))}
+          {boundKnowledge.map((row) => (
+            <span
+              key={row.id || row.name}
+              className="inline-flex items-center gap-1 rounded-md bg-ds-bg-neutral-subtle-default px-1.5 py-0.5 text-[11px] font-medium text-ds-text-neutral-default-default"
+              title={`已关联知识库：${row.name}。提问时默认检索此库。`}
+            >
+              <img
+                src={getKnowledgeLogo("ima")}
+                alt=""
+                className="h-3 w-3 object-contain"
+              />
+              {row.name}
+              <button
+                type="button"
+                className="inline-flex rounded p-0.5 text-ds-icon-neutral-muted-default hover:bg-ds-bg-neutral-strong-default"
+                aria-label={`取消关联 ${row.name}`}
+                onClick={() => removeKnowledge(row)}
+              >
+                <X className="h-3 w-3" />
+              </button>
             </span>
           ))}
         </div>
@@ -505,6 +571,23 @@ export default function ChatBar({
               onClick={() => togglePanel("skill")}
             >
               <WandSparkles className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="知识库"
+              data-picker-trigger
+              aria-label="关联知识库"
+              aria-haspopup="true"
+              aria-expanded={openPanel === "knowledge"}
+              className={cn(
+                "inline-flex h-8 w-8 items-center justify-center rounded-lg text-ds-icon-neutral-muted-default hover:bg-ds-bg-neutral-strong-default",
+                (openPanel === "knowledge" || boundKnowledge.length > 0) &&
+                  "bg-ds-bg-neutral-strong-default",
+              )}
+              disabled={disabled}
+              onClick={() => togglePanel("knowledge")}
+            >
+              <Library className="h-4 w-4" />
             </button>
           </div>
 

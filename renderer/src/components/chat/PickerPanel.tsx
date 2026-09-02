@@ -12,6 +12,8 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { getKnowledgeLogo } from "@/lib/knowledgeLogos";
+import type { BoundKnowledgeBase } from "@/lib/knowledgeSources";
 import {
   RICH_CONNECTOR_STYLE_CLASSES,
   RICH_SKILL_STYLE_CLASSES,
@@ -55,6 +57,7 @@ function PickerPanelShell({
   emptyLabel,
   emptyActionLabel,
   onEmptyAction,
+  isSelected,
 }: {
   title: string;
   groups: PickerGroup[];
@@ -66,6 +69,7 @@ function PickerPanelShell({
   emptyLabel: string;
   emptyActionLabel: string;
   onEmptyAction: () => void;
+  isSelected?: (item: PickerItem) => boolean;
 }) {
   const nonEmptyGroups = groups.filter((g) => g.items.length > 0);
   const totalItems = nonEmptyGroups.reduce((n, g) => n + g.items.length, 0);
@@ -108,7 +112,9 @@ function PickerPanelShell({
                 </div>
               )}
               {group.items.map((item) => {
-                const added = inputValue.includes(item.token);
+                const added = isSelected
+                  ? isSelected(item)
+                  : inputValue.includes(item.token);
                 return (
                   <button
                     key={item.id}
@@ -286,6 +292,165 @@ export function SkillPickerPanel({
         usePageTabStore.getState().setAgentsSection("skills");
         setHubTab("agents");
       }}
+    />
+  );
+}
+
+/** IMA wiki libraries from GET /api/ima/knowledge-bases. */
+const IMA_CLIENT_ACCOUNT = "ima:client_id";
+const IMA_KEY_ACCOUNT = "ima:api_key";
+
+type KnowledgeBasePayload = {
+  configured?: boolean;
+  items?: { id?: string; name?: string }[];
+  hint?: string;
+};
+
+function knowledgeItemsFromPayload(data: KnowledgeBasePayload | null): PickerItem[] {
+  return (data?.items || [])
+    .filter((row) => (row.id || "").trim() || (row.name || "").trim())
+    .map((row) => {
+      const id = String(row.id || "").trim();
+      const name = String(row.name || "").trim() || id;
+      return { id: id || name, name, token: id || name };
+    });
+}
+
+async function hasImaKeys(): Promise<boolean> {
+  if (!window.api?.getKey) return false;
+  const [id, key] = await Promise.all([
+    window.api.getKey(IMA_CLIENT_ACCOUNT),
+    window.api.getKey(IMA_KEY_ACCOUNT),
+  ]);
+  return Boolean((id || "").trim() && (key || "").trim());
+}
+
+async function fetchKnowledgeBaseList(
+  base: string,
+): Promise<{ status: number; data: KnowledgeBasePayload | null }> {
+  const res = await fetch(`${base.replace(/\/$/, "")}/api/ima/knowledge-bases`);
+  try {
+    return {
+      status: res.status,
+      data: (await res.json()) as KnowledgeBasePayload,
+    };
+  } catch {
+    return { status: res.status, data: null };
+  }
+}
+
+export function KnowledgePickerPanel({
+  selected,
+  onToggleItem,
+}: {
+  selected: BoundKnowledgeBase[];
+  onToggleItem: (item: PickerItem) => void;
+}) {
+  const setHubTab = usePageTabStore((s) => s.setHubTab);
+  const [items, setItems] = useState<PickerItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [configured, setConfigured] = useState(true);
+  const [emptyHint, setEmptyHint] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const savedKeys = await hasImaKeys();
+        let url = ((await window.api.getBackendUrl()) || "").replace(/\/$/, "");
+        if (!url) {
+          if (!cancelled) {
+            setConfigured(savedKeys);
+            setItems([]);
+            setEmptyHint(savedKeys ? "后端未连接，请先启动应用后再打开。" : "");
+          }
+          return;
+        }
+
+        let { status, data } = await fetchKnowledgeBaseList(url);
+        const needRestart =
+          savedKeys &&
+          (status === 404 || data?.configured === false);
+        if (needRestart && window.api.restartBackend) {
+          url = ((await window.api.restartBackend()) || url).replace(/\/$/, "");
+          ({ status, data } = await fetchKnowledgeBaseList(url));
+        }
+        if (cancelled) return;
+        const next = knowledgeItemsFromPayload(data);
+        const ready =
+          next.length > 0 || data?.configured !== false || savedKeys;
+        setConfigured(ready);
+        setItems(next);
+        if (next.length > 0) {
+          setEmptyHint("");
+          return;
+        }
+        if (!savedKeys && data?.configured === false) {
+          setEmptyHint("");
+        } else if (status === 404) {
+          setEmptyHint("无法加载知识库列表，请重启应用后再试。");
+        } else if (data?.hint) {
+          setEmptyHint(String(data.hint));
+        } else if (savedKeys && data?.configured === false) {
+          setEmptyHint(
+            "凭证已保存在本机，但后端尚未加载。请到 Hub「知识库」点保存。",
+          );
+        } else {
+          setEmptyHint("");
+        }
+      } catch {
+        if (!cancelled) {
+          setConfigured(false);
+          setItems([]);
+          setEmptyHint("无法加载知识库列表，请稍后重试。");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedIds = useMemo(
+    () => new Set(selected.map((row) => row.id || row.name)),
+    [selected],
+  );
+
+  const emptyLabel =
+    !configured && !emptyHint
+      ? "尚未配置知识库"
+      : emptyHint || "当前账号没有知识库";
+
+  return (
+    <PickerPanelShell
+      title="知识库"
+      groups={[{ id: "ima", label: "腾讯 ima", items }]}
+      inputValue=""
+      onToggleItem={onToggleItem}
+      isSelected={(item) => selectedIds.has(item.id)}
+      renderTag={() => (
+        <span
+          className={cn(
+            "rounded px-1 py-px text-xs font-medium",
+            RICH_CONNECTOR_STYLE_CLASSES,
+          )}
+        >
+          ima
+        </span>
+      )}
+      renderLogo={() => (
+        <img
+          src={getKnowledgeLogo("ima")}
+          alt=""
+          className="h-4 w-4 object-contain"
+        />
+      )}
+      loading={loading}
+      emptyLabel={emptyLabel}
+      emptyActionLabel="管理知识库"
+      onEmptyAction={() => setHubTab("knowledge")}
     />
   );
 }

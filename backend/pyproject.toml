@@ -63,6 +63,7 @@ packages = [
     "app.tools.builtin",
     "app.tools.builtin.docgen",
     "app.tools.builtin.lark",
+    "app.tools.builtin.ima",
     "app.tools.mcp",
     "app.tools.officecli",
     "app.skills",

@@ -87,6 +87,7 @@ class TaskRequest:
     workdir_mode: str | None = None
     assistant_id: str | None = None
     enabled_skill_ids: list[str] | None = None
+    knowledge_bases: list[dict[str, Any]] | None = None
     session_id: str | None = None
 
 
@@ -105,6 +106,7 @@ class _Task:
     workdir_mode: str | None = None
     assistant_id: str | None = None
     enabled_skill_ids: list[str] | None = None
+    knowledge_bases: list[dict[str, Any]] | None = None
     session_id: str | None = None
 
 
@@ -249,6 +251,7 @@ class TaskManager:
             source = "user"
             assistant_id = None
             enabled_skill_ids: list[str] = []
+            knowledge_bases: list[dict[str, Any]] = []
             session_id = None
             enabled_mcp: list[str] | None = None
             req_obj = TaskRequest(text=text, task_id=task_id)
@@ -264,6 +267,7 @@ class TaskManager:
             source = task_req.source
             assistant_id = task_req.assistant_id
             enabled_skill_ids = list(task_req.enabled_skill_ids or [])
+            knowledge_bases = list(task_req.knowledge_bases or [])
             session_id = task_req.session_id or task_req.project_id
             enabled_mcp = task_req.enabled_mcp
             req_obj = task_req
@@ -300,6 +304,7 @@ class TaskManager:
             workdir_mode=workdir_mode,
             assistant_id=assistant_id if not isinstance(task_req, str) else None,
             enabled_skill_ids=enabled_skill_ids or None,
+            knowledge_bases=knowledge_bases or None,
             session_id=session_id,
         )
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()

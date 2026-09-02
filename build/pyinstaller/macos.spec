@@ -14,6 +14,7 @@ HIDDEN = [
     "app.tools.builtin.docgen.pptx_gen",
     "app.tools.builtin.docgen.xlsx_gen",
     "app.tools.builtin.docgen.pdf_gen",
+    "app.tools.builtin.ima",
     "app.tools.mcp.manager",
     "app.memory.long_term",
     "app.observability.metrics",

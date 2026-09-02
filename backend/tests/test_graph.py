@@ -301,6 +301,55 @@ class TestSingleAgentGraph:
         assert "single agent done" in texts
 
     @pytest.mark.asyncio
+    async def test_html_game_synthesizes_delivery_after_process_talk(self):
+        from langchain_core.tools import tool as langchain_tool
+
+        @langchain_tool
+        def fs_write(path: str, content: str) -> str:
+            """Write a file."""
+            return f"Wrote {len(content)} characters to {path}"
+
+        talk = (
+            "I notice the Unicode escapes in HTML won't be interpreted - "
+            "I need to convert them to actual UTF-8 characters in HTML context:"
+        )
+        model = FakeChatModel(
+            responses=[
+                make_ai(
+                    talk,
+                    tool_calls=[
+                        {
+                            "id": "c1",
+                            "name": "fs_write",
+                            "args": {
+                                "path": "/tmp/tank-battle.html",
+                                "content": "<html><body>tank</body></html>",
+                            },
+                        }
+                    ],
+                ),
+                make_ai(talk),
+            ]
+        )
+        summary = "坦克大战已写好，用浏览器打开 tank-battle.html 即可游玩。"
+        graph = compile_single_agent_graph(
+            model=model,
+            tools=[fs_write],
+            synthesize_llm=FakeChatModel(responses=[make_ai(summary)] * 4),
+        )
+        state = WorkforceState(
+            messages=[HumanMessage(content="帮我开发一个坦克大战的web网页游戏")],
+            task_id="sa-tank",
+            session_mode="single-agent",
+            user_text="帮我开发一个坦克大战的web网页游戏",
+            round=0,
+        )
+        result = await graph.ainvoke(state)
+        texts = "\n".join(str(getattr(m, "content", "") or "") for m in result["messages"])
+        assert "tank-battle.html" in texts or "fs_write" in texts
+        assert "即可游玩" in texts
+
+    @pytest.mark.asyncio
     async def test_run_graph_emits_single_agent_roster(self):
         model = FakeChatModel(responses=[make_ai(content="ok")] * 8)
         graph = _single(model)

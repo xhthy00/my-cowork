@@ -222,8 +222,8 @@ export default function SessionSidePanel() {
                         >
                           <span
                             className={cn(
-                              done && "line-through text-ds-text-neutral-subtle-default",
-                              running && "font-medium",
+                              done && "opacity-60 text-ds-text-neutral-subtle-default",
+                              running && "font-medium text-ds-text-neutral-default-default",
                             )}
                           >
                             {task.content}

@@ -55,7 +55,8 @@ describe("ComposerLiveStatus", () => {
     useSessionStore.getState().beginRun();
     expect(() => render(<ComposerLiveStatus />)).not.toThrow();
     expect(screen.getByRole("status")).toHaveTextContent(/思考中|开始分析/);
-    expect(screen.getByRole("status")).toHaveTextContent(/tokens/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/已工作/);
+    expect(screen.getByRole("status")).not.toHaveTextContent(/tokens/i);
   });
 
   it("ChatView survives empty-session → first send", () => {

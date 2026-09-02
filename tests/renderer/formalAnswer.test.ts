@@ -111,6 +111,13 @@ describe("end card vs process talk", () => {
     expect(endCardFromContent(talk)).toBe("");
   });
 
+  it("drops English mid-edit chatter from the formal answer", () => {
+    const talk =
+      "I notice the Unicode escapes in HTML won't be interpreted - I need to convert them to actual UTF-8 characters in HTML context:";
+    expect(formalAnswerFromContent(talk)).toBe("");
+    expect(endCardFromContent(talk)).toBe("");
+  });
+
   it("keeps a markdown report as the end card", () => {
     const report = `## 扬州现行购房政策要点
 

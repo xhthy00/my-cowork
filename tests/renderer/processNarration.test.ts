@@ -60,4 +60,16 @@ describe("processNarration", () => {
     expect(out).toContain("http://example.com/policy");
     expect(out).not.toContain("我先梳理");
   });
+
+  it("keeps a GFM header that omits the leading pipe", () => {
+    const report = `## 操作说明
+
+🕹️ 操作说明 | 按键 | 功能 |
+|---|---|---|
+| 空格 | 发射 |`;
+    const out = stripProcessNarration(`我先梳理任务。\n\n${report}`);
+    expect(out).toContain("🕹️ 操作说明 | 按键 | 功能 |");
+    expect(out).toContain("|---|---|---|");
+    expect(out).not.toMatch(/功能 \|\|---/);
+  });
 });

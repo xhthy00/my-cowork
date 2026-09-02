@@ -7,7 +7,7 @@
  */
 
 const PROCESS_SENTENCE_RE =
-  /^(?:我来帮你|我将(?:开始|先)|让我|我先|我已经|现在(?:让我|整理|撰写|搜索|开始)|接下来|继续|开始调研|制定计划|然后(?:搜索|整理|查询|把)|搜集到足够|正在(?:整理|撰写|搜索|查询)|The user is asking|Let me |I (?:need|will|have|should) )/i;
+  /^(?:我来帮你|我将(?:开始|先)|让我|我先|我已经|现在(?:让我|整理|撰写|搜索|开始)|接下来|继续|开始调研|制定计划|然后(?:搜索|整理|查询|把)|搜集到足够|正在(?:整理|撰写|搜索|查询)|The user is asking|Let me |I (?:need|will|have|should|notice) )/i;
 
 export function splitSentences(text: string): string[] {
   return text
@@ -24,6 +24,13 @@ export function isProcessSentence(text: string): boolean {
 const MARKDOWN_LINE_RE =
   /^\s{0,3}(?:#{1,6}\s|>\s|[-*+]\s|\d+[.)]\s|\|)/;
 
+/** `列A | 列B |` — GFM header often omits the leading pipe. */
+function isTableLikeLine(line: string): boolean {
+  if (MARKDOWN_LINE_RE.test(line)) return true;
+  const cells = line.split("|");
+  return cells.length >= 2 && cells.filter((c) => c.trim().length > 0).length >= 2;
+}
+
 /** Drop status sentences; keep a real report if one follows. */
 export function stripProcessNarration(text: string): string {
   const t = text.trim();
@@ -36,7 +43,7 @@ export function stripProcessNarration(text: string): string {
     }
     // Tables / headings / lists must keep their line breaks (join("") was
     // collapsing `| a |` + `| --- |` into `| a || --- |`).
-    if (MARKDOWN_LINE_RE.test(line)) {
+    if (isTableLikeLine(line)) {
       out.push(line);
       continue;
     }

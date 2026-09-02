@@ -27,7 +27,7 @@ _PROCESS_META_RE = re.compile(
     re.IGNORECASE,
 )
 _WRITE_TOOLS = frozenset(
-    {"bash", "docx_gen", "pptx_gen", "xlsx_gen", "pdf_gen", "fs.write"}
+    {"bash", "docx_gen", "pptx_gen", "xlsx_gen", "pdf_gen", "fs.write", "fs_write"}
 )
 _NOTE_TOOLS = frozenset({"read_note", "list_note", "append_note", "create_note"})
 _FETCH_CLIP = 8_000

@@ -85,6 +85,12 @@ Your capabilities include:
     3. Follow the loaded skill as the primary plan.
 - Search the web with `web_search`.
 - Fetch page text with `web_fetch`.
+- Query the user's Tencent IMA knowledge base with `ima_list_knowledge_bases`,
+  `ima_search_knowledge`, then `ima_get_media_content` to extract text and
+  summarize. If `<bound_knowledge>` is present, search those ids directly;
+  do not wait for the user to mention 知识库. Do not download files. Prefer IMA over web_search for that
+  corpus. Cite titles only; if credentials are missing, tell them to open Hub「知识库」.
+  Empty `items` is not a missing-credential error.
 - Investigate live / login pages with `browser_navigate`, `browser_snapshot`,
   `browser_click` when a CDP browser is available.
 - Use note-taking tools. After downloading or saving any file, register it:

@@ -21,10 +21,13 @@ import { cn } from "@/lib/utils";
 import CodeBlock from "./CodeBlock";
 import {
   convertLatexDelimiters,
+  flattenMarkdownChildren,
+  markdownCalloutKind,
   resolveLocalFileLinkPath,
   resolveLocalFileLinkReference,
   type LocalFileLinkReference,
 } from "./markdownUtils";
+import { normalizeMarkdown } from "./normalizeMarkdown";
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 
@@ -82,6 +85,7 @@ const MarkdownView: React.FC<MarkdownViewProps> = ({
   const normalizedChildren = useMemo(() => {
     if (typeof childrenProp === "string") {
       let text = childrenProp.replace(/file:\/\//g, "");
+      text = normalizeMarkdown(text);
       text = convertLatexDelimiters(text);
       return text;
     }
@@ -128,6 +132,17 @@ const MarkdownView: React.FC<MarkdownViewProps> = ({
           <div className="md-table-wrap">
             <table {...tableProps} />
           </div>
+        );
+      },
+      blockquote({ node: _node, children, className, ...quoteProps }) {
+        const kind = markdownCalloutKind(flattenMarkdownChildren(children));
+        return (
+          <blockquote
+            {...quoteProps}
+            className={cn(className, kind && `md-callout-${kind}`)}
+          >
+            {children}
+          </blockquote>
         );
       },
       img({ node: _node, ...imgProps }) {

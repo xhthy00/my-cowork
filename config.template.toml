@@ -18,3 +18,10 @@ tavily_key = ""
 bocha_key = ""
 exa_key = ""
 searxng_url = ""
+
+# Tencent IMA knowledge base. Prefer Hub「知识库」page (OS keychain).
+# Fallback: env IMA_OPENAPI_CLIENTID / IMA_OPENAPI_APIKEY, or ~/.config/ima/.
+[tools.ima]
+client_id = ""
+api_key = ""
+base_url = ""  # default https://ima.qq.com

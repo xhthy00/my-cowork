@@ -144,6 +144,16 @@ async function injectLarkEnv(env: Record<string, string>): Promise<void> {
   if (encryptKey) env.LARK_ENCRYPT_KEY = encryptKey;
 }
 
+export const IMA_CLIENT_ID_ACCOUNT = "ima:client_id";
+export const IMA_API_KEY_ACCOUNT = "ima:api_key";
+
+async function injectImaEnv(env: Record<string, string>): Promise<void> {
+  const clientId = (await getKey(SERVICE, IMA_CLIENT_ID_ACCOUNT))?.trim();
+  const apiKey = (await getKey(SERVICE, IMA_API_KEY_ACCOUNT))?.trim();
+  if (clientId) env.IMA_OPENAPI_CLIENTID = clientId;
+  if (apiKey) env.IMA_OPENAPI_APIKEY = apiKey;
+}
+
 export const SEARCH_PROVIDER_ACCOUNT = "search:provider";
 export const SEARCH_BOCHA_ACCOUNT = "search:bocha";
 export const SEARCH_BRAVE_ACCOUNT = "search:brave";
@@ -193,6 +203,7 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
     await injectLarkEnv(env);
     await injectWeixinEnv(env);
     await injectSearchEnv(env);
+    await injectImaEnv(env);
     return env;
   }
 
@@ -203,5 +214,6 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
   await injectLarkEnv(env);
   await injectWeixinEnv(env);
   await injectSearchEnv(env);
+  await injectImaEnv(env);
   return env;
 }

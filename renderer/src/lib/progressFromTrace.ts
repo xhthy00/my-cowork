@@ -123,6 +123,8 @@ export type WorkLogStep = {
   kind: "prep" | "tool" | "file";
   status?: "running" | "done";
   agentId?: string;
+  /** Original tool / node id for icons; not shown in the UI. */
+  tool?: string;
 };
 
 export function findInFlightTool(trace: TraceEvent[]): {
@@ -193,6 +195,7 @@ export function buildWorkLogSteps(
           ...prev,
           preview: preview || prev.preview,
           status,
+          tool: tool || prev.tool,
         };
         continue;
       }
@@ -207,6 +210,7 @@ export function buildWorkLogSteps(
         kind: "tool",
         status,
         agentId: String(ev.payload.agent_id ?? "") || undefined,
+        tool,
       });
     } else if (ev.type === "graph.step") {
       const node = String(ev.payload.node ?? "");
@@ -226,6 +230,7 @@ export function buildWorkLogSteps(
         kind: "tool",
         status: "done",
         agentId: node,
+        tool: node,
       });
     }
   }

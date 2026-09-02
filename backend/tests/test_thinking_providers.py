@@ -81,3 +81,25 @@ class TestStreamChunkTimeout:
         monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
         model = openai_compat.create_openai_compat("gpt-4o", "k")
         assert "stream_chunk_timeout" not in model.kwargs
+
+
+class TestMaxTokens:
+    def test_omits_max_tokens_by_default(self, monkeypatch):
+        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        model = openai_compat.create_openai_compat("MiniMax-M3", "k")
+        assert "max_tokens" not in model.kwargs
+
+    def test_passes_explicit_positive_max_tokens(self, monkeypatch):
+        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        model = openai_compat.create_openai_compat(
+            "MiniMax-M3", "k", max_tokens=32768
+        )
+        assert model.kwargs["max_tokens"] == 32768
+
+    def test_omits_non_positive_max_tokens(self, monkeypatch):
+        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        for value in (0, -1, None):
+            model = openai_compat.create_openai_compat(
+                "MiniMax-M3", "k", max_tokens=value
+            )
+            assert "max_tokens" not in model.kwargs

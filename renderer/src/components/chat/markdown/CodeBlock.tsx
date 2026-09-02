@@ -9,6 +9,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { vs, vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
 
+import { readDocumentTheme } from "@/lib/appearance";
 import MermaidBlock from "./MermaidBlock";
 import { formatCode, getDiffLineStyle } from "./markdownUtils";
 
@@ -36,15 +37,16 @@ function CodeBlock(props: CodeBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentTheme, setCurrentTheme] = useState<"light" | "dark">(
-    () => (document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light",
+    () => readDocumentTheme(),
   );
 
   useEffect(() => {
-    const update = () => {
-      setCurrentTheme((document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light");
-    };
+    const update = () => setCurrentTheme(readDocumentTheme());
     const observer = new MutationObserver(update);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class"],
+    });
     return () => observer.disconnect();
   }, []);
 
@@ -106,7 +108,7 @@ function CodeBlock(props: CodeBlockProps) {
   const iconFill = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
   const footerTextColor = isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.35)";
   const borderColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const bgColor = isDark ? "rgba(255,255,255,0.04)" : "var(--aion-bg-2)";
+  const bgColor = isDark ? "var(--ds-bg-code)" : "var(--ds-bg-code, var(--aion-bg-2))";
 
   return (
     <div

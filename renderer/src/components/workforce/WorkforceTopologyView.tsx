@@ -43,7 +43,7 @@ function TopologyNode({ data }: { data: { agent: { agent_id: string; name: strin
 
   return (
     <div
-      className="rounded-xl border-2 bg-white px-3 py-2 shadow-md dark:bg-zinc-900"
+      className="rounded-xl border-2 border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default px-3 py-2 shadow-md"
       style={{ borderColor, minWidth: 160, maxWidth: 220 }}
     >
       <div className="flex items-center gap-2">

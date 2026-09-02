@@ -150,4 +150,14 @@ describe("buildPythonEnv", () => {
     expect(env.BOCHA_API_KEY).toBe("bocha-key");
     expect(env.BRAVE_API_KEY).toBe("brave-key");
   });
+
+  it("injects IMA credentials from keychain", async () => {
+    initKeychain(tmp);
+    await setKey("my-cowork", "ima:client_id", "ima-cid");
+    await setKey("my-cowork", "ima:api_key", "ima-secret");
+
+    const env = await buildPythonEnv();
+    expect(env.IMA_OPENAPI_CLIENTID).toBe("ima-cid");
+    expect(env.IMA_OPENAPI_APIKEY).toBe("ima-secret");
+  });
 });

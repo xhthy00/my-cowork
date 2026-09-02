@@ -50,6 +50,8 @@ export default function App() {
         usePageTabStore.getState().setHubTab("browser");
       } else if (detail === "connectors") {
         usePageTabStore.getState().setHubTab("connectors");
+      } else if (detail === "knowledge") {
+        usePageTabStore.getState().setHubTab("knowledge");
       } else if (detail === "home") {
         usePageTabStore.getState().setHubTab("home");
       }

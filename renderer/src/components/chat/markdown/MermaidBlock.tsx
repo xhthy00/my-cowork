@@ -8,6 +8,8 @@ import React, { useEffect, useRef, useState } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { vs, vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
 
+import { readDocumentTheme } from "@/lib/appearance";
+
 type MermaidBlockProps = {
   code: string;
   style?: React.CSSProperties;
@@ -46,9 +48,9 @@ function MermaidBlock({ code, style }: MermaidBlockProps) {
   const [isRendering, setIsRendering] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "source">("source");
   const [debouncedCode, setDebouncedCode] = useState(code);
-  const [currentTheme, setCurrentTheme] = useState<"light" | "dark">(() => {
-    return (document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light";
-  });
+  const [currentTheme, setCurrentTheme] = useState<"light" | "dark">(
+    () => readDocumentTheme(),
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedCode(code), 300);
@@ -56,14 +58,11 @@ function MermaidBlock({ code, style }: MermaidBlockProps) {
   }, [code]);
 
   useEffect(() => {
-    const updateTheme = () => {
-      const theme = (document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light";
-      setCurrentTheme(theme);
-    };
+    const updateTheme = () => setCurrentTheme(readDocumentTheme());
     const observer = new MutationObserver(updateTheme);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme"],
+      attributeFilter: ["data-theme", "class"],
     });
     return () => observer.disconnect();
   }, []);

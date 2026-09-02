@@ -103,10 +103,11 @@ def create_openai_compat(
         headers.setdefault("X-Title", "my-cowork")
     if headers:
         kwargs["default_headers"] = headers
-    if max_tokens is not None:
+    # Omit max_tokens unless the caller set a positive cap. A default of
+    # 8192 was cutting MiniMax / long HTML writes mid-file ("文件被截断了").
+    # ChatOpenAI then leaves max_tokens=None and the vendor/model max applies.
+    if isinstance(max_tokens, int) and max_tokens > 0:
         kwargs["max_tokens"] = max_tokens
-    else:
-        kwargs["max_tokens"] = 8192
     extra_body: dict = {}
     low = (model or "").lower()
     if thinking:

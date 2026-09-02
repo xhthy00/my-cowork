@@ -3,7 +3,20 @@
  * Live wait UX: ShinyText header, active_form, Thinking…, animated steps.
  */
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Code2,
+  FileSpreadsheet,
+  FileText,
+  Globe,
+  ListChecks,
+  MousePointerClick,
+  StickyNote,
+  Terminal,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -16,13 +29,85 @@ import ShinyText from "@/components/ui/ShinyText";
 import { formatSplittingElapsed } from "@/lib/formatElapsed";
 import { formatTokenCount } from "@/lib/formatTokens";
 import { formatWorkLogLine } from "@/lib/processLabels";
-import { buildWorkLogSteps, findInFlightTool } from "@/lib/progressFromTrace";
+import { buildWorkLogSteps, findInFlightTool, type WorkLogStep } from "@/lib/progressFromTrace";
 import { deriveLiveActivity } from "@/lib/runLiveStatus";
 import { cn } from "@/lib/utils";
 import { usePageTabStore } from "@/store/pageTab";
 import { usePreviewStore } from "@/store/preview";
 import { useSessionStore } from "@/store/session";
 import { useWorkforceStore } from "@/store/workforce";
+
+function toolGlyph(tool?: string): LucideIcon {
+  const key = (tool ?? "").toLowerCase();
+  if (/search|web_fetch|http/.test(key)) return Globe;
+  if (/browser/.test(key)) return MousePointerClick;
+  if (/bash|exec/.test(key)) return Terminal;
+  if (/\bhtml\b|code/.test(key)) return Code2;
+  if (/todo/.test(key)) return ListChecks;
+  if (/xlsx|csv|sheet/.test(key)) return FileSpreadsheet;
+  if (/note/.test(key)) return StickyNote;
+  if (/pptx|docx|pdf|fs[._\s]|write|read|list|mkdir/.test(key)) return FileText;
+  return Wrench;
+}
+
+function ToolStepCard({
+  step,
+  isRunning,
+  thinks,
+  running,
+}: {
+  step: WorkLogStep;
+  isRunning: boolean;
+  thinks: { id: string; text: string; closed: boolean }[];
+  running: boolean;
+}) {
+  const Icon = toolGlyph(step.tool);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex min-w-0 flex-col gap-0.5"
+    >
+      <div
+        className={cn(
+          "flex min-w-0 items-start gap-2 rounded-lg border px-2.5 py-1.5",
+          isRunning
+            ? "border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default"
+            : "border-transparent bg-ds-bg-neutral-muted-default/60 opacity-70",
+        )}
+      >
+        <Icon
+          size={14}
+          strokeWidth={2}
+          aria-hidden
+          className="mt-0.5 shrink-0 text-ds-icon-neutral-muted-default"
+        />
+        <div className="min-w-0 flex-1">
+          <div
+            className={cn(
+              "truncate text-body-sm",
+              isRunning
+                ? "font-medium text-ds-text-neutral-default-default"
+                : "text-ds-text-neutral-subtle-default",
+            )}
+          >
+            {isRunning ? (
+              <ShinyText text={step.label} speed={2.6} className="truncate text-body-sm" />
+            ) : (
+              step.label
+            )}
+          </div>
+          {step.preview ? (
+            <div className="truncate text-[11px] text-ds-text-neutral-subtle-default">
+              {step.preview}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <StepThinkList thinks={thinks} running={running} />
+    </motion.div>
+  );
+}
 
 function StepThinkList({
   thinks,
@@ -296,11 +381,6 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
 
               <AnimatePresence initial={false}>
                 {steps.map((step) => {
-                  const isRunning = running && step.status === "running";
-                  const line = step.preview
-                    ? `${step.label} · ${step.preview}`
-                    : formatWorkLogLine(step.label, step.detail);
-                  const thinks = thinkAssign.byStep.get(step.id) ?? [];
                   if (step.kind === "file") {
                     return (
                       <motion.button
@@ -334,12 +414,29 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                       </motion.button>
                     );
                   }
+                  const isRunning = running && step.status === "running";
+                  const thinks = thinkAssign.byStep.get(step.id) ?? [];
+                  if (step.kind === "tool") {
+                    return (
+                      <ToolStepCard
+                        key={step.id}
+                        step={step}
+                        isRunning={isRunning}
+                        thinks={thinks}
+                        running={running}
+                      />
+                    );
+                  }
+                  const line = formatWorkLogLine(step.label, step.detail);
                   return (
                     <motion.div
                       key={step.id}
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="flex min-w-0 flex-col gap-0.5"
+                      className={cn(
+                        "flex min-w-0 flex-col gap-0.5",
+                        !isRunning && "opacity-70",
+                      )}
                     >
                       <div className="flex min-w-0 items-center gap-2 py-0.5 text-body-sm text-ds-text-neutral-muted-default">
                         <span
@@ -351,7 +448,12 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
                           )}
                           aria-hidden
                         />
-                        <span className="min-w-0 truncate">
+                        <span
+                          className={cn(
+                            "min-w-0 truncate",
+                            !isRunning && "text-ds-text-neutral-subtle-default",
+                          )}
+                        >
                           {isRunning ? (
                             <ShinyText
                               text={line}

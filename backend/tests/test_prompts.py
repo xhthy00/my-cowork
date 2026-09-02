@@ -228,3 +228,34 @@ def test_assemble_auto_preloads_officecli_when_user_asks_word(monkeypatch):
     blob = msgs[0].content
     assert "PRELOADED:officecli" in blob
     assert "PRELOADED:officecli-docx" in blob
+
+
+def test_assemble_injects_bound_knowledge_block():
+    from app.runtime.v2.assemble import assemble_system_messages
+
+    msgs = assemble_system_messages(
+        agent_prompt_name="single_agent",
+        knowledge_bases=[{"id": "kb1", "name": "唐浩宇的知识库", "source": "ima"}],
+        user_text="总体集成甲级资质要多少资本",
+        long_term=object(),
+    )
+    blob = msgs[0].content
+    assert "<bound_knowledge>" in blob
+    assert "knowledge_base_id=kb1" in blob
+    assert "唐浩宇的知识库" in blob
+    assert "ima_search_knowledge" in blob
+    assert "在知识库里搜" in blob
+
+
+def test_normalize_knowledge_bases_drops_junk():
+    from app.runtime.v2.assemble import normalize_knowledge_bases
+
+    rows = normalize_knowledge_bases(
+        [
+            {"id": "kb1", "name": "A"},
+            {"id": "kb1", "name": "dup"},
+            {"name": ""},
+            "x",
+        ]
+    )
+    assert rows == [{"id": "kb1", "name": "A", "source": "ima"}]

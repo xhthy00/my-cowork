@@ -529,6 +529,10 @@ describe("session store", () => {
     const store = useSessionStore.getState();
     store.addUserMessage("调研长鑫存储和宇树科技");
     store.handleEvent({
+      type: "artifact.file",
+      payload: { path: "/tmp/cxmt_vs_unitree_investment_report.html" },
+    });
+    store.handleEvent({
       type: "graph.end",
       payload: {
         status: "ok",
@@ -608,7 +612,7 @@ describe("session store", () => {
     expect(useSessionStore.getState().pendingArtifacts).toHaveLength(0);
   });
 
-  it("graph.end attaches html path scraped from the summary (Eigent)", () => {
+  it("graph.end does not invent chips from summary-only paths", () => {
     useSessionStore.getState().handleEvent({
       type: "graph.end",
       payload: {
@@ -620,10 +624,30 @@ describe("session store", () => {
     const withArts = useSessionStore
       .getState()
       .messages.filter((m) => (m.artifacts?.length ?? 0) > 0);
+    expect(withArts).toHaveLength(0);
+  });
+
+  it("graph.end ignores hallucinated extra files mentioned beside a real write", () => {
+    useSessionStore.getState().handleEvent({
+      type: "artifact.file",
+      payload: { path: "C:\\Users\\xhthy\\Downloads\\test\\tank-battle.html" },
+    });
+    useSessionStore.getState().handleEvent({
+      type: "graph.end",
+      payload: {
+        status: "ok",
+        summary:
+          "坦克大战已写好。\n" +
+          "文件路径: C:\\Users\\xhthy\\Downloads\\test\\tank-battle.html\n" +
+          "分片草稿: C:\\Users\\xhthy\\Downloads\\test\\tank-battle-part2.html",
+      },
+    });
+    const withArts = useSessionStore
+      .getState()
+      .messages.filter((m) => (m.artifacts?.length ?? 0) > 0);
     expect(withArts).toHaveLength(1);
-    expect(withArts[0].artifacts?.[0].path).toContain(
-      "高三4次模拟数据分析报告.html",
-    );
+    expect(withArts[0].artifacts).toHaveLength(1);
+    expect(withArts[0].artifacts?.[0].name).toBe("tank-battle.html");
   });
 
   it("collapses the same html path written with mixed separators", () => {
@@ -747,5 +771,30 @@ describe("SSE → store wiring", () => {
 
     const msgs = useSessionStore.getState().messages;
     expect(msgs[msgs.length - 1].content).toContain("hi");
+  });
+
+  it("step.delta stamps lastContentAt and estimates tokens", () => {
+    useSessionStore.getState().beginRun();
+    const started = useSessionStore.getState().lastContentAt;
+    expect(started).toBeTruthy();
+    useSessionStore.getState().handleEvent({
+      type: "step.delta",
+      payload: { delta: "扬州限购政策已经全面取消。", agent_id: "single_agent" },
+    });
+    const after = useSessionStore.getState().lastContentAt;
+    expect(after).toBeTruthy();
+    expect(after).toBeGreaterThanOrEqual(started!);
+    expect(useSessionStore.getState().budgetTokens).toBeGreaterThan(0);
+  });
+
+  it("llm.heartbeat stamps lastBeatAt without treating as content", () => {
+    useSessionStore.getState().beginRun();
+    const contentAt = useSessionStore.getState().lastContentAt;
+    useSessionStore.getState().handleEvent({
+      type: "llm.heartbeat",
+      payload: {},
+    });
+    expect(useSessionStore.getState().lastBeatAt).toBeTruthy();
+    expect(useSessionStore.getState().lastContentAt).toBe(contentAt);
   });
 });

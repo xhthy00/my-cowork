@@ -55,6 +55,7 @@ from app.server.routes import (
     channels as channels_routes,
     chat,
     confirm,
+    ima as ima_routes,
     mcp as mcp_routes,
     memory as memory_routes,
     model as model_routes,
@@ -82,6 +83,7 @@ from app.tools.builtin.todo import make_todo_write_tool
 from app.tools.builtin.web_search import make_web_search_tool
 from app.tools.builtin.web_fetch import make_web_fetch_tool
 from app.tools.builtin.browser import make_browser_tools
+from app.tools.builtin.ima.tools import make_ima_tools
 from app.skills.config import default_skills_config_path, default_skills_root
 from app.tools.mcp.manager import (
     McpManager,
@@ -278,6 +280,7 @@ def build_stack(
     web_search_tool = make_web_search_tool()
     web_fetch_tool = make_web_fetch_tool()
     browser_tools = make_browser_tools()
+    ima_tools = make_ima_tools()
 
     registry = ToolRegistry()
     registry.register("builtin.fs.read", fs_read)
@@ -289,6 +292,8 @@ def build_stack(
     registry.register("builtin.pdf.gen", pdf_tool)
     registry.register("builtin.exec.bash", bash_tool)
     registry.register("builtin.lark.send_message", lark_tool)
+    for tool in ima_tools:
+        registry.register(f"builtin.ima.{tool.name}", tool)
 
     mcp_json_path = Path(
         os.environ.get("MY_COWORK_MCP_JSON") or str(default_mcp_json_path())
@@ -393,6 +398,7 @@ def build_stack(
         lark_tool,
         web_search_tool,
         web_fetch_tool,
+        *ima_tools,
         *browser_tools,
         *mcp_tools,
     ]
@@ -424,6 +430,7 @@ def build_stack(
                     gongwen_tool,
                     pdf_tool,
                     lark_tool,
+                    *ima_tools,
                 ],
                 "prompt_name": "document",
             },
@@ -436,6 +443,7 @@ def build_stack(
                     fs_list,
                     web_search_tool,
                     web_fetch_tool,
+                    *ima_tools,
                     *browser_tools,
                     *mcp_tools,
                 ],
@@ -544,6 +552,7 @@ def create_app(
     app.include_router(webhook_lark.router)
     app.include_router(channels_routes.router)
     app.include_router(mcp_routes.router)
+    app.include_router(ima_routes.router)
     app.include_router(skills_routes.router)
     app.include_router(assistants_routes.router)
     app.include_router(officecli_routes.router)

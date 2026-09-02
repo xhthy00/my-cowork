@@ -6,7 +6,7 @@ import { persist } from "zustand/middleware";
 
 import type { SessionPreviewTab } from "./preview";
 
-export type HubTab = "home" | "agents" | "connectors" | "browser" | "settings";
+export type HubTab = "home" | "agents" | "knowledge" | "connectors" | "browser" | "settings";
 export type HomeSection = "spaces" | "projects" | "triggers";
 export type WorkspaceView = "workspace" | "hub";
 export type AgentsSection = "skills" | "sub-agents" | "memory";

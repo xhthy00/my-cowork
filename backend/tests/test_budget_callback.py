@@ -115,10 +115,42 @@ class TestBudgetTokenCallback:
             )
             cb.on_llm_end(result, run_id=run_id)
             assert budget.tokens == 42
-            ctx = next(e for e in events if e.get("type") == "budget.update")
+            ctx = [e for e in events if e.get("type") == "budget.update"][-1]
             assert ctx["max_tokens"] == 100_000
             assert ctx["context_limit"] == 200_000
             assert ctx["context_tokens"] > 0
+        finally:
+            reset_budget_runtime(token)
+
+
+    def test_preview_on_start_and_stream_does_not_consume(self, monkeypatch):
+        monkeypatch.setattr(
+            budget_callback_mod, "count_tokens", lambda texts: max(1, len(str(texts)) // 4)
+        )
+        bus = TraceBus()
+        events: list[dict] = []
+        bus.subscribe(events.append)
+        budget = Budget(max_steps=10, max_total_tokens=100_000)
+        token = set_budget_runtime(
+            BudgetRuntime(task_id="t4", bus=bus, budget=budget)
+        )
+        cb = BudgetTokenCallback()
+        run_id = uuid4()
+        try:
+            cb.on_chat_model_start(
+                {},
+                [[HumanMessage(content="hello world from user")]],
+                run_id=run_id,
+            )
+            assert budget.tokens == 0
+            previews = [e for e in events if e.get("type") == "budget.update"]
+            assert previews
+            assert previews[0]["tokens"] > 0
+            cb.on_llm_new_token("assistant reply here", run_id=run_id)
+            streamed = [e for e in events if e.get("type") == "budget.update"]
+            assert streamed[-1]["tokens"] >= previews[0]["tokens"]
+            assert streamed[-1]["output_tokens"] > 0
+            assert budget.tokens == 0
         finally:
             reset_budget_runtime(token)
 

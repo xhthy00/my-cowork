@@ -1,6 +1,6 @@
 /**
- * Sticky live status above the composer — always visible while a run is
- * in progress so the user can see the system is still working.
+ * Sticky live status above the composer — one line so it doesn't
+ * duplicate the WorkLog accordion (tokens / quiet live there).
  */
 import { useEffect, useMemo, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
@@ -8,7 +8,6 @@ import { ThinkingOrb } from "thinking-orbs";
 import { orbStateFromSubject } from "@/components/chat/ThoughtDisplay";
 import ShinyText from "@/components/ui/ShinyText";
 import { formatSplittingElapsed } from "@/lib/formatElapsed";
-import { formatTokenCount } from "@/lib/formatTokens";
 import { deriveLiveActivity } from "@/lib/runLiveStatus";
 import { useSessionStore } from "@/store/session";
 import { useWorkforceStore } from "@/store/workforce";
@@ -17,8 +16,6 @@ export default function ComposerLiveStatus() {
   const runStatus = useSessionStore((s) => s.runStatus);
   const taskStartedAt = useSessionStore((s) => s.taskStartedAt);
   const taskElapsedMs = useSessionStore((s) => s.taskElapsedMs);
-  const budgetTokens = useSessionStore((s) => s.budgetTokens);
-  const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
   const confirmQueue = useSessionStore((s) => s.confirmQueue) ?? [];
   const trace = useSessionStore((s) => s.trace) ?? [];
   const pendingArtifacts = useSessionStore((s) => s.pendingArtifacts) ?? [];
@@ -75,18 +72,13 @@ export default function ComposerLiveStatus() {
     ? now - taskStartedAt + taskElapsedMs
     : taskElapsedMs;
   const timeLabel = formatSplittingElapsed(elapsedMs);
-  const tokenLabel = `${formatTokenCount(budgetTokens)} tokens`;
-  const tokenTitle =
-    budgetMaxTokens > 0
-      ? `本轮累计约 ${formatTokenCount(budgetTokens)} / ${formatTokenCount(budgetMaxTokens)} tokens（估算）`
-      : "本轮累计 tokens（估算）";
 
   return (
     <div
       className="mb-1.5 flex w-full min-w-0 items-center gap-2 px-1 py-0.5"
       role="status"
       aria-live="polite"
-      aria-label={`${activity.label}，已工作 ${timeLabel}，${tokenLabel}`}
+      aria-label={`${activity.label}，已工作 ${timeLabel}`}
     >
       <ThinkingOrb
         state={orbStateFromSubject(activity.label)}
@@ -95,23 +87,14 @@ export default function ComposerLiveStatus() {
         aria-label={activity.label}
         className="shrink-0"
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-0">
-        <ShinyText
-          text={activity.label}
-          speed={2.2}
-          className="max-w-full truncate text-body-sm"
-        />
-        <span className="truncate text-[11px] text-ds-text-neutral-subtle-default">
-          {activity.phase}
-        </span>
-      </div>
-      <div
-        className="shrink-0 text-right text-[11px] tabular-nums leading-tight text-ds-text-neutral-muted-default"
-        title={tokenTitle}
-      >
-        <div>已工作 {timeLabel}</div>
-        <div className="text-ds-text-neutral-subtle-default">{tokenLabel}</div>
-      </div>
+      <ShinyText
+        text={activity.label}
+        speed={2.2}
+        className="min-w-0 flex-1 truncate text-body-sm"
+      />
+      <span className="shrink-0 tabular-nums text-[11px] text-ds-text-neutral-muted-default">
+        已工作 {timeLabel}
+      </span>
     </div>
   );
 }

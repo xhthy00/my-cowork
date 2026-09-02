@@ -60,14 +60,17 @@ _INTERNAL_TRACE_MARKERS = (
     "001000",
 )
 _PROCESS_NARRATION_RE = re.compile(
-    r"(Now let me |Let me (?:add|set|close|build|create|set up)|"
+    r"(Now let me |Let me (?:add|set|close|build|create|set up|convert|fix|update|write)|"
+    r"I notice |I need to |I'll (?:need|convert|fix|update|write)|"
+    r"Unicode escape|"
     r"page layout|pageBreakBefore|fldChar|schema 校验|交付摘要|"
     r"文件规格|Word 版.{0,16}已写入|通过 schema|"
     r"我来用\s*officecli|生成正式的\s*Word|生成\s*Word\s*文档)",
     re.IGNORECASE,
 )
 _PREAMBLE_RE = re.compile(
-    r"(我先搜|先并行搜索|让我(?:再|来|获取|补充)|正在检索|Now let me |Let me )",
+    r"(我先搜|先并行搜索|让我(?:再|来|获取|补充)|正在检索|"
+    r"Now let me |Let me |I notice |I need to )",
 )
 _FOLLOWUP_NOTE = (
     "This is a follow-up in an existing conversation. "

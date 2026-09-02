@@ -4,6 +4,10 @@
  */
 import { useEffect, useRef } from "react";
 
+import {
+  isLocalPreviewUrl,
+  LOCAL_HTML_PREVIEW_COLOR_SCHEME_CSS,
+} from "@/lib/htmlPreviewScheme";
 import { usePreviewStore, type SessionBrowserTab } from "../../store/preview";
 
 const registry = new Map<string, HTMLElement>();
@@ -46,7 +50,7 @@ function BrowserWebview({
       el.setAttribute("partition", "persist:session-preview");
       el.setAttribute("allowpopups", "true");
       // Local HTML deliverables need file:// (scripts / relative assets).
-      if (tab.url.startsWith("file://") || tab.url.startsWith("localfile://")) {
+      if (isLocalPreviewUrl(tab.url)) {
         el.setAttribute(
           "webpreferences",
           "webSecurity=no, allowRunningInsecureContent",
@@ -54,6 +58,21 @@ function BrowserWebview({
       }
       el.style.cssText =
         "position:absolute;inset:0;width:100%;height:100%;border:none;display:flex;";
+
+      const applyDocumentColorScheme = () => {
+        const current =
+          (el as HTMLElement & { getURL?: () => string }).getURL?.() || tab.url;
+        if (!isLocalPreviewUrl(current)) return;
+        const wv = el as HTMLElement & { insertCSS?: (css: string) => Promise<unknown> };
+        try {
+          void wv.insertCSS?.(LOCAL_HTML_PREVIEW_COLOR_SCHEME_CSS);
+        } catch {
+          /* guest may not be ready */
+        }
+      };
+      el.addEventListener("dom-ready", applyDocumentColorScheme);
+      el.addEventListener("did-navigate", applyDocumentColorScheme);
+      el.addEventListener("did-navigate-in-page", applyDocumentColorScheme);
 
       const onNav = () => {
         const wv = el as HTMLElement & {
@@ -79,7 +98,7 @@ function BrowserWebview({
       el = document.createElement("iframe");
       (el as HTMLIFrameElement).src = tab.navigation.url || tab.url;
       el.style.cssText =
-        "position:absolute;inset:0;width:100%;height:100%;border:none;display:block;";
+        "position:absolute;inset:0;width:100%;height:100%;border:none;display:block;color-scheme:light;background:#fff;";
     }
 
     host.appendChild(el);
@@ -115,7 +134,9 @@ function BrowserWebview({
   return (
     <div
       ref={hostRef}
-      className={`preview-webview-layer ${active ? "shown" : "parked"}`}
+      className={`preview-webview-layer ${active ? "shown" : "parked"}${
+        isLocalPreviewUrl(tab.url) ? " preview-webview-layer--local" : ""
+      }`}
       data-webview-id={tab.webviewId}
     />
   );

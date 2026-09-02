@@ -246,6 +246,47 @@ describe("normalizeMarkdown", () => {
     expect(out).not.toMatch(/解决方案 \| 技术难点/);
   });
 
+  it("repairs a MiniMax 操作说明 table glued to a | - list item", () => {
+    const raw = [
+      "- UI 显示: 生命值、分数、剩余敌人、当前关卡",
+      "| - 通关系统: 消灭全部20 辆敌人后弹出胜利界面",
+      "🕹️ 操作说明 | 按键 | 功能 |",
+      "|---|---|---|",
+      "| ↑ ↓ ← → 或 W/A/S/D | 移动坦克 ||",
+      "| 空格键 (按住) | 连续发射子弹 ||",
+      "| Enter | 游戏结束后重新开始 ||",
+      "",
+      "**技术实现**",
+    ].join("\n");
+    const out = normalizeMarkdown(raw);
+    expect(out).toMatch(/^- 通关系统:/m);
+    expect(out).not.toMatch(/^\|\s+- 通关系统/m);
+    expect(out).toContain("| 🕹️ 操作说明 | 按键 | 功能 |");
+    expect(out).toMatch(/\n\n\| 🕹️ 操作说明/);
+    expect(out).toContain("| ↑ ↓ ← → 或 W/A/S/D | 移动坦克 |");
+    expect(out).not.toMatch(/移动坦克 \|\|/);
+  });
+
+  it("renders the glued 操作说明 block as a real HTML table", () => {
+    const raw = [
+      "| - 通关系统: 消灭全部20 辆敌人后弹出胜利界面",
+      "🕹️ 操作说明 | 按键 | 功能 |",
+      "|---|---|---|",
+      "| ↑ ↓ ← → 或 W/A/S/D | 移动坦克 ||",
+      "| 空格键 (按住) | 连续发射子弹 ||",
+      "| Enter | 游戏结束后重新开始 ||",
+    ].join("\n");
+    const { container } = render(
+      <MessageContent content={raw} role="assistant" hideThink verbatim />,
+    );
+    const table = container.querySelector("table");
+    expect(table).toBeTruthy();
+    expect(table?.textContent).toMatch(/移动坦克/);
+    expect(table?.textContent).toMatch(/空格键/);
+    expect(container.textContent).not.toContain("|---|");
+    expect(container.textContent).toMatch(/通关系统/);
+  });
+
   it("peels a ## title cell and aligns 3-col header to 2-col body", () => {
     const raw = [
       '| ## 1. 三个"硬骨头"必须有解决方案| 技术难点 | 外包队伍应对策略 |',
@@ -330,5 +371,19 @@ describe("beautifyChatMarkdown", () => {
     const out = beautifyChatMarkdown(raw);
     expect(out).toContain("   1. 子点 A");
     expect(out).toMatch(/^2\. 下一项$/m);
+  });
+});
+
+describe("streaming / callout markdown", () => {
+  it("strips leaked closing tags and half-typed tags while streaming", () => {
+    expect(normalizeMarkdown("</div>\n正文")).toBe("正文");
+    expect(normalizeMarkdown("hello <div")).toBe("hello ");
+  });
+
+  it("marks warning callouts on 注意 blockquotes", () => {
+    const { container } = render(
+      <MessageContent content={"> 注意：限购已取消"} role="assistant" hideThink verbatim />,
+    );
+    expect(container.querySelector("blockquote.md-callout-warning")).toBeTruthy();
   });
 });

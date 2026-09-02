@@ -25,6 +25,14 @@ describe("pageTab Eigent UE rules", () => {
     expect(s.hubTab).toBe("browser");
   });
 
+  it("setHubTab can open the knowledge tab", () => {
+    usePageTabStore.setState({ workspaceView: "workspace", hubTab: "home" });
+    usePageTabStore.getState().setHubTab("knowledge");
+    const s = usePageTabStore.getState();
+    expect(s.workspaceView).toBe("hub");
+    expect(s.hubTab).toBe("knowledge");
+  });
+
   it("treats a persisted models agentsSection as skills", () => {
     expect(
       migratePageTabState({ agentsSection: "models", hubTab: "agents" }),

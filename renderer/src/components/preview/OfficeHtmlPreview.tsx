@@ -82,7 +82,7 @@ export default function OfficeHtmlPreview({
 
   return (
     <div
-      className="h-full w-full overflow-auto text-ds-text-neutral-default-default"
+      className="h-full w-full overflow-auto bg-white text-neutral-900 [color-scheme:light]"
       dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
     />
   );

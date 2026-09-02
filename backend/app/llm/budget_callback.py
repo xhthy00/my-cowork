@@ -10,7 +10,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 from app.llm.token_counter import count_tokens
-from app.runtime.budget_context import record_llm_tokens
+from app.runtime.budget_context import LiveTokenPreview, record_llm_tokens
 
 
 def _flatten_chat_messages(messages: list[list[BaseMessage]]) -> list[BaseMessage]:
@@ -92,6 +92,11 @@ class BudgetTokenCallback(BaseCallbackHandler):
     def __init__(self) -> None:
         super().__init__()
         self._prompt_tokens: dict[UUID, int] = {}
+        self._previews: dict[UUID, LiveTokenPreview] = {}
+
+    def _start_preview(self, run_id: UUID, prompt_n: int) -> None:
+        self._prompt_tokens[run_id] = prompt_n
+        self._previews[run_id] = LiveTokenPreview(prompt_n)
 
     def on_chat_model_start(
         self,
@@ -102,9 +107,10 @@ class BudgetTokenCallback(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         try:
-            self._prompt_tokens[run_id] = count_tokens(_flatten_chat_messages(messages))
+            prompt_n = count_tokens(_flatten_chat_messages(messages))
         except Exception:
-            self._prompt_tokens[run_id] = 0
+            prompt_n = 0
+        self._start_preview(run_id, prompt_n)
 
     def on_llm_start(
         self,
@@ -117,11 +123,24 @@ class BudgetTokenCallback(BaseCallbackHandler):
         if run_id in self._prompt_tokens:
             return
         try:
-            self._prompt_tokens[run_id] = count_tokens(prompts)
+            prompt_n = count_tokens(prompts)
         except Exception:
-            self._prompt_tokens[run_id] = 0
+            prompt_n = 0
+        self._start_preview(run_id, prompt_n)
+
+    def on_llm_new_token(self, token: str, *, run_id: UUID, **kwargs: Any) -> None:
+        preview = self._previews.get(run_id)
+        if preview is not None:
+            preview.add(str(token or ""))
+
+    def on_chat_model_stream(self, chunk: Any, *, run_id: UUID, **kwargs: Any) -> None:
+        preview = self._previews.get(run_id)
+        if preview is None:
+            return
+        preview.add(_chunk_plain_text(chunk))
 
     def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: Any) -> None:
+        self._previews.pop(run_id, None)
         prompt_n = self._prompt_tokens.pop(run_id, 0)
         try:
             usage_n, usage_in, usage_out = _parts_from_llm_result(response)
@@ -161,6 +180,30 @@ class BudgetTokenCallback(BaseCallbackHandler):
 
     def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
         self._prompt_tokens.pop(run_id, None)
+        self._previews.pop(run_id, None)
+
+
+def _chunk_plain_text(chunk: Any) -> str:
+    if isinstance(chunk, str):
+        return chunk
+    additional = getattr(chunk, "additional_kwargs", None) or {}
+    reasoning = ""
+    if isinstance(additional, dict):
+        reasoning = str(
+            additional.get("reasoning_content") or additional.get("reasoning") or ""
+        )
+    content = getattr(chunk, "content", None)
+    if isinstance(content, str):
+        return reasoning + content
+    if isinstance(content, list):
+        bits: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                bits.append(part)
+            elif isinstance(part, dict) and part.get("text"):
+                bits.append(str(part["text"]))
+        return reasoning + "".join(bits)
+    return reasoning
 
 
 BUDGET_TOKEN_CALLBACK = BudgetTokenCallback()

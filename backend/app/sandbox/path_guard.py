@@ -10,6 +10,22 @@ from pathlib import Path
 _DESKTOP_ALIASES = {"desktop", "桌面"}
 
 
+def _is_remote_or_unc_path(raw: str) -> bool:
+    """True for http(s)/file URLs and Windows UNC / protocol-relative network paths."""
+    s = (raw or "").strip()
+    lower = s.lower()
+    if lower.startswith(("http://", "https://", "file://")):
+        return True
+    if s.startswith(("\\\\?\\", "\\\\.\\")):
+        return False
+    if s.startswith("\\\\"):
+        return True
+    if s.startswith("//"):
+        host = s[2:].split("/")[0].split("\\")[0]
+        return "." in host
+    return False
+
+
 class PathGuardError(Exception):
     """Raised when an operation targets a path outside the allowed whitelist."""
 
@@ -35,6 +51,10 @@ def normalize_user_path(path: str, *, base: Path | None = None) -> Path:
     raw = (path or "").strip()
     if not raw:
         raise PathGuardError("Empty path")
+    if _is_remote_or_unc_path(raw):
+        raise PathGuardError(
+            "Remote/UNC paths are not allowed. IMA documents must be fetched with ima_get_media_content."
+        )
 
     expanded = Path(raw).expanduser()
 

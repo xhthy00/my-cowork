@@ -1,7 +1,7 @@
 /**
  * Adapted from eigent: src/components/Dashboard/HistoryTabsNav.tsx
  */
-import { Blocks, Bot, Compass, Hammer, Settings } from "lucide-react";
+import { Blocks, Bot, Compass, Hammer, Library, Settings } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   useCallback,
@@ -17,6 +17,7 @@ import type { HubTab } from "@/store/pageTab";
 export const HISTORY_TAB_IDS = [
   "home",
   "agents",
+  "knowledge",
   "connectors",
   "browser",
   "settings",
@@ -27,6 +28,7 @@ export type HistoryTabId = (typeof HISTORY_TAB_IDS)[number];
 const LABELS: Record<HistoryTabId, string> = {
   home: "主页",
   agents: "智能体",
+  knowledge: "知识库",
   connectors: "连接器",
   browser: "浏览器",
   settings: "设置",
@@ -35,6 +37,7 @@ const LABELS: Record<HistoryTabId, string> = {
 const ICONS: Record<HistoryTabId, ReactNode> = {
   home: <Blocks className="size-4" />,
   agents: <Bot className="size-4" />,
+  knowledge: <Library className="size-4" />,
   connectors: <Hammer className="size-4" />,
   browser: <Compass className="size-4" />,
   settings: <Settings className="size-4" />,

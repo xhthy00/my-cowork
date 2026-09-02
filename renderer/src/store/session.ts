@@ -6,12 +6,12 @@ import { registerAndBindSession } from "./projectRuntime";
 import type { PreviewState } from "./preview";
 import type { WorkforceState } from "./workforce";
 import { artifactIdentity, decodeUnicodeEscapes, fileBasename, normalizeFsPath } from "@/lib/fsPath";
-import { extractFinalOutputFileList } from "@/lib/extractFinalOutputFiles";
 import {
   isPreviewImagePath,
   isProcessCodePath,
   isVisibleAgentPath,
 } from "@/lib/outputFiles";
+import { estimateTokensFromText } from "@/lib/formatTokens";
 import { isProcessNarration, stripProcessNarration } from "@/lib/processNarration";
 
 import "./preview";
@@ -96,6 +96,10 @@ export interface SessionState {
   contextLimit: number;
   /** Last prompt occupancy from ``budget.update`` (context window fill, not run total). */
   contextTokens: number;
+  /** Last model token / tool progress (heartbeats ignored). */
+  lastContentAt: number | null;
+  /** Last ``llm.heartbeat`` so the UI can tell a silent think from a dead connection. */
+  lastBeatAt: number | null;
   /** Tools the user chose "always allow" for in this chat session only (not persisted). */
   alwaysAllowTools: string[];
   /** Live agent thinking state — drives ThoughtDisplay component. */
@@ -310,14 +314,10 @@ function flushArtifactsToMessages(
 ): void {
   const pending = updates.pendingArtifacts ?? state.pendingArtifacts;
   const base = updates.messages ?? state.messages;
-  const lastAsst = lastContentAssistant(base);
-  const extracted = extractFinalOutputFileList(lastAsst?.content ?? "").filter(
-    (a) => isVisibleAgentPath(a.path),
-  );
-  const arts = [
-    ...pending.map(({ call_id: _c, ...a }) => a),
-    ...extracted,
-  ];
+  // Only files the run actually wrote (`artifact.file` / write-tool results).
+  // Paths mentioned in the summary are often drafts the model never saved
+  // (e.g. tank-battle-part2.html next to a real tank-battle.html).
+  const arts = pending.map(({ call_id: _c, ...a }) => a);
   if (!arts.length) {
     updates.pendingArtifacts = [];
     return;
@@ -675,6 +675,8 @@ export function createSessionStore(
   outputTokens: 0,
   contextLimit: 0,
   contextTokens: 0,
+  lastContentAt: null,
+  lastBeatAt: null,
   thinking: null,
   answerStreamByAgent: {},
 
@@ -795,6 +797,8 @@ export function createSessionStore(
       outputTokens: 0,
       contextLimit: 0,
       contextTokens: 0,
+      lastContentAt: null,
+      lastBeatAt: null,
       thinking: null,
       answerStreamByAgent: {},
     }),
@@ -815,6 +819,8 @@ export function createSessionStore(
         contextTokens: state.contextTokens,
         thinking: { subject: "开始分析任务", description: "", startedAtMs: Date.now() },
         answerStreamByAgent: {},
+        lastContentAt: Date.now(),
+        lastBeatAt: null,
         confirmQueue: [],
         settledConfirmIds: [],
         autoApprovingConfirmIds: [],
@@ -903,11 +909,25 @@ export function createSessionStore(
           contextTokens: state.contextTokens,
           thinking: { subject: "开始分析任务", description: "", startedAtMs: Date.now() },
           answerStreamByAgent: {},
+          lastContentAt: Date.now(),
+          lastBeatAt: null,
         };
       }
 
       const trace = [...state.trace, { id: nextId(), type: event.type, payload }];
       const updates: Partial<SessionState> = { trace };
+
+      if (event.type === "llm.heartbeat") {
+        updates.lastBeatAt = Date.now();
+      } else if (event.type === "step.delta") {
+        if (String(payload.delta ?? "")) updates.lastContentAt = Date.now();
+      } else if (
+        event.type === "tool.start" ||
+        event.type === "tool.result" ||
+        event.type === "llm.progress"
+      ) {
+        updates.lastContentAt = Date.now();
+      }
 
       if (event.type === "budget.update" || event.type === "budget.exhausted") {
         updates.budgetTokens = Number(payload.tokens ?? state.budgetTokens);
@@ -1032,6 +1052,9 @@ export function createSessionStore(
           };
           buf[agentId] = (buf[agentId] ?? "") + delta;
           updates.answerStreamByAgent = buf;
+          const currentBudget = Number(updates.budgetTokens ?? state.budgetTokens);
+          const est = estimateTokensFromText(Object.values(buf).join(""));
+          if (est > currentBudget) updates.budgetTokens = est;
           const visible = streamingAnswerFromRaw(buf[agentId]);
           if (visible) {
             updates.messages = replaceLastAssistantContent(
@@ -1047,6 +1070,8 @@ export function createSessionStore(
         updates.taskStartedAt = null;
         updates.taskElapsedMs = elapsed;
         updates.thinking = null;
+        updates.lastContentAt = null;
+        updates.lastBeatAt = null;
         const endSummary = String(payload.summary ?? "").trim();
         const msgs = updates.messages ?? state.messages;
         const card = resolveEndMessageText(endSummary);

@@ -18,6 +18,9 @@ from app.runtime.workspace_context import get_workspace_runtime
 from app.skills import find_skill
 
 _SKILL_CAP = 32_000
+_UNRELATED_SKIP = (
+    "coding, UI, generating files, scheduling, or small talk"
+)
 
 
 def _now_str() -> str:
@@ -58,6 +61,52 @@ def _env_placeholders() -> dict[str, str]:
         "transcript": "",
         "blob": "",
     }
+
+
+def normalize_knowledge_bases(raw: Any) -> list[dict[str, str]]:
+    """Keep {id,name,source} rows the composer sent; drop empty junk."""
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        kid = str(item.get("id") or item.get("knowledge_base_id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        source = str(item.get("source") or "ima").strip() or "ima"
+        if not kid and not name:
+            continue
+        key = kid or name
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"id": kid, "name": name or kid, "source": source})
+        if len(rows) >= 8:
+            break
+    return rows
+
+
+def format_bound_knowledge_block(raw: Any) -> str:
+    """System block: bound libraries are the default search corpus."""
+    rows = normalize_knowledge_bases(raw)
+    if not rows:
+        return ""
+    lines = [
+        "<bound_knowledge>",
+        "The user bound these knowledge bases in the composer. For this turn,",
+        "search them by default with ima_search_knowledge — do NOT wait for",
+        "「在知识库里搜」or similar wording. Skip ima_list_knowledge_bases;",
+        "use the knowledge_base_id below. Then ima_get_media_content and summarize.",
+        "Do not start with web_search when these libraries can answer.",
+        f"Skip only if the ask is clearly {_UNRELATED_SKIP}.",
+        "Cite library names and document titles; never read ids aloud.",
+    ]
+    for row in rows:
+        lines.append(
+            f"- source={row['source']} name={row['name']} "
+            f"knowledge_base_id={row['id']}"
+        )
+    lines.append("</bound_knowledge>")
+    return "\n".join(lines)
 
 
 def render_agent_prompt(name: str, **extra: str) -> str:
@@ -110,6 +159,7 @@ def assemble_system_messages(
     agent_prompt_name: str = "single_agent",
     assistant_id: str | None = None,
     enabled_skill_ids: list[str] | None = None,
+    knowledge_bases: list[dict[str, Any]] | None = None,
     long_term: Any = None,
     user_text: str = "",
     extra_placeholders: dict[str, str] | None = None,
@@ -126,6 +176,9 @@ def assemble_system_messages(
             )
         )
     ]
+    bound = format_bound_knowledge_block(knowledge_bases)
+    if bound:
+        messages.append(SystemMessage(content=bound))
     if assistant_id:
         from app.assistants import get_assistant
 
@@ -180,6 +233,7 @@ def assemble_messages(
     agent_prompt_name: str = "single_agent",
     assistant_id: str | None = None,
     enabled_skill_ids: list[str] | None = None,
+    knowledge_bases: list[dict[str, Any]] | None = None,
     long_term: Any = None,
     extra_placeholders: dict[str, str] | None = None,
     compact: Any | None = None,
@@ -189,6 +243,7 @@ def assemble_messages(
         agent_prompt_name=agent_prompt_name,
         assistant_id=assistant_id,
         enabled_skill_ids=enabled_skill_ids,
+        knowledge_bases=knowledge_bases,
         long_term=long_term,
         user_text=user_text,
         extra_placeholders=extra_placeholders,

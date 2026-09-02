@@ -25,9 +25,17 @@ export function resolveDark(appearance: Appearance): boolean {
   return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches === true;
 }
 
+export function readDocumentTheme(): "light" | "dark" {
+  if (typeof document === "undefined") return "light";
+  if (document.documentElement.classList.contains("dark")) return "dark";
+  const attr = document.documentElement.getAttribute("data-theme");
+  return attr === "dark" ? "dark" : "light";
+}
+
 export function applyDocumentAppearance(appearance: Appearance): void {
   const dark = resolveDark(appearance);
   document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 

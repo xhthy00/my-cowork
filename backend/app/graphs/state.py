@@ -42,6 +42,7 @@ class WorkforceState(TypedDict, total=False):
     user_text: str
     assistant_id: str
     enabled_skill_ids: list
+    knowledge_bases: list
     subtasks: Annotated[list, merge_subtasks]
     assigned_task_id: Annotated[str | None, _last_value]
     worker_brief: Annotated[str, _last_value]
