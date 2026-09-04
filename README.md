@@ -192,12 +192,14 @@ npm run test:e2e    # 需先 npm run build
 云端打包走 GitHub Actions（`.github/workflows/build.yml`），**不替代**本地 `package:win`：
 
 ```bash
-npm run package:ci              # 推当前分支并 workflow_dispatch，产物在 Actions Artifacts
+npm run package:ci              # 推当前分支，云端打包并发布 GitHub Release（用 package.json 版本）
 npm run package:ci -- --watch   # 同上，并等待跑完
 npm run package:ci -- --dry-run # 只预览，不推送
 ```
 
-发布 GitHub Release（electron-updater 用，需 tag `v*`）：
+安装包在对应 run 的 Artifacts，也会挂到 `v{version}` 的 GitHub Release（已有同名 Release 则更新资产）。push / PR 不会发 Release。
+
+用新版本号打 tag 发版：
 
 ```bash
 npm run release -- --dry-run    # 只预览，不推送

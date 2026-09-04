@@ -171,7 +171,8 @@ function dispatchCloudPackage(branch, watch) {
   console.log("");
   console.log(`CI dispatched on ${branch}`);
   console.log(`  runs: ${runInfo?.url || actionsUrl}`);
-  console.log("  artifacts: my-cowork-mac / my-cowork-win (no GitHub Release)");
+  console.log("  artifacts: my-cowork-mac / my-cowork-win");
+  console.log(`  release: https://github.com/${REPO}/releases (after the release job finishes)`);
   if (!watch) {
     console.log("  watch:  npm run package:ci -- --watch");
     printGhRuns();
@@ -243,7 +244,7 @@ function main() {
   if (args.dispatch) {
     console.log(`branch:  ${branch}`);
     console.log(`version: ${current}`);
-    console.log("mode:    workflow_dispatch (artifacts only)");
+    console.log("mode:    workflow_dispatch (package + GitHub Release)");
     if (args.dryRun) {
       const dirty = git(["status", "--porcelain"]);
       if (dirty) console.log("warning: working tree is dirty; a real run would refuse");

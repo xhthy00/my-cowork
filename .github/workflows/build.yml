@@ -152,10 +152,11 @@ jobs:
             release/*.blockmap
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     needs: [electron, electron-windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: my-cowork-mac
@@ -164,9 +165,20 @@ jobs:
         with:
           name: my-cowork-win
           path: dist-win
+      - name: Resolve release tag
+        id: rel
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+          ls -lh dist-mac dist-win
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             dist-mac/*.dmg
             dist-mac/*.zip
@@ -178,3 +190,4 @@ jobs:
             dist-win/*.blockmap
           fail_on_unmatched_files: true
           generate_release_notes: true
+          make_latest: true
