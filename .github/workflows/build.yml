@@ -53,11 +53,18 @@ jobs:
           name: smoke-windows
           path: build/pyinstaller/smoke-windows*.log
           if-no-files-found: ignore
+      - name: Archive backend
+        shell: bash
+        run: |
+          test -f dist/python_runtime/python.exe
+          tar -czf dist/python_runtime.tar.gz -C dist python_runtime
+          ls -lh dist/python_runtime.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: my-cowork-backend-windows
-          path: dist/python_runtime
+          path: dist/python_runtime.tar.gz
           if-no-files-found: error
+          compression-level: 0
 
   electron:
     needs: [python-macos]
@@ -111,7 +118,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: my-cowork-backend-windows
-          path: dist/python_runtime
+          path: dist
+      - name: Extract backend
+        shell: bash
+        run: |
+          tar -xzf dist/python_runtime.tar.gz -C dist
+          test -f dist/python_runtime/python.exe
+          ls -lh dist/python_runtime/python.exe
       - run: npm ci
       - name: Fetch OfficeCLI
         shell: bash
