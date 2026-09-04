@@ -192,10 +192,22 @@ function publishReleaseTag(current, next, branch, dryRun) {
     shell: WIN,
     windowsHide: true,
   });
-  if (localTag.status === 0) fail(`tag ${tag} already exists locally`);
+  if (localTag.status === 0) {
+    fail(
+      `tag ${tag} already exists locally.\n` +
+        `  same version, just upload packages: npm run package:ci\n` +
+        `  new version:                        npm run release -- --patch`,
+    );
+  }
 
   const remoteTag = git(["ls-remote", "--tags", "origin", `refs/tags/${tag}`]);
-  if (remoteTag) fail(`tag ${tag} already exists on origin`);
+  if (remoteTag) {
+    fail(
+      `tag ${tag} already exists on origin.\n` +
+        `  same version, just upload packages: npm run package:ci\n` +
+        `  new version:                        npm run release -- --patch`,
+    );
+  }
 
   console.log(`branch:  ${branch}`);
   console.log(`version: ${current}${next === current ? "" : ` -> ${next}`}`);
