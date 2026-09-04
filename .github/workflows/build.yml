@@ -54,11 +54,10 @@ jobs:
           path: build/pyinstaller/smoke-windows*.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: my-cowork-backend-windows
-          path: dist/my-cowork-backend.exe
-          if-no-files-found: warn
+          path: dist/python_runtime
+          if-no-files-found: error
 
   electron:
     needs: [python-macos]
@@ -112,7 +111,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: my-cowork-backend-windows
-          path: dist
+          path: dist/python_runtime
       - run: npm ci
       - name: Fetch OfficeCLI
         shell: bash
@@ -122,9 +121,9 @@ jobs:
       - name: Verify extraResources
         shell: bash
         run: |
-          test -f dist/my-cowork-backend.exe
+          test -f dist/python_runtime/python.exe
           test -f resources/bin/officecli.exe
-          ls -lh dist/my-cowork-backend.exe resources/bin/officecli.exe resources/prebuilt
+          ls -lh dist/python_runtime/python.exe resources/bin/officecli.exe resources/prebuilt
       - run: npm run build
       - name: Package Windows installer
         env:
