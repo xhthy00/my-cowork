@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,9 +16,12 @@ function resetStore() {
     whitelist: ["~/Desktop", "~/Documents", "~/Downloads"],
     apiKey: "",
     appearance: "system",
+    fontSize: 1,
   });
   document.documentElement.classList.remove("dark");
   document.documentElement.style.colorScheme = "light";
+  document.documentElement.style.removeProperty("--ui-font-scale");
+  document.documentElement.removeAttribute("data-font-size");
 }
 
 describe("Settings", () => {
@@ -57,7 +60,14 @@ describe("Settings", () => {
       startTunnel: vi.fn(),
       stopTunnel: vi.fn(),
       getTunnelUrl: vi.fn().mockResolvedValue(null),
+      getUpdaterStatus: vi.fn().mockResolvedValue({
+        state: "idle",
+        currentVersion: "0.0.4",
+      }),
       checkForUpdates: vi.fn(),
+      downloadUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      onUpdaterStatus: vi.fn().mockReturnValue(() => {}),
       getKeepAwake: vi.fn().mockResolvedValue({ enabled: false, supported: true }),
       setKeepAwake: vi.fn().mockResolvedValue({ ok: true, enabled: true }),
     };
@@ -171,6 +181,28 @@ describe("Settings", () => {
     expect(useSettingsStore.getState().appearance).toBe("system");
   });
 
+  it("changes system font size from the general tab and persists the choice", async () => {
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+
+    const slider = screen.getByRole("slider", { name: "字体大小" });
+    expect(slider).toHaveValue("1");
+    expect(screen.getByText("小")).toBeInTheDocument();
+    expect(screen.getByText("默认")).toBeInTheDocument();
+    expect(screen.getByText("大")).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: "4" } });
+
+    expect(useSettingsStore.getState().fontSize).toBe(4);
+    expect(document.documentElement.getAttribute("data-font-size")).toBe("4");
+    expect(document.documentElement.style.getPropertyValue("--ui-font-scale")).toBe("1.375");
+    expect(JSON.parse(window.localStorage.getItem("my-cowork-settings") || "{}")).toEqual(
+      expect.objectContaining({
+        state: expect.objectContaining({ fontSize: 4 }),
+      }),
+    );
+  });
+
   it("renders keep-awake on the general tab and toggles it", async () => {
     render(<Settings />);
     await userEvent.click(screen.getByRole("button", { name: "通用" }));
@@ -195,6 +227,79 @@ describe("Settings", () => {
     window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }));
 
     expect(await screen.findByLabelText("API 密钥")).toBeInTheDocument();
+  });
+
+  it("shows 下载 when an update is available", async () => {
+    let emitStatus: ((status: {
+      state: string;
+      currentVersion: string;
+      availableVersion?: string;
+      totalSize?: number;
+    }) => void) | undefined;
+    window.api.onUpdaterStatus = vi.fn((cb) => {
+      emitStatus = cb;
+      return () => {};
+    });
+
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    expect(await screen.findByRole("button", { name: "检查更新" })).toBeInTheDocument();
+    expect(await screen.findByText("当前版本 0.0.4")).toBeInTheDocument();
+
+    emitStatus?.({
+      state: "available",
+      currentVersion: "0.0.4",
+      availableVersion: "0.0.5",
+      totalSize: 120 * 1024 * 1024,
+    });
+    expect(await screen.findByRole("button", { name: "下载" })).toBeInTheDocument();
+    expect(screen.getByText(/发现新版本 0.0.5/)).toBeInTheDocument();
+  });
+
+  it("shows 下载中 while an update is downloading", async () => {
+    let emitStatus: ((status: {
+      state: string;
+      currentVersion: string;
+      percent?: number;
+    }) => void) | undefined;
+    window.api.onUpdaterStatus = vi.fn((cb) => {
+      emitStatus = cb;
+      return () => {};
+    });
+
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    expect(await screen.findByRole("button", { name: "检查更新" })).toBeInTheDocument();
+    emitStatus?.({ state: "downloading", currentVersion: "0.0.4", percent: 42 });
+    expect(await screen.findByRole("button", { name: "下载中" })).toBeInTheDocument();
+    expect(screen.getByText("正在下载 42%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载中" })).toBeDisabled();
+  });
+
+  it("shows 重启安装 when an update is ready", async () => {
+    let emitStatus: ((status: {
+      state: string;
+      currentVersion: string;
+      availableVersion?: string;
+    }) => void) | undefined;
+    window.api.onUpdaterStatus = vi.fn((cb) => {
+      emitStatus = cb;
+      return () => {};
+    });
+    window.api.installUpdate = vi.fn().mockResolvedValue({ ok: true });
+
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    expect(await screen.findByRole("button", { name: "检查更新" })).toBeInTheDocument();
+    emitStatus?.({
+      state: "downloaded",
+      currentVersion: "0.0.4",
+      availableVersion: "0.0.5",
+    });
+    const install = await screen.findByRole("button", { name: "重启安装" });
+    expect(screen.getByText("下载完成，重启后安装")).toBeInTheDocument();
+    await userEvent.click(install);
+    expect(window.api.installUpdate).toHaveBeenCalled();
   });
 
   it("shows 定时任务 in the settings nav", async () => {

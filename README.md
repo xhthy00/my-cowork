@@ -189,12 +189,39 @@ npm run test:e2e    # 需先 npm run build
 - macOS：`MyCowork-*.dmg`
 - Windows：`MyCowork Setup *.exe`（NSIS，未签名时 SmartScreen 可能提示）
 
-本地打包：
+云端打包走 GitHub Actions（`.github/workflows/build.yml`），**不替代**本地 `package:win`：
 
 ```bash
-npm run build:python:mac      # 或 Windows 上 npm run build:python:windows
+npm run package:ci              # 推当前分支并 workflow_dispatch，产物在 Actions Artifacts
+npm run package:ci -- --watch   # 同上，并等待跑完
+npm run package:ci -- --dry-run # 只预览，不推送
+```
+
+发布 GitHub Release（electron-updater 用，需 tag `v*`）：
+
+```bash
+npm run release -- --dry-run    # 只预览，不推送
+npm run release                 # 用当前 package.json 版本打 tag 并推送
+npm run release -- --patch      # 0.0.4 -> 0.0.5 后打 tag 并推送
+npm run release -- 0.0.5        # 指定版本
+```
+
+`package:ci` 需要已安装并登录 [GitHub CLI](https://cli.github.com/)（`gh auth login`）。`release` 只需能 `git push`。工作区必须干净。
+
+本地打包（Windows 推荐一键脚本）：
+
+```powershell
+npm run package:win          # 智能跳过已有 python_runtime / prebuilt / officecli，只重打前端+安装包
+npm run package:win:full     # 全量重建（Python + 终端环境 + 安装包，耗时长）
+# 或直接：powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+```
+
+macOS / 手动分步：
+
+```bash
+npm run build:python:mac
 bash scripts/build-electron.sh --mac
-# Windows：npx electron-builder --config build/electron-builder.yml --win
+# Windows 分步：npm run build:python:windows && npx electron-builder --config build/electron-builder.yml --win
 ```
 
 macOS Gatekeeper 若拦截：系统设置 → 隐私与安全性 → 仍要打开，或：

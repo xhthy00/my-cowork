@@ -68,8 +68,26 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("cdp:pool-changed", handler);
     return () => ipcRenderer.removeListener("cdp:pool-changed", handler);
   },
-  checkForUpdates: (): Promise<{ ok: boolean; message: string }> =>
-    ipcRenderer.invoke("updater:check"),
+  onBackendReady: (cb: (url: string) => void): (() => void) => {
+    const handler = (_: unknown, url: string) => cb(url);
+    ipcRenderer.on("backend:ready", handler);
+    return () => ipcRenderer.removeListener("backend:ready", handler);
+  },
+  onBackendFailed: (cb: (message: string) => void): (() => void) => {
+    const handler = (_: unknown, message: string) => cb(message);
+    ipcRenderer.on("backend:failed", handler);
+    return () => ipcRenderer.removeListener("backend:failed", handler);
+  },
+  getUpdaterStatus: (): Promise<unknown> => ipcRenderer.invoke("updater:status"),
+  checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke("updater:check"),
+  downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke("updater:download"),
+  installUpdate: (): Promise<{ ok: boolean; message?: string }> =>
+    ipcRenderer.invoke("updater:install"),
+  onUpdaterStatus: (cb: (status: unknown) => void): (() => void) => {
+    const handler = (_: unknown, status: unknown) => cb(status);
+    ipcRenderer.on("updater:status", handler);
+    return () => ipcRenderer.removeListener("updater:status", handler);
+  },
   getKeepAwake: (): Promise<{ enabled: boolean; supported: boolean }> =>
     ipcRenderer.invoke("keepAwake:get"),
   setKeepAwake: (input: { enabled: boolean }): Promise<{

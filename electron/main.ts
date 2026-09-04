@@ -38,7 +38,13 @@ import { startPdfServer, type PdfServer } from "./pdf_server";
 import { start, stop as stopPythonBackend } from "./python_runner";
 import { getPackageVersion, prepareTerminalPython } from "./terminal_venv";
 import { startTunnel, type TunnelHandle } from "./tunnel";
-import { checkForUpdates, initUpdater } from "./updater";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  getUpdaterStatus,
+  initUpdater,
+  installUpdate,
+} from "./updater";
 import {
   fileToDataUrl,
   openPreviewFile,
@@ -51,6 +57,7 @@ let backendUrl = "";
 let backendProc: ChildProcess | null = null;
 let pdfServer: PdfServer | null = null;
 let tunnel: TunnelHandle | null = null;
+let keepAwakeReleased = false;
 
 const isDev = !app.isPackaged;
 const isE2E = process.env.MY_COWORK_E2E === "1";
@@ -78,7 +85,17 @@ if (isE2E) {
 
 // ── backend lifecycle ────────────────────────────────────────────────────────
 
+let startInFlight: Promise<string> | null = null;
+
 async function startBackend(): Promise<string> {
+  if (startInFlight) return startInFlight;
+  startInFlight = startBackendOnce().finally(() => {
+    startInFlight = null;
+  });
+  return startInFlight;
+}
+
+async function startBackendOnce(): Promise<string> {
   if (backendProc) {
     stopPythonBackend(backendProc);
     backendProc = null;
@@ -128,6 +145,8 @@ async function startBackend(): Promise<string> {
 
   const appVersion = getPackageVersion();
   env.MY_COWORK_APP_VERSION = appVersion;
+  // Do not wait for the (first-launch) venv copy — it can take minutes and
+  // used to block the window. Backend falls back if python.exe is not ready yet.
   const terminalBase = prepareTerminalPython(appVersion);
   if (terminalBase) {
     env.MY_COWORK_TERMINAL_BASE = terminalBase;
@@ -138,14 +157,29 @@ async function startBackend(): Promise<string> {
   }
 
   const info = await start({
-    cwd: path.join(__dirname, "..", "backend"),
+    cwd: isDev
+      ? path.join(__dirname, "..", "backend")
+      : process.resourcesPath,
     dev: isDev,
     env,
-    healthTimeoutMs: isE2E ? 60_000 : undefined,
+    healthTimeoutMs: isE2E ? 60_000 : isDev ? undefined : 90_000,
   });
   backendUrl = info.url;
   backendProc = info.process;
+  notifyBackendReady();
   return backendUrl;
+}
+
+function notifyBackendReady(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("backend:ready", backendUrl);
+  }
+}
+
+function notifyBackendFailed(message: string): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("backend:failed", message);
+  }
 }
 
 async function applyModelAndRestart(): Promise<string> {
@@ -442,7 +476,25 @@ ipcMain.handle("cdp:list", () => getCdpBrowsers());
 ipcMain.handle("cdp:launch", () => launchCdpBrowser());
 ipcMain.handle("cdp:connect", (_e, port: number) => connectCdpBrowser(port));
 ipcMain.handle("cdp:remove", (_e, id: string) => removeCdpBrowser(id));
+ipcMain.handle("updater:status", () => getUpdaterStatus());
 ipcMain.handle("updater:check", () => checkForUpdates());
+ipcMain.handle("updater:download", () => downloadUpdate());
+ipcMain.handle("updater:install", async () => {
+  if (getUpdaterStatus().state !== "downloaded") {
+    return { ok: false, message: "no update downloaded" };
+  }
+  if (backendProc) {
+    stopPythonBackend(backendProc);
+    backendProc = null;
+  }
+  keepAwakeReleased = true;
+  try {
+    await releaseKeepAwake();
+  } catch (err) {
+    console.error("Failed to release keep-awake before update:", err);
+  }
+  return installUpdate();
+});
 
 ipcMain.handle("keepAwake:get", () => getKeepAwakeState());
 ipcMain.handle(
@@ -471,12 +523,17 @@ async function createWindow() {
   const ww = Math.min(1440, Math.floor(sw * 0.9));
   const wh = Math.min(900, Math.floor(sh * 0.9));
 
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, "icon.ico")
+    : path.join(__dirname, "..", "build", "icon.ico");
   const win = new BrowserWindow({
     width: ww,
     height: wh,
     title: "MyCowork",
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     titleBarStyle: "hiddenInset",
     backgroundColor: "#f6f7ff",
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -484,8 +541,12 @@ async function createWindow() {
       webviewTag: true,
     },
   });
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) win.show();
+  });
 
   await loadRenderer(win);
+  if (!win.isDestroyed() && !win.isVisible()) win.show();
 }
 
 // ── startup ──────────────────────────────────────────────────────────────────
@@ -552,26 +613,26 @@ app.whenReady().then(async () => {
     console.error("Failed to restore keep-awake:", err);
   }
 
+  const windowReady = createWindow();
   try {
     pdfServer = await startPdfServer();
   } catch (err) {
     console.error("Failed to start PDF server:", err);
     pdfServer = null;
   }
+  await windowReady;
 
+  const bootBackend = () =>
+    startBackend().catch((err) => {
+      console.error("Failed to start backend:", err);
+      backendUrl = "";
+      notifyBackendFailed(err instanceof Error ? err.message : String(err));
+    });
+  // Packaged Python can take tens of seconds (PyInstaller + health). Show UI first.
   if (isE2E) {
-    await createWindow();
-  }
-
-  try {
-    await startBackend();
-  } catch (err) {
-    console.error("Failed to start backend:", err);
-    backendUrl = "";
-  }
-
-  if (!isE2E) {
-    await createWindow();
+    await bootBackend();
+  } else {
+    void bootBackend();
   }
 
   initUpdater();
@@ -581,8 +642,6 @@ app.whenReady().then(async () => {
     }
   });
 });
-
-let keepAwakeReleased = false;
 
 app.on("before-quit", (event) => {
   if (keepAwakeReleased) return;

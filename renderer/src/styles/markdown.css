@@ -15,7 +15,7 @@
   min-width: 0;
   max-width: 100%;
   color: var(--aion-text-primary);
-  font-size: 15.5px;
+  font-size: calc(15.5px * var(--ui-font-scale, 1));
   line-height: 1.75;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -116,13 +116,13 @@
 }
 
 .aion-md h1 {
-  font-size: 1.4rem;
+  font-size: calc(1.4rem * var(--ui-font-scale, 1));
   font-weight: 700;
   margin: 0 0 0.9em;
 }
 
 .aion-md h2 {
-  font-size: 1.18rem;
+  font-size: calc(1.18rem * var(--ui-font-scale, 1));
   font-weight: 700;
   margin: 1.5em 0 0.7em;
   padding-bottom: 0.4em;
@@ -130,7 +130,7 @@
 }
 
 .aion-md h3 {
-  font-size: 1.05rem;
+  font-size: calc(1.05rem * var(--ui-font-scale, 1));
   font-weight: 650;
   margin: 1.35em 0 0.45em;
   letter-spacing: -0.015em;
@@ -140,7 +140,7 @@
 .aion-md h4,
 .aion-md h5,
 .aion-md h6 {
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--ui-font-scale, 1));
   margin: 1em 0 0.4em;
 }
 
@@ -151,7 +151,7 @@
 }
 
 .aion-md code span {
-  font-size: var(--code-font-size, 13px);
+  font-size: calc(var(--code-font-size, 13px) * var(--ui-font-scale, 1));
   line-height: 20px;
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
@@ -258,7 +258,7 @@
   border-radius: 0 10px 10px 0;
   background: var(--ds-bg-callout-note, var(--aion-bg-1));
   color: var(--aion-text-secondary);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
   line-height: 1.65;
 }
 
@@ -360,14 +360,14 @@
 
 .aion-md th {
   background: var(--aion-bg-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   font-weight: 650;
   color: var(--aion-text-secondary);
   letter-spacing: 0.02em;
 }
 
 .aion-md td {
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale, 1));
   min-width: 88px;
   line-height: 1.55;
 }

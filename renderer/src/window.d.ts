@@ -39,6 +39,24 @@ export interface CdpBrowserInfo {
   addedAt?: number;
 }
 
+export type UpdaterState =
+  | "idle"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdaterStatus {
+  state: UpdaterState;
+  currentVersion: string;
+  availableVersion?: string;
+  percent?: number;
+  totalSize?: number;
+  message?: string;
+}
+
 export interface ElectronAPI {
   getBackendUrl(): Promise<string>;
   restartBackend(): Promise<string>;
@@ -102,7 +120,13 @@ export interface ElectronAPI {
   connectCdpBrowser?(port: number): Promise<{ success?: boolean; error?: string }>;
   removeCdpBrowser?(id: string): Promise<{ success: boolean; error?: string }>;
   onCdpPoolChanged?(cb: (browsers: CdpBrowserInfo[]) => void): () => void;
-  checkForUpdates?(): Promise<{ ok: boolean; message: string }>;
+  onBackendReady?(cb: (url: string) => void): () => void;
+  onBackendFailed?(cb: (message: string) => void): () => void;
+  getUpdaterStatus?(): Promise<UpdaterStatus>;
+  checkForUpdates?(): Promise<UpdaterStatus>;
+  downloadUpdate?(): Promise<UpdaterStatus>;
+  installUpdate?(): Promise<{ ok: boolean; message?: string }>;
+  onUpdaterStatus?(cb: (status: UpdaterStatus) => void): () => void;
   getKeepAwake?(): Promise<{ enabled: boolean; supported: boolean }>;
   setKeepAwake?(input: { enabled: boolean }): Promise<{
     ok: boolean;

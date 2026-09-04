@@ -96,6 +96,8 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/latest-mac.yml
+            release/*.blockmap
 
   electron-windows:
     needs: [python-windows]
@@ -135,6 +137,7 @@ jobs:
             release/*.exe
             release/*.zip
             release/*.yml
+            release/*.blockmap
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -155,7 +158,11 @@ jobs:
           files: |
             dist-mac/*.dmg
             dist-mac/*.zip
+            dist-mac/*.yml
+            dist-mac/*.blockmap
             dist-win/*.exe
             dist-win/*.zip
+            dist-win/*.yml
+            dist-win/*.blockmap
           fail_on_unmatched_files: true
           generate_release_notes: true

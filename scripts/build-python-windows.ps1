@@ -4,13 +4,15 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location "$Root\backend"
 uv sync
 uv run pyinstaller "$Root\build\pyinstaller\windows.spec" --distpath "$Root\dist" --workpath "$Root\build\pyinstaller\work-windows" -y
-$Bin = "$Root\dist\my-cowork-backend.exe"
+$Bin = "$Root\dist\python_runtime\python.exe"
 if (-not (Test-Path $Bin)) {
   Write-Host "binary missing: $Bin"
   Get-ChildItem "$Root\dist" -ErrorAction SilentlyContinue
   exit 1
 }
 Get-Item $Bin | Format-List FullName, Length
+$Dir = "$Root\dist\python_runtime"
+Write-Host "python_runtime size: $([math]::Round((Get-ChildItem $Dir -Recurse -File | Measure-Object -Property Length -Sum).Sum/1MB,1)) MB"
 New-Item -ItemType Directory -Force -Path "$Root\dist\win-python" | Out-Null
 $env:MY_COWORK_API_KEY = if ($env:MY_COWORK_API_KEY) { $env:MY_COWORK_API_KEY } else { "smoke-test-key" }
 $env:MY_COWORK_ENABLE_SCHEDULER = "0"

@@ -156,6 +156,7 @@ describe("ChatBar", () => {
 
   it("shows a visible error when backend is not connected", async () => {
     window.api.getBackendUrl = vi.fn().mockResolvedValue("");
+    window.api.restartBackend = vi.fn().mockResolvedValue("");
     const onEvent = vi.fn();
     render(<ChatBar onEvent={onEvent} />);
 
@@ -174,6 +175,22 @@ describe("ChatBar", () => {
       );
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(window.api.restartBackend).toHaveBeenCalled();
+  });
+
+  it("starts the backend on send when it is not yet connected", async () => {
+    window.api.getBackendUrl = vi.fn().mockResolvedValue("");
+    window.api.restartBackend = vi.fn().mockResolvedValue(BACKEND_URL);
+    render(<ChatBar onEvent={vi.fn()} />);
+    await userEvent.type(screen.getByRole("textbox"), "写 hello.txt");
+    await userEvent.click(screen.getByTitle("发送"));
+    await waitFor(() => {
+      expect(window.api.restartBackend).toHaveBeenCalled();
+    });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      `${BACKEND_URL}/api/chat`,
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("shows a compact session-mode label in the composer footer", () => {

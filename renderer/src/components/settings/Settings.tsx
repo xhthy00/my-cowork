@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { Appearance } from "../../lib/appearance";
+import { isFontSizeLevel, type FontSizeLevel } from "../../lib/fontSize";
 import { useSettingsStore } from "../../store/settings";
+import type { UpdaterStatus } from "@/window";
 import ModelsPanel from "./ModelsPanel";
 import ChannelsPanel from "./channels/ChannelsPanel";
 import SearchPanel from "./SearchPanel";
@@ -27,6 +29,55 @@ const APPEARANCE_OPTIONS: { id: Appearance; label: string }[] = [
   { id: "dark", label: "深色" },
   { id: "system", label: "跟随系统" },
 ];
+
+const FONT_SIZE_VALUE_TEXT: Record<FontSizeLevel, string> = {
+  0: "小",
+  1: "默认",
+  2: "偏大",
+  3: "较大",
+  4: "大",
+};
+
+const IDLE_UPDATER: UpdaterStatus = { state: "idle", currentVersion: "" };
+
+function formatBytes(n?: number): string | undefined {
+  if (!n || n <= 0) return undefined;
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function updaterDetail(status: UpdaterStatus): string {
+  if (status.message === "dev-skip") return "开发模式不检查更新";
+  switch (status.state) {
+    case "checking":
+      return "正在检查更新…";
+    case "available": {
+      const size = formatBytes(status.totalSize);
+      const version = status.availableVersion || "";
+      return size ? `发现新版本 ${version}（约 ${size}）` : `发现新版本 ${version}`.trim();
+    }
+    case "not-available":
+      return "已是最新版本";
+    case "downloading":
+      return `正在下载 ${Math.round(status.percent ?? 0)}%`;
+    case "downloaded":
+      return "下载完成，重启后安装";
+    case "error":
+      return status.message ? `更新失败：${status.message}` : "更新失败";
+    default:
+      return status.currentVersion
+        ? `当前版本 ${status.currentVersion}`
+        : "检查并安装最新版本。";
+  }
+}
+
+function updaterActionLabel(state: UpdaterStatus["state"]): string {
+  if (state === "available") return "下载";
+  if (state === "downloading") return "下载中";
+  if (state === "downloaded") return "重启安装";
+  if (state === "checking") return "检查中";
+  return "检查更新";
+}
 
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -56,10 +107,12 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
   const setWhitelist = useSettingsStore((s) => s.setWhitelist);
   const appearance = useSettingsStore((s) => s.appearance);
   const setAppearance = useSettingsStore((s) => s.setAppearance);
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const setFontSize = useSettingsStore((s) => s.setFontSize);
 
   const [draftPaths, setDraftPaths] = useState<string[]>(whitelist);
   const [newPath, setNewPath] = useState("");
-  const [status, setStatus] = useState("");
+  const [updater, setUpdater] = useState<UpdaterStatus>(IDLE_UPDATER);
   const [keepAwake, setKeepAwake] = useState(false);
   const [keepAwakeSupported, setKeepAwakeSupported] = useState(true);
   const [keepAwakeError, setKeepAwakeError] = useState("");
@@ -72,6 +125,13 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
       setKeepAwake(state.enabled);
       setKeepAwakeSupported(state.supported);
     })();
+  }, []);
+
+  useEffect(() => {
+    void window.api.getUpdaterStatus?.().then((s) => {
+      if (s) setUpdater(s);
+    });
+    return window.api.onUpdaterStatus?.((s) => setUpdater(s));
   }, []);
 
   useEffect(() => {
@@ -135,6 +195,20 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  async function onUpdaterAction() {
+    if (updater.state === "available") {
+      const next = await window.api.downloadUpdate?.();
+      if (next) setUpdater(next);
+      return;
+    }
+    if (updater.state === "downloaded") {
+      await window.api.installUpdate?.();
+      return;
+    }
+    const next = await window.api.checkForUpdates?.();
+    if (next) setUpdater(next);
+  }
+
   return (
     <div
       className={embedded ? "settings-embedded" : "w-full"}
@@ -161,6 +235,46 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
             {!embedded && tab === "general" && (
               <SettingsSection title="通用">
                 <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
+                  <SettingsCard className="sm:col-span-2">
+                    <div className="flex items-center justify-between gap-6 px-5 py-4">
+                      <label
+                        htmlFor="font-size-slider"
+                        className="text-body-base shrink-0 font-bold text-ds-text-neutral-default-default"
+                      >
+                        字体大小
+                      </label>
+                      <div className="font-size-slider">
+                        <div className="font-size-slider-track">
+                          <div className="font-size-slider-ticks" aria-hidden="true">
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                          </div>
+                          <input
+                            id="font-size-slider"
+                            type="range"
+                            min={0}
+                            max={4}
+                            step={1}
+                            value={fontSize}
+                            aria-label="字体大小"
+                            aria-valuetext={FONT_SIZE_VALUE_TEXT[fontSize]}
+                            onChange={(e) => {
+                              const next = Number(e.target.value);
+                              if (isFontSizeLevel(next)) setFontSize(next);
+                            }}
+                          />
+                        </div>
+                        <div className="font-size-slider-labels" aria-hidden="true">
+                          <span className="tick-0">小</span>
+                          <span className="tick-1">默认</span>
+                          <span className="tick-4">大</span>
+                        </div>
+                      </div>
+                    </div>
+                  </SettingsCard>
                   <SettingsCard>
                     <div className="flex h-full items-start justify-between gap-4 px-5 py-4">
                       <div className="min-w-0">
@@ -196,23 +310,24 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
                           应用更新
                         </div>
                         <p className="mt-1 text-body-sm text-ds-text-neutral-muted-default">
-                          检查并安装最新版本。
+                          {updaterDetail(updater)}
                         </p>
-                        {status ? (
-                          <p className="mt-2 text-body-sm text-ds-text-neutral-muted-default">{status}</p>
+                        {updater.currentVersion && updater.state !== "idle" ? (
+                          <p className="mt-2 text-body-sm text-ds-text-neutral-muted-default">
+                            当前版本 {updater.currentVersion}
+                          </p>
                         ) : null}
                       </div>
                       <Button
                         type="button"
                         size="sm"
                         className="mt-0.5 shrink-0"
-                        onClick={async () => {
-                          if (!window.api?.checkForUpdates) return;
-                          const r = await window.api.checkForUpdates();
-                          setStatus(r.message);
-                        }}
+                        disabled={
+                          updater.state === "checking" || updater.state === "downloading"
+                        }
+                        onClick={() => void onUpdaterAction()}
                       >
-                        检查更新
+                        {updaterActionLabel(updater.state)}
                       </Button>
                     </div>
                   </SettingsCard>

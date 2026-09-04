@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import ChatView from "./components/ChatView";
 import PreviewPanel from "./components/preview/PreviewPanel";
@@ -7,6 +7,7 @@ import WorkspaceSessionLayout from "./components/workspace/WorkspaceSessionLayou
 import WorkspaceShell from "./components/workspace/WorkspaceShell";
 import HubView from "./components/hub/HubView";
 import ProjectSidebar from "./components/shell/ProjectSidebar";
+import StartupSplash from "./components/StartupSplash";
 import TopBar from "./components/shell/TopBar";
 import TitleBar from "./components/TitleBar";
 import { usePageTabStore } from "./store/pageTab";
@@ -24,6 +25,17 @@ export default function App() {
   const workspaceView = usePageTabStore((s) => s.workspaceView);
   const activeId = useSessionsStore((s) => s.activeId);
   const messageCount = useSessionStore((s) => s.messages.length);
+  const [backendReady, setBackendReady] = useState(false);
+
+  useEffect(() => {
+    // Already up (restart / fast boot)? Skip splash.
+    void window.api.getBackendUrl().then((url) => {
+      if (url) setBackendReady(true);
+    });
+    const offReady =
+      window.api.onBackendReady?.(() => setBackendReady(true)) ?? (() => {});
+    return offReady;
+  }, []);
 
   useEffect(() => {
     ensureActiveSession();
@@ -62,6 +74,7 @@ export default function App() {
 
   return (
     <div className="window font-sans bg-ds-bg-neutral-muted-default">
+      {!backendReady && <StartupSplash />}
       <TitleBar />
       <TopBar />
       <div className="body">

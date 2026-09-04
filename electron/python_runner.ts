@@ -26,28 +26,41 @@ const DEFAULT_HEALTH_TIMEOUT_MS = 15_000;
 
 // ── runner ───────────────────────────────────────────────────────────────────
 
-function resolvePackagedBackend(): { cmd: string; args: string[]; cwd?: string } {
-  const winRuntime = path.join(process.resourcesPath, "python_runtime", "python.exe");
-  if (process.platform === "win32" && existsSync(winRuntime)) {
+function resolvePackagedBackend(): { cmd: string; args: string[]; cwd: string } {
+  // One-dir build (preferred): resources/python_runtime/python.exe.
+  // Skips per-launch temp extraction of one-file; cold start ~1-3s vs 10-30s.
+  const onedirExe = path.join(process.resourcesPath, "python_runtime", "python.exe");
+  if (process.platform === "win32" && existsSync(onedirExe)) {
     return {
-      cmd: winRuntime,
-      args: ["-m", "app.main", "--port", "0"],
-      cwd: path.dirname(winRuntime),
+      cmd: onedirExe,
+      args: ["--port", "0"],
+      cwd: path.dirname(onedirExe),
     };
   }
+  const cmd = path.join(
+    process.resourcesPath,
+    process.platform === "win32" ? "python_bin.exe" : "python_bin",
+  );
   return {
-    cmd: path.join(
-      process.resourcesPath,
-      process.platform === "win32" ? "python_bin.exe" : "python_bin",
-    ),
+    cmd,
     args: ["--port", "0"],
+    // Packaged extraResources live next to the exe. Do not use repo
+    // `backend/` — that path is inside app.asar and spawn() ENOENTs on Windows.
+    cwd: path.dirname(cmd),
   };
+}
+
+function spawnCwd(preferred: string | undefined, fallback: string): string {
+  if (preferred && existsSync(preferred)) return preferred;
+  if (existsSync(fallback)) return fallback;
+  return process.cwd();
 }
 
 export function start(options: RunnerOptions): Promise<BackendInfo> {
   const env = { ...process.env, ...options.env };
   env.PYTHONUTF8 = env.PYTHONUTF8 || "1";
   env.PYTHONIOENCODING = env.PYTHONIOENCODING || "utf-8";
+  env.PYTHONUNBUFFERED = env.PYTHONUNBUFFERED || "1";
   const appModule = env.MY_COWORK_UVICORN_APP || "app.main:app";
   const packaged = options.dev ? null : resolvePackagedBackend();
   const cmd = options.dev ? "uv" : packaged!.cmd;
@@ -55,8 +68,12 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
     ? ["run", "uvicorn", appModule, "--port", "0"]
     : packaged!.args;
 
+  if (packaged && !existsSync(packaged.cmd)) {
+    return Promise.reject(new Error(`Packaged backend not found: ${packaged.cmd}`));
+  }
+
   const proc = spawn(cmd, args, {
-    cwd: packaged?.cwd || options.cwd,
+    cwd: packaged ? spawnCwd(packaged.cwd, process.cwd()) : options.cwd,
     env,
     windowsHide: true,
   });

@@ -40,10 +40,15 @@ function copyDirRecursiveSync(src, dest) {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
+    if (entry.isSymbolicLink()) {
+      // Windows often cannot create symlinks without admin; packaged apps
+      // also prefer a real copy so extraResources stay portable.
+      const target = fs.realpathSync(s);
+      const st = fs.statSync(target);
+      if (st.isDirectory()) copyDirRecursiveSync(target, d);
+      else fs.copyFileSync(target, d);
+    } else if (entry.isDirectory()) {
       copyDirRecursiveSync(s, d);
-    } else if (entry.isSymbolicLink()) {
-      fs.symlinkSync(fs.readlinkSync(s), d);
     } else {
       fs.copyFileSync(s, d);
     }

@@ -232,66 +232,86 @@ function findUv(): string | null {
   }
 }
 
-/**
- * Packaged: copy Resources/prebuilt/terminal_venv → ~/.my-cowork/venvs/terminal_base-{version}.
- */
-export function ensureTerminalVenvAtUserPath(version: string): void {
-  if (!app.isPackaged) return;
+function isTerminalVenvReady(version: string): boolean {
+  const userTerminalVenv = getUserTerminalBasePath(version);
+  const marker = path.join(userTerminalVenv, ".packages_installed");
+  if (!fs.existsSync(marker) || !fs.existsSync(getVenvPythonPath(userTerminalVenv))) {
+    return false;
+  }
+  const versionFile = path.join(getVenvsBaseDir(), TERMINAL_VENV_VERSION_FILE);
+  const stored = fs.existsSync(versionFile)
+    ? fs.readFileSync(versionFile, "utf-8").trim()
+    : null;
+  return stored === version;
+}
 
-  const prebuiltTerminalVenv = getPrebuiltTerminalVenvSrc();
+function ensureUvPythonLink(): void {
   const prebuiltUvPython = getPrebuiltPythonDir();
+  const userUvPython = path.join(getAppHome(), "uv_python");
+  if (fs.existsSync(userUvPython) || !prebuiltUvPython) return;
+  try {
+    fs.mkdirSync(path.dirname(userUvPython), { recursive: true });
+    fs.symlinkSync(prebuiltUvPython, userUvPython);
+    log(`Created uv_python symlink: ${userUvPython}`);
+  } catch (e) {
+    warn(`Failed to create uv_python symlink: ${e}`);
+  }
+}
+
+let terminalVenvCopy: Promise<void> | null = null;
+
+async function copyPrebuiltTerminalVenv(version: string): Promise<void> {
+  const prebuiltTerminalVenv = getPrebuiltTerminalVenvSrc();
   if (!prebuiltTerminalVenv) return;
 
   const userVenvsDir = getVenvsBaseDir();
   const userTerminalVenv = getUserTerminalBasePath(version);
-  const userVenvMarker = path.join(userTerminalVenv, ".packages_installed");
   const versionFile = path.join(userVenvsDir, TERMINAL_VENV_VERSION_FILE);
 
-  const userUvPython = path.join(getAppHome(), "uv_python");
-  if (!fs.existsSync(userUvPython) && prebuiltUvPython) {
-    try {
-      fs.mkdirSync(path.dirname(userUvPython), { recursive: true });
-      fs.symlinkSync(prebuiltUvPython, userUvPython);
-      log(`Created uv_python symlink: ${userUvPython}`);
-    } catch (e) {
-      warn(`Failed to create uv_python symlink: ${e}`);
-    }
-  }
-
-  if (fs.existsSync(userVenvMarker)) {
-    const stored = fs.existsSync(versionFile)
-      ? fs.readFileSync(versionFile, "utf-8").trim()
-      : null;
-    if (stored === version) {
-      log(`Terminal venv already at ${userTerminalVenv} (v${version})`);
-      return;
-    }
-  }
-
   log(`Copying prebuilt terminal venv to ${userTerminalVenv}...`);
-  try {
-    fs.mkdirSync(userVenvsDir, { recursive: true });
-    if (fs.existsSync(userTerminalVenv)) {
-      fs.rmSync(userTerminalVenv, { recursive: true, force: true });
+  fs.mkdirSync(userVenvsDir, { recursive: true });
+  if (fs.existsSync(userTerminalVenv)) {
+    fs.rmSync(userTerminalVenv, { recursive: true, force: true });
+  }
+  await fs.promises.cp(prebuiltTerminalVenv, userTerminalVenv, {
+    recursive: true,
+    verbatimSymlinks: true,
+  });
+  fixPyvenvCfgPlaceholder(path.join(userTerminalVenv, "pyvenv.cfg"));
+  fixVenvScriptShebangs(userTerminalVenv);
+  ensureVenvPythonSymlink(userTerminalVenv);
+  if (process.platform === "darwin") {
+    try {
+      execSync(`xattr -cr "${userTerminalVenv}"`, { stdio: "ignore" });
+    } catch {
+      /* ignore */
     }
-    fs.cpSync(prebuiltTerminalVenv, userTerminalVenv, {
-      recursive: true,
-      verbatimSymlinks: true,
-    });
-    fixPyvenvCfgPlaceholder(path.join(userTerminalVenv, "pyvenv.cfg"));
-    fixVenvScriptShebangs(userTerminalVenv);
-    ensureVenvPythonSymlink(userTerminalVenv);
-    if (process.platform === "darwin") {
-      try {
-        execSync(`xattr -cr "${userTerminalVenv}"`, { stdio: "ignore" });
-      } catch {
-        /* ignore */
-      }
-    }
-    fs.writeFileSync(versionFile, version, "utf-8");
-    log("Terminal venv copied successfully");
-  } catch (error) {
-    warn(`Failed to copy terminal venv: ${error}`);
+  }
+  fs.writeFileSync(versionFile, version, "utf-8");
+  log("Terminal venv copied successfully");
+}
+
+/**
+ * Packaged: copy Resources/prebuilt/terminal_venv → ~/.my-cowork/venvs/terminal_base-{version}.
+ * First-launch copy is async so it cannot freeze the window / delay backend spawn.
+ */
+export function ensureTerminalVenvAtUserPath(version: string): void {
+  if (!app.isPackaged) return;
+  if (!getPrebuiltTerminalVenvSrc()) return;
+
+  ensureUvPythonLink();
+  if (isTerminalVenvReady(version)) {
+    log(`Terminal venv already at ${getUserTerminalBasePath(version)} (v${version})`);
+    return;
+  }
+  if (!terminalVenvCopy) {
+    terminalVenvCopy = copyPrebuiltTerminalVenv(version)
+      .catch((error) => {
+        warn(`Failed to copy terminal venv: ${error}`);
+      })
+      .finally(() => {
+        terminalVenvCopy = null;
+      });
   }
 }
 
@@ -397,7 +417,7 @@ export function getPackageVersion(): string {
   try {
     return app.getVersion();
   } catch {
-    return "0.0.3";
+    return "0.0.4";
   }
 }
 
@@ -442,7 +462,5 @@ export function prepareTerminalPython(version: string): string | null {
   void cleanupOldVenvs(version);
 
   const base = getUserTerminalBasePath(version);
-  const py = getVenvPythonPath(base);
-  if (fs.existsSync(py)) return base;
-  return null;
+  return base;
 }

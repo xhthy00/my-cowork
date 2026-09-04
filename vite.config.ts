@@ -6,6 +6,7 @@ export default defineConfig({
   root: path.resolve(__dirname, "renderer"),
   base: "./",
   plugins: [react()],
+  assetsInclude: ["**/*.mp4"],
   build: {
     outDir: "../dist-renderer",
     emptyOutDir: true,

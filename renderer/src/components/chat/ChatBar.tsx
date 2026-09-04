@@ -315,7 +315,24 @@ export default function ChatBar({
     onSend?.(text);
 
     try {
-      const backendUrl = await window.api.getBackendUrl();
+      let backendUrl = (await window.api.getBackendUrl())?.trim() || "";
+      if (!backendUrl && window.api.restartBackend) {
+        try {
+          backendUrl = (await window.api.restartBackend())?.trim() || "";
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          onEvent(
+            {
+              type: "step.delta",
+              payload: {
+                delta: `后端启动失败：${detail}`,
+              },
+            },
+            streamProjectId,
+          );
+          return;
+        }
+      }
       if (!backendUrl) {
         onEvent(
           {

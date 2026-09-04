@@ -1,5 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Windows one-file backend."""
+"""PyInstaller spec for Windows one-dir backend.
+
+Outputs ``dist/python_runtime/python.exe`` plus sibling DLLs/packages.
+One-dir avoids the per-launch temp extraction of one-file (10-30s on Windows),
+so cold start drops to ~1-3s. ``python_runner.ts`` already prefers this path:
+``resources/python_runtime/python.exe``.
+"""
 
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_all
 
@@ -63,11 +69,9 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
-    name="my-cowork-backend",
+    exclude_binaries=True,
+    name="python",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -80,4 +84,15 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="python_runtime",
 )

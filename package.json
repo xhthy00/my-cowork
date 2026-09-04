@@ -1,9 +1,13 @@
 {
   "name": "my-cowork",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Desktop office automation agent",
   "author": "MyCowork",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xhthy00/my-cowork.git"
+  },
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node scripts/dev.js",
@@ -13,6 +17,10 @@
     "build:renderer": "vite build",
     "build:python:mac": "bash scripts/build-python-macos.sh",
     "build:python:windows": "powershell -File scripts/build-python-windows.ps1",
+    "package:win": "powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "package:win:full": "powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Full",
+    "package:ci": "node scripts/release-ci.cjs --dispatch",
+    "release": "node scripts/release-ci.cjs",
     "prebuild:terminal-deps": "node scripts/preinstall-terminal-deps.cjs && node scripts/fix-venv-paths.cjs && node scripts/fix-symlinks.cjs",
     "build:electron": "bash scripts/build-electron.sh",
     "fetch:officecli": "bash scripts/fetch-officecli.sh",

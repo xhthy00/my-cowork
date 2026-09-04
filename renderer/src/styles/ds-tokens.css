@@ -131,6 +131,7 @@
   --trace-w: 300px;
   --preview-w: 360px;
   --hub-gutter: clamp(24px, 6vw, 72px);
+  --ui-font-scale: 1;
   --font: "Inter", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
   /* Sweep highlight on in-progress ShinyText (must stay much lighter than the base grey). */

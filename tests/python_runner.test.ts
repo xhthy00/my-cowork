@@ -1,4 +1,7 @@
 import { EventEmitter } from "events";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────────────────
@@ -60,7 +63,10 @@ describe("python_runner", () => {
     expect(spawnMock).toHaveBeenCalledWith(
       "uv",
       ["run", "uvicorn", "app.main:app", "--port", "0"],
-      { cwd: "/fake/cwd", env: { ...process.env } },
+      expect.objectContaining({
+        cwd: "/fake/cwd",
+        env: expect.objectContaining({ PYTHONUNBUFFERED: "1" }),
+      }),
     );
   });
 
@@ -88,5 +94,43 @@ describe("python_runner", () => {
 
     const spawnOpts = spawnMock.mock.calls[0][2] as { env: Record<string, string> };
     expect(spawnOpts.env.MY_COWORK_API_KEY).toBe("sk-injected");
+  });
+
+  it("spawns packaged backend with resources cwd, not asar backend/", async () => {
+    const resources = fs.mkdtempSync(path.join(os.tmpdir(), "mycowork-res-"));
+    const exeName = process.platform === "win32" ? "python_bin.exe" : "python_bin";
+    fs.writeFileSync(path.join(resources, exeName), "");
+    const prev = (process as { resourcesPath?: string }).resourcesPath;
+    (process as { resourcesPath?: string }).resourcesPath = resources;
+
+    spawnMock.mockReturnValue(new MockChildProcess());
+    getMock.mockImplementation((_url: string, cb: (res: unknown) => void) => {
+      const res = fakeHealthOk();
+      setTimeout(() => cb(res), 0);
+      return new EventEmitter();
+    });
+
+    try {
+      const promise = start({
+        cwd: path.join(resources, "app.asar", "backend"),
+        dev: false,
+      });
+      const proc = spawnMock.mock.results[0].value as MockChildProcess;
+      setTimeout(() => {
+        proc.stderr.emit(
+          "data",
+          Buffer.from("Uvicorn running on http://127.0.0.1:54321\n"),
+        );
+      }, 0);
+      await promise;
+
+      expect(spawnMock.mock.calls[0][0]).toBe(path.join(resources, exeName));
+      expect(spawnMock.mock.calls[0][2]).toEqual(
+        expect.objectContaining({ cwd: resources }),
+      );
+    } finally {
+      (process as { resourcesPath?: string }).resourcesPath = prev;
+      fs.rmSync(resources, { recursive: true, force: true });
+    }
   });
 });

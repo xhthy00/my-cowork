@@ -2,10 +2,80 @@ appId: com.my-cowork.app
 productName: MyCowork
 directories:
   output: release
+publish:
+  provider: github
+  owner: xhthy00
+  repo: my-cowork
+  releaseType: release
 files:
   - dist-electron/**/*
   - dist-renderer/**/*
   - package.json
+  # Renderer deps are bundled into dist-renderer. Only main-process modules
+  # (electron-updater, mammoth, papaparse, unzipper, xml2js) need to ship.
+  - from: node_modules
+    to: node_modules
+    filter:
+      - "**/*"
+      - "!electron{,/**/*}"
+      - "!electron-builder{,/**/*}"
+      - "!electron-builder-*{,/**/*}"
+      - "!app-builder-*{,/**/*}"
+      - "!@electron{,/**/*}"
+      - "!vite{,/**/*}"
+      - "!vitest{,/**/*}"
+      - "!@vitejs{,/**/*}"
+      - "!typescript{,/**/*}"
+      - "!playwright{,/**/*}"
+      - "!playwright-core{,/**/*}"
+      - "!@playwright{,/**/*}"
+      - "!@testing-library{,/**/*}"
+      - "!jsdom{,/**/*}"
+      - "!tailwindcss{,/**/*}"
+      - "!postcss{,/**/*}"
+      - "!autoprefixer{,/**/*}"
+      - "!@types{,/**/*}"
+      - "!.vite{,/**/*}"
+      - "!@esbuild{,/**/*}"
+      - "!esbuild{,/**/*}"
+      - "!@rollup{,/**/*}"
+      - "!rollup{,/**/*}"
+      - "!7zip-bin{,/**/*}"
+      - "!node-gyp{,/**/*}"
+      - "!mermaid{,/**/*}"
+      - "!@mermaid-js{,/**/*}"
+      - "!cytoscape{,/**/*}"
+      - "!cytoscape-*{,/**/*}"
+      - "!lucide-react{,/**/*}"
+      - "!xlsx{,/**/*}"
+      - "!react{,/**/*}"
+      - "!react-dom{,/**/*}"
+      - "!react-markdown{,/**/*}"
+      - "!react-resizable-panels{,/**/*}"
+      - "!react-syntax-highlighter{,/**/*}"
+      - "!@radix-ui{,/**/*}"
+      - "!@xyflow{,/**/*}"
+      - "!@xterm{,/**/*}"
+      - "!@fontsource{,/**/*}"
+      - "!framer-motion{,/**/*}"
+      - "!motion-dom{,/**/*}"
+      - "!katex{,/**/*}"
+      - "!docx-preview{,/**/*}"
+      - "!dompurify{,/**/*}"
+      - "!qrcode.react{,/**/*}"
+      - "!thinking-orbs{,/**/*}"
+      - "!zustand{,/**/*}"
+      - "!rehype-katex{,/**/*}"
+      - "!remark-breaks{,/**/*}"
+      - "!remark-gfm{,/**/*}"
+      - "!remark-math{,/**/*}"
+      - "!class-variance-authority{,/**/*}"
+      - "!clsx{,/**/*}"
+      - "!tailwind-merge{,/**/*}"
+      - "!prismjs{,/**/*}"
+      - "!codepage{,/**/*}"
+      - "!es-toolkit{,/**/*}"
+      - "!mime{,/**/*}"
 mac:
   icon: build/icon.png
   identity: null
@@ -30,12 +100,13 @@ mac:
       to: skills
 win:
   icon: build/icon.ico
+  signAndEditExecutable: false
   target:
     - nsis
     - zip
   extraResources:
-    - from: dist/my-cowork-backend.exe
-      to: python_bin.exe
+    - from: dist/python_runtime
+      to: python_runtime
     - from: resources/prebuilt
       to: prebuilt
       filter:
@@ -49,10 +120,20 @@ win:
       to: resources/example-skills
     - from: skills
       to: skills
+    - from: build/icon.ico
+      to: icon.ico
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   warningsAsErrors: false
+  installerLanguages:
+    - zh_CN
+    - en_US
+  include: build/installer.nsh
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
 dmg:
   sign: false
 asar: true
+beforeBuild: scripts/patch-nsis-progress.cjs
