@@ -1,6 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for macOS one-file backend."""
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_all
 
 block_cipher = None
@@ -32,6 +34,12 @@ HIDDEN = [
 ]
 
 datas = []
+# Runtime-loaded markdown is not collected from imports. An empty glob here
+# silently ships a backend whose workforce decompose collapses to 1 task.
+_prompts = (Path(SPECPATH) / ".." / ".." / "backend" / "app" / "agents" / "prompts").resolve()
+if not (_prompts / "planner.md").is_file():
+    raise RuntimeError(f"planner.md missing at {_prompts}")
+datas += [(str(_prompts), "app/agents/prompts")]
 binaries = collect_dynamic_libs("sqlite_vec")
 tmp_vec = collect_all("sqlite_vec")
 datas += tmp_vec[0]

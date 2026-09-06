@@ -27,6 +27,40 @@ def test_parse_subtasks_json():
     assert tasks[1]["dependencies"] == ["task_1"]
 
 
+def test_parse_subtasks_from_reasoning_when_content_is_prose():
+    class _Msg:
+        content = "好的，我来拆解。"
+        additional_kwargs = {
+            "reasoning_content": (
+                '[{"id":"task_1","content":"检索股价","assignee":"browser_agent",'
+                '"dependencies":[]},{"id":"task_2","content":"写预测",'
+                '"assignee":"document_agent","dependencies":["task_1"]}]'
+            )
+        }
+
+    from app.runtime.decompose import _llm_blobs, parse_subtasks_json
+
+    todos = []
+    for blob in _llm_blobs(_Msg()):
+        todos = parse_subtasks_json(blob)
+        if todos:
+            break
+    assert len(todos) == 2
+    assert todos[0]["content"] == "检索股价"
+
+
+def test_parse_subtasks_json_strips_think_brackets():
+    raw = """<think>split into [research] then writeup</think>
+    [
+      {"id":"task_1","content":"检索股价","assignee":"browser_agent","dependencies":[]},
+      {"id":"task_2","content":"写预测","assignee":"document_agent","dependencies":["task_1"]}
+    ]
+    """
+    tasks = parse_subtasks_json(raw)
+    assert len(tasks) == 2
+    assert tasks[0]["content"] == "检索股价"
+
+
 def test_normalize_maps_legacy_assignee():
     tasks = normalize_subtasks(
         [{"id": "a", "content": "x", "assignee": "doc_worker", "dependencies": []}]

@@ -3,22 +3,31 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from app.agents.workers import WORKER_IDS, normalize_worker_id
 from app.runtime.todo_planner import is_office_plan_text
 
+_LOG = logging.getLogger(__name__)
 _DECOMPOSE_SYSTEM = None
 
 
 def _decompose_system() -> str:
     global _DECOMPOSE_SYSTEM
-    if _DECOMPOSE_SYSTEM is None:
-        from app.agents.factory import load_prompt
+    if _DECOMPOSE_SYSTEM:
+        return _DECOMPOSE_SYSTEM
+    from app.agents.factory import load_prompt
 
-        _DECOMPOSE_SYSTEM = load_prompt("planner") or ""
-    return _DECOMPOSE_SYSTEM
+    text = load_prompt("planner") or ""
+    if text:
+        _DECOMPOSE_SYSTEM = text
+    else:
+        _LOG.warning(
+            "planner.md missing; workforce decompose will fall back to 1 task"
+        )
+    return text
 
 
 def _is_trivial(text: str) -> bool:
@@ -118,8 +127,39 @@ def normalize_subtasks(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _part_text(part: Any) -> str:
+    if isinstance(part, str):
+        return part
+    if isinstance(part, dict):
+        if part.get("type") == "reasoning":
+            return str(part.get("reasoning") or part.get("text") or "")
+        return str(part.get("text") or "")
+    return str(part)
+
+
+def _llm_blobs(msg: Any) -> list[str]:
+    """Content then reasoning, then both — MiniMax-M3 often JSON-only in reasoning."""
+    content = getattr(msg, "content", None)
+    if isinstance(content, list):
+        content_text = "".join(_part_text(part) for part in content)
+    else:
+        content_text = str(content or "")
+    additional = getattr(msg, "additional_kwargs", None) or {}
+    reasoning = str(
+        additional.get("reasoning_content") or additional.get("reasoning") or ""
+    )
+    blobs: list[str] = []
+    for blob in (content_text, reasoning, f"{content_text}\n{reasoning}"):
+        stripped = blob.strip()
+        if stripped and stripped not in blobs:
+            blobs.append(stripped)
+    return blobs
+
+
 def parse_subtasks_json(text: str) -> list[dict[str, Any]]:
-    raw = (text or "").strip()
+    from app.runtime.context import strip_think_blocks
+
+    raw = strip_think_blocks(text or "").strip()
     if not raw:
         return []
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
@@ -176,13 +216,6 @@ async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]
                     {"role": "user", "content": prompt},
                 ]
             )
-            content = getattr(msg, "content", None)
-            if isinstance(content, list):
-                content = "".join(
-                    str(part.get("text", part)) if isinstance(part, dict) else str(part)
-                    for part in content
-                )
-            todos = parse_subtasks_json(str(content or ""))
         elif hasattr(llm, "invoke"):
             msg = llm.invoke(
                 [
@@ -190,11 +223,17 @@ async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]
                     {"role": "user", "content": prompt},
                 ]
             )
-            todos = parse_subtasks_json(str(getattr(msg, "content", "") or ""))
         else:
-            todos = []
+            msg = None
+        todos: list[dict[str, Any]] = []
+        if msg is not None:
+            for blob in _llm_blobs(msg):
+                todos = parse_subtasks_json(blob)
+                if todos:
+                    break
         if todos:
             return align_subtasks_to_user_format(q, todos)
+        _LOG.warning("decompose produced no JSON subtasks; using single-task fallback")
     except Exception:
-        pass
+        _LOG.exception("decompose llm failed; using single-task fallback")
     return align_subtasks_to_user_format(q, fallback_subtasks(q))

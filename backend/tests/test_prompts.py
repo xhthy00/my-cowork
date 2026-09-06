@@ -31,6 +31,44 @@ def test_required_prompts_exist():
         assert (PROMPTS / f"{name}.md").is_file()
 
 
+def test_prompts_dir_is_real_folder():
+    from app.agents.factory import _PROMPTS_DIR
+
+    assert _PROMPTS_DIR.is_dir()
+    assert (_PROMPTS_DIR / "planner.md").is_file()
+
+
+def test_prompts_dir_skips_empty_candidate(tmp_path, monkeypatch):
+    import app.agents.factory as factory
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    (bundled / "planner.md").write_text("bundled planner", encoding="utf-8")
+    monkeypatch.setattr(
+        factory, "_prompt_candidates", lambda: [empty, bundled]
+    )
+    assert factory._prompts_dir() == bundled
+    assert factory.load_prompt("planner") == "bundled planner"
+
+
+def test_prompt_candidates_include_frozen_paths(tmp_path, monkeypatch):
+    import sys
+
+    import app.agents.factory as factory
+
+    meipass = tmp_path / "internal"
+    exe = tmp_path / "python_runtime" / "python.exe"
+    exe.parent.mkdir()
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe), raising=False)
+    paths = factory._prompt_candidates()
+    assert meipass / "app" / "agents" / "prompts" in paths
+    assert exe.parent / "_internal" / "app" / "agents" / "prompts" in paths
+
+
 def test_planner_does_not_hide_parent_task():
     text = load_prompt("planner")
     assert "每个子任务必须自包含（执行者不知道父任务全文）" not in text

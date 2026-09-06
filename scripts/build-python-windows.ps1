@@ -12,6 +12,16 @@ if (-not (Test-Path $Bin)) {
 }
 Get-Item $Bin | Format-List FullName, Length
 $Dir = "$Root\dist\python_runtime"
+$planner = @(
+  (Join-Path $Dir "_internal\app\agents\prompts\planner.md"),
+  (Join-Path $Dir "app\agents\prompts\planner.md")
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $planner) {
+  Write-Host "planner.md missing from python_runtime (workforce decompose would collapse to 1 task)"
+  Get-ChildItem "$Dir\_internal\app\agents" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40
+  exit 1
+}
+Write-Host "bundled planner.md: $planner"
 Write-Host "python_runtime size: $([math]::Round((Get-ChildItem $Dir -Recurse -File | Measure-Object -Property Length -Sum).Sum/1MB,1)) MB"
 New-Item -ItemType Directory -Force -Path "$Root\dist\win-python" | Out-Null
 $env:MY_COWORK_API_KEY = if ($env:MY_COWORK_API_KEY) { $env:MY_COWORK_API_KEY } else { "smoke-test-key" }

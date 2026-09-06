@@ -29,13 +29,17 @@ function fail(message) {
 }
 
 function run(command, args, opts = {}) {
+  // git must not use shell: PowerShell/cmd splits unquoted -m "chore: release vX.Y.Z".
+  // npm/gh on Windows are .cmd shims and do need shell.
+  const shell =
+    opts.shell ??
+    (WIN && (command === "npm" || command === "npx" || command === "gh"));
   const result = spawnSync(command, args, {
     cwd: ROOT,
     encoding: "utf8",
     stdio: opts.stdio || "pipe",
-    shell: WIN,
+    shell,
     windowsHide: true,
-    ...opts,
   });
   if (opts.allowFail) return result;
   if (result.error) fail(`${command} ${args.join(" ")}: ${result.error.message}`);

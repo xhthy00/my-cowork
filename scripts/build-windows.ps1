@@ -139,6 +139,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "build-python-windows failed" }
   } else {
     Test-PathExists $pythonExe "packaged backend"
+    $planner = @(
+      (Join-Path $Root "dist\python_runtime\_internal\app\agents\prompts\planner.md"),
+      (Join-Path $Root "dist\python_runtime\app\agents\prompts\planner.md")
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $planner) {
+      throw "planner.md missing in python_runtime (workforce would collapse to 1 task). Rebuild with .\scripts\build-windows.ps1 -Full"
+    }
+    Write-Host "bundled planner.md: $planner"
   }
 
   Write-Step "Verify extraResources"

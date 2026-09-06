@@ -1,8 +1,49 @@
 """Prompt loaders for workforce workers and the single agent."""
 
+from __future__ import annotations
+
+import sys
 from pathlib import Path
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+def _prompt_candidates() -> list[Path]:
+    """Filesystem locations that may hold ``planner.md`` (dev + frozen)."""
+    here = Path(__file__).resolve().parent / "prompts"
+    out: list[Path] = [here]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        out.append(Path(meipass) / "app" / "agents" / "prompts")
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        out.append(exe_dir / "_internal" / "app" / "agents" / "prompts")
+        out.append(exe_dir / "app" / "agents" / "prompts")
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in out:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _prompts_dir() -> Path:
+    """Return the first candidate that actually contains ``planner.md``.
+
+    PyInstaller does not collect runtime-loaded ``*.md`` via imports. An empty
+    ``prompts/`` next to ``factory.py`` must not hide the bundled copy under
+    ``sys._MEIPASS`` — missing planner.md makes workforce decompose collapse
+    to a single fallback task.
+    """
+    candidates = _prompt_candidates()
+    for path in candidates:
+        if (path / "planner.md").is_file():
+            return path
+    return candidates[0]
+
+
+_PROMPTS_DIR = _prompts_dir()
 
 _WORKER_PROMPTS = {
     "developer_agent": "developer.md",
@@ -18,7 +59,7 @@ _WORKER_PROMPTS = {
 
 
 def _load_prompt(name: str) -> str:
-    path = _PROMPTS_DIR / name
+    path = _prompts_dir() / name
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
