@@ -53,6 +53,39 @@ function fileSize(info?: UpdateInfo): number | undefined {
   return total > 0 ? total : undefined;
 }
 
+/** GitHub asset names use dots for spaces; electron-updater often hyphenates them. */
+function rewriteGithubAssetName(name: string): string {
+  return name
+    .replace(/MyCowork-Setup-/g, "MyCowork.Setup.")
+    .replace(/MyCowork%20Setup%20/g, "MyCowork.Setup.")
+    .replace(/MyCowork Setup /g, "MyCowork.Setup.");
+}
+
+function rewriteUpdateInfo(info?: UpdateInfo): void {
+  if (!info) return;
+  const extra = info as UpdateInfo & {
+    path?: string;
+    packages?: Record<string, { path?: string }>;
+  };
+  if (extra.path) extra.path = rewriteGithubAssetName(extra.path);
+  for (const file of info.files ?? []) {
+    if (file.url) file.url = rewriteGithubAssetName(file.url);
+  }
+  if (extra.packages) {
+    for (const pkg of Object.values(extra.packages)) {
+      if (pkg?.path) pkg.path = rewriteGithubAssetName(pkg.path);
+    }
+  }
+}
+
+function storedUpdateInfo(autoUpdater: AutoUpdater): UpdateInfo | undefined {
+  return (
+    autoUpdater as AutoUpdater & {
+      updateInfoAndProvider?: { info?: UpdateInfo } | null;
+    }
+  ).updateInfoAndProvider?.info;
+}
+
 function snapshot(): UpdaterStatus {
   return { ...status, currentVersion: currentVersion() };
 }
@@ -75,6 +108,7 @@ function wire(autoUpdater: AutoUpdater): void {
     setStatus({ state: "checking", message: undefined });
   });
   autoUpdater.on("update-available", (info) => {
+    rewriteUpdateInfo(info);
     setStatus({
       state: "available",
       availableVersion: info.version,
@@ -134,9 +168,14 @@ export function initUpdater(): void {
   }
   try {
     wire(autoUpdater);
-    void autoUpdater.checkForUpdates().catch((err) => {
-      console.error("checkForUpdates failed:", err);
-    });
+    void autoUpdater
+      .checkForUpdates()
+      .then((result) => {
+        rewriteUpdateInfo(result?.updateInfo);
+      })
+      .catch((err) => {
+        console.error("checkForUpdates failed:", err);
+      });
   } catch (err) {
     console.error("initUpdater failed:", err);
     setStatus({
@@ -157,7 +196,8 @@ export async function checkForUpdates(): Promise<UpdaterStatus> {
   try {
     wire(autoUpdater);
     setStatus({ state: "checking", message: undefined });
-    await autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    rewriteUpdateInfo(result?.updateInfo);
     return snapshot();
   } catch (e) {
     return setStatus({
@@ -178,6 +218,7 @@ export async function downloadUpdate(): Promise<UpdaterStatus> {
   try {
     wire(autoUpdater);
     setStatus({ state: "downloading", percent: status.percent ?? 0, message: undefined });
+    rewriteUpdateInfo(storedUpdateInfo(autoUpdater));
     await autoUpdater.downloadUpdate();
     return snapshot();
   } catch (e) {

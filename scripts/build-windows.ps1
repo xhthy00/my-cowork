@@ -164,7 +164,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "electron-builder failed" }
 
   Write-Step "Done"
-  Get-ChildItem (Join-Path $Root "release") -Filter "MyCowork Setup*.exe" |
+  Get-ChildItem (Join-Path $Root "release") -Filter "MyCowork*.exe" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1 |
     ForEach-Object {

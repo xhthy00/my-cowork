@@ -123,6 +123,8 @@ win:
     - from: build/icon.ico
       to: icon.ico
 nsis:
+  # No spaces: GitHub Releases rewrites spaces to dots, electron-updater uses hyphens.
+  artifactName: ${productName}.Setup.${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   warningsAsErrors: false
