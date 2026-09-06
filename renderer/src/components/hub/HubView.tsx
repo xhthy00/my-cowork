@@ -5,6 +5,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Globe, Link2, Plus, Trash2 } from "lucide-react";
 
+import logoHorizontal from "@/assets/brand/logo-horizontal.png";
 import HomeHub from "@/components/hub/HomeHub";
 import AssistantsView from "@/components/hub/AssistantsView";
 import { HistoryTabsNav } from "@/components/hub/HistoryTabsNav";
@@ -265,7 +266,7 @@ export default function HubView() {
     <div className="flex h-full w-full flex-1 flex-col px-1 pb-1">
       {/* Grey scroll page — white welcome/nav sit on top */}
       <div className="scrollbar-hide h-full overflow-y-auto rounded-2xl bg-ds-bg-neutral-subtle-default">
-        <div className="flex w-full flex-row bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] py-8">
+        <div className="flex w-full flex-row flex-wrap items-center justify-between gap-x-5 gap-y-3 bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] py-8">
           <p className="m-0 inline-flex flex-wrap items-baseline gap-2">
             <span className="history-welcome-headline text-[32px] font-bold not-italic text-ds-text-brand-muted-default">
               {timeGreeting()}
@@ -274,6 +275,12 @@ export default function HubView() {
               ！
             </span>
           </p>
+          <img
+            src={logoHorizontal}
+            alt="MyCowork"
+            className="h-20 w-auto max-w-[min(480px,70vw)] shrink-0 select-none dark:rounded-xl dark:bg-[#f7f4f1] dark:px-3 dark:py-1.5"
+            draggable={false}
+          />
         </div>
 
         {/* Sticky History tabs */}
