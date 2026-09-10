@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,24 @@ def default_user_skills_root() -> Path:
 
 
 def default_example_skills_root() -> Path:
+    """Bundled example-skills directory (dev repo or packaged extraResources).
+
+    Packaged layout puts examples at ``{resourcesPath}/resources/example-skills``,
+    not next to the PyInstaller runtime. ``repo_root()`` in a frozen onedir is
+    ``python_runtime/``, so a naive ``repo_root()/resources/example-skills``
+    misses every built-in skill.
+    """
+    env = (os.environ.get("MY_COWORK_EXAMPLE_SKILLS") or "").strip()
+    if env:
+        return Path(env)
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate in (
+            exe_dir.parent / "resources" / "example-skills",
+            exe_dir / "resources" / "example-skills",
+        ):
+            if candidate.is_dir():
+                return candidate
     return repo_root() / "resources" / "example-skills"
 
 

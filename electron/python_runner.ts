@@ -56,11 +56,26 @@ function spawnCwd(preferred: string | undefined, fallback: string): string {
   return process.cwd();
 }
 
+function injectPackagedSkillEnv(env: Record<string, string | undefined>): void {
+  // extraResources: resources/example-skills → {resourcesPath}/resources/example-skills
+  const exampleSkills = path.join(
+    process.resourcesPath,
+    "resources",
+    "example-skills",
+  );
+  if (existsSync(exampleSkills) && !env.MY_COWORK_EXAMPLE_SKILLS) {
+    env.MY_COWORK_EXAMPLE_SKILLS = exampleSkills;
+  }
+}
+
 export function start(options: RunnerOptions): Promise<BackendInfo> {
   const env = { ...process.env, ...options.env };
   env.PYTHONUTF8 = env.PYTHONUTF8 || "1";
   env.PYTHONIOENCODING = env.PYTHONIOENCODING || "utf-8";
   env.PYTHONUNBUFFERED = env.PYTHONUNBUFFERED || "1";
+  if (!options.dev) {
+    injectPackagedSkillEnv(env);
+  }
   const appModule = env.MY_COWORK_UVICORN_APP || "app.main:app";
   const packaged = options.dev ? null : resolvePackagedBackend();
   const cmd = options.dev ? "uv" : packaged!.cmd;

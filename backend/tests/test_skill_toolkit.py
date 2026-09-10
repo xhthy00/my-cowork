@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-from app.skills import discover_skills, find_skill, load_skill_md
+from app.skills import (
+    default_example_skills_root,
+    discover_skills,
+    find_skill,
+    load_skill_md,
+)
 from app.skills.config import save_skills_config
 from app.tools.builtin.skills import make_skill_tools
 
@@ -161,3 +167,32 @@ def test_list_skills_hides_legacy_docx_when_officecli_present(tmp_path: Path):
 def test_find_skill_by_name(tmp_path: Path):
     _write_md_skill(tmp_path)
     assert find_skill("md-skill", root=tmp_path) is not None
+
+
+def test_example_skills_root_from_env(tmp_path: Path, monkeypatch):
+    bundled = tmp_path / "bundled-examples"
+    _write_md_skill(bundled)
+    monkeypatch.setenv("MY_COWORK_EXAMPLE_SKILLS", str(bundled))
+    assert default_example_skills_root() == bundled
+
+    isolated = tmp_path / "iso"
+    isolated.mkdir()
+    assert all(s.id != "md-skill" for s in discover_skills(isolated))
+
+    found = {s.id: s for s in discover_skills()}
+    assert "md-skill" in found
+    assert found["md-skill"].is_example is True
+
+
+def test_example_skills_root_frozen_onedir_layout(tmp_path: Path, monkeypatch):
+    resources = tmp_path / "resources"
+    runtime = resources / "python_runtime"
+    runtime.mkdir(parents=True)
+    examples = resources / "resources" / "example-skills"
+    examples.mkdir(parents=True)
+    python = runtime / "python.exe"
+    python.write_text("", encoding="utf-8")
+    monkeypatch.delenv("MY_COWORK_EXAMPLE_SKILLS", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(python))
+    assert default_example_skills_root().resolve() == examples.resolve()

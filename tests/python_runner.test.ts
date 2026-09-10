@@ -128,6 +128,45 @@ describe("python_runner", () => {
       expect(spawnMock.mock.calls[0][2]).toEqual(
         expect.objectContaining({ cwd: resources }),
       );
+      expect(
+        (spawnMock.mock.calls[0][2] as { env: Record<string, string> }).env
+          .MY_COWORK_EXAMPLE_SKILLS,
+      ).toBeUndefined();
+    } finally {
+      (process as { resourcesPath?: string }).resourcesPath = prev;
+      fs.rmSync(resources, { recursive: true, force: true });
+    }
+  });
+
+  it("points packaged backend at extraResources example-skills", async () => {
+    const resources = fs.mkdtempSync(path.join(os.tmpdir(), "mycowork-res-"));
+    const exeName = process.platform === "win32" ? "python_bin.exe" : "python_bin";
+    fs.writeFileSync(path.join(resources, exeName), "");
+    const exampleSkills = path.join(resources, "resources", "example-skills");
+    fs.mkdirSync(exampleSkills, { recursive: true });
+    const prev = (process as { resourcesPath?: string }).resourcesPath;
+    (process as { resourcesPath?: string }).resourcesPath = resources;
+
+    spawnMock.mockReturnValue(new MockChildProcess());
+    getMock.mockImplementation((_url: string, cb: (res: unknown) => void) => {
+      const res = fakeHealthOk();
+      setTimeout(() => cb(res), 0);
+      return new EventEmitter();
+    });
+
+    try {
+      const promise = start({ cwd: resources, dev: false });
+      const proc = spawnMock.mock.results[0].value as MockChildProcess;
+      setTimeout(() => {
+        proc.stderr.emit(
+          "data",
+          Buffer.from("Uvicorn running on http://127.0.0.1:54321\n"),
+        );
+      }, 0);
+      await promise;
+
+      const spawnOpts = spawnMock.mock.calls[0][2] as { env: Record<string, string> };
+      expect(spawnOpts.env.MY_COWORK_EXAMPLE_SKILLS).toBe(exampleSkills);
     } finally {
       (process as { resourcesPath?: string }).resourcesPath = prev;
       fs.rmSync(resources, { recursive: true, force: true });

@@ -589,8 +589,7 @@ def create_app(
         or str(Path.home() / ".my-cowork" / "skills-config.json")
     )
     app.state.skills_root = Path(
-        os.environ.get("MY_COWORK_SKILLS_ROOT")
-        or str(Path(__file__).resolve().parents[2] / "skills")
+        os.environ.get("MY_COWORK_SKILLS_ROOT") or str(default_skills_root())
     )
 
     db_env = os.environ.get("MY_COWORK_CHANNELS_DB")
