@@ -7,6 +7,7 @@ import {
   Plus,
   Radio,
   FolderOpen,
+  ChevronDown,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -43,6 +44,8 @@ export default function ProjectSidebar({
   fill?: boolean;
 }) {
   const folded = usePageTabStore((s) => s.projectSidebarFolded);
+  const historyCollapsed = usePageTabStore((s) => s.projectHistoryCollapsed);
+  const setHistoryCollapsed = usePageTabStore((s) => s.setProjectHistoryCollapsed);
   const workspaceView = usePageTabStore((s) => s.workspaceView);
   const setWorkspaceView = usePageTabStore((s) => s.setWorkspaceView);
   const setHubTab = usePageTabStore((s) => s.setHubTab);
@@ -106,8 +109,8 @@ export default function ProjectSidebar({
 
   return (
     <aside
-      className="box-border flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl bg-ds-bg-neutral-default-default p-1"
-      style={fill && !folded ? { width: "100%" } : { width }}
+      className="project-sidebar box-border flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl bg-ds-bg-neutral-default-default p-1"
+      style={fill ? { width: "100%" } : { width }}
     >
       <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <nav className="flex w-full shrink-0 flex-col gap-1">
@@ -191,9 +194,10 @@ export default function ProjectSidebar({
 
             <button
               type="button"
-              className={cn(navTabClass(false), "mb-1")}
+              className={cn(navTabClass(false), "project-new-action mb-1")}
               onClick={() => {
                 createProject();
+                setHistoryCollapsed(false);
                 setWorkspaceView("workspace");
               }}
             >
@@ -201,15 +205,37 @@ export default function ProjectSidebar({
               <span>新建对话</span>
             </button>
 
-            <div className="mb-1 px-3 pt-1 text-[11px] font-semibold tracking-wide text-ds-text-neutral-subtle-default">
-              项目
-            </div>
-            <div className="scrollbar-hide min-h-0 min-w-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-0.5">
+            <button
+              type="button"
+              aria-label={historyCollapsed ? "展开历史会话" : "收起历史会话"}
+              aria-expanded={!historyCollapsed}
+              aria-controls="project-history-list"
+              className="mb-1 flex h-9 w-full shrink-0 items-center justify-between rounded-lg px-3 text-left text-[11px] font-semibold tracking-wide text-ds-text-neutral-subtle-default transition-colors hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
+              onClick={() => setHistoryCollapsed(!historyCollapsed)}
+            >
+              <span>项目</span>
+              <span className="flex items-center gap-1.5">
+                <span className="tabular-nums">{projects.length}</span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={cn("h-3.5 w-3.5 transition-transform", historyCollapsed && "-rotate-90")}
+                />
+              </span>
+            </button>
+            <div
+              id="project-history-list"
+              hidden={historyCollapsed}
+              className={cn(
+                "scrollbar-hide min-h-0 min-w-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-0.5",
+                historyCollapsed && "hidden",
+              )}
+            >
               {projects.map((s) => (
                 <div
                   key={s.id}
+                  data-active={activeId === s.id}
                   className={cn(
-                    "group/project relative flex w-full items-center gap-1 rounded-xl pr-1 transition-colors",
+                    "project-row group/project relative flex w-full items-center gap-1 rounded-xl pr-1 transition-colors",
                     activeId === s.id
                       ? "bg-ds-bg-neutral-subtle-default text-ds-text-neutral-default-default"
                       : "text-ds-text-neutral-muted-default hover:bg-ds-bg-neutral-subtle-default",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -12,6 +14,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 _LOCK = threading.Lock()
 _MEMORY: dict[str, list[dict[str, Any]]] = {}
+_COMPACTION: dict[str, dict[str, Any]] = {}
 
 
 def _default_db() -> Path | None:
@@ -87,7 +90,77 @@ class SessionStore:
                 )
                 """
             )
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS session_compaction ("
+                "session_id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+            )
             self._conn.commit()
+
+    def load_compaction(self, session_id: str) -> dict[str, Any] | None:
+        sid = (session_id or "").strip()
+        if not sid:
+            return None
+        with _LOCK:
+            if self._conn is None:
+                return dict(_COMPACTION[sid]) if sid in _COMPACTION else None
+            row = self._conn.execute(
+                "SELECT payload FROM session_compaction WHERE session_id=?", (sid,)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row[0])
+        except (ValueError, TypeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def save_compaction(self, session_id: str, state: dict[str, Any] | None) -> None:
+        sid = (session_id or "").strip()
+        if not sid:
+            return
+        with _LOCK:
+            if self._conn is None:
+                if state is None:
+                    _COMPACTION.pop(sid, None)
+                else:
+                    _COMPACTION[sid] = dict(state)
+                return
+            if state is None:
+                self._conn.execute("DELETE FROM session_compaction WHERE session_id=?", (sid,))
+            else:
+                self._conn.execute(
+                    "INSERT INTO session_compaction(session_id,payload) VALUES (?,?) "
+                    "ON CONFLICT(session_id) DO UPDATE SET payload=excluded.payload",
+                    (sid, json.dumps(state, ensure_ascii=False)),
+                )
+            self._conn.commit()
+
+    def write_compaction_transcript(
+        self, session_id: str, messages: list[Any], boundary_index: int,
+    ) -> str:
+        """Export the exact older turns so the agent can re-read lost details."""
+        if self.db_path is None or boundary_index <= 0:
+            return ""
+        name = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:24] + ".md"
+        target = self.db_path.parent / "compaction-transcripts" / name
+        lines = ["# 压缩前的会话原文", ""]
+        for index, message in enumerate(messages[:boundary_index], 1):
+            row = _serialize(message)
+            role = str(row.get("type") or "unknown")
+            content = str(row.get("content") or "")
+            # Reasoning tags are private working text, not durable task evidence.
+            content = re.sub(r"<think>[\s\S]*?</think>", "", content, flags=re.I)
+            content = re.sub(r"<think>[\s\S]*$", "", content, flags=re.I)
+            lines.extend((f"## {index}. {role}", "", content, ""))
+            if row.get("tool_calls"):
+                lines.extend(("工具调用：", "```json",
+                              json.dumps(row["tool_calls"], ensure_ascii=False, indent=2),
+                              "```", ""))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_suffix(".tmp")
+        temp.write_text("\n".join(lines), encoding="utf-8")
+        temp.replace(target)
+        return str(target)
 
     def load(self, session_id: str) -> list[Any]:
         sid = (session_id or "").strip()
@@ -144,9 +217,13 @@ class SessionStore:
         sid = (session_id or "").strip()
         with _LOCK:
             _MEMORY.pop(sid, None)
+            _COMPACTION.pop(sid, None)
             if self._conn is not None and sid:
                 self._conn.execute(
                     "DELETE FROM session_thread WHERE session_id = ?", (sid,)
+                )
+                self._conn.execute(
+                    "DELETE FROM session_compaction WHERE session_id = ?", (sid,)
                 )
                 self._conn.commit()
 
@@ -163,12 +240,37 @@ def get_session_store(db_path: str | Path | None = None) -> SessionStore:
     return _STORE
 
 
+def configure_session_store(db_path: str | Path) -> SessionStore:
+    """Point the process-wide conversation journal at the backend data directory."""
+    global _STORE
+    path = Path(db_path)
+    if _STORE is None or _STORE.db_path != path:
+        _STORE = SessionStore(path)
+    return _STORE
+
+
 def load_thread(session_id: str) -> list[Any]:
     return get_session_store().load(session_id)
 
 
 def save_thread(session_id: str, messages: list[Any]) -> None:
     get_session_store().save(session_id, messages)
+
+
+def load_compaction(session_id: str) -> dict[str, Any] | None:
+    return get_session_store().load_compaction(session_id)
+
+
+def save_compaction(session_id: str, state: dict[str, Any] | None) -> None:
+    get_session_store().save_compaction(session_id, state)
+
+
+def write_compaction_transcript(
+    session_id: str, messages: list[Any], boundary_index: int,
+) -> str:
+    return get_session_store().write_compaction_transcript(
+        session_id, messages, boundary_index,
+    )
 
 
 def append_run(session_id: str, messages: list[Any]) -> list[Any]:

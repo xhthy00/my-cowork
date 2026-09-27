@@ -105,7 +105,7 @@ export function ConfigModelCard({
           />
         )}
       </AnimatePresence>
-      <div className="relative z-[1] flex w-full flex-col rounded-2xl bg-ds-bg-neutral-subtle-default">
+      <div className="config-model-card relative z-[1] flex w-full flex-col rounded-2xl bg-ds-bg-neutral-subtle-default">
         {children}
       </div>
     </div>

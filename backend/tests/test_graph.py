@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool as langchain_tool
 
 from app.graphs.routing import (
@@ -628,21 +628,32 @@ def test_create_note_does_not_emit_artifact():
     assert not any(e.get("type") == "artifact.file" for e in events)
 
 
-def test_bash_officecli_does_not_emit_artifact(tmp_path: Path):
+def test_bash_officecli_view_does_not_emit_artifact(tmp_path: Path):
     docx = tmp_path / "empty.docx"
     docx.write_bytes(b"PK")
     bus = _CollectBus()
     written = set()
     events = _tool_result_events(
         bus,
-        "t-office",
+        "t-office-view",
         {
             "messages": [
-                {
-                    "type": "tool",
-                    "name": "bash",
-                    "content": f"officecli wrote {docx}",
-                }
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "bash",
+                            "args": {"cmd": f"officecli view {docx} outline"},
+                            "id": "c-view",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    content=f"officecli viewed {docx}",
+                    tool_call_id="c-view",
+                    name="bash",
+                ),
             ]
         },
         workdir=tmp_path,
@@ -651,6 +662,95 @@ def test_bash_officecli_does_not_emit_artifact(tmp_path: Path):
     )
     assert not any(e.get("type") == "artifact.file" for e in events)
     assert any(str(docx) in p for p in written)
+
+
+def test_bash_officecli_create_emits_artifact(tmp_path: Path):
+    docx = tmp_path / "汇报.docx"
+    docx.write_bytes(b"PK")
+    bus = _CollectBus()
+    written = set()
+    events = _tool_result_events(
+        bus,
+        "t-office-write",
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "bash",
+                            "args": {"cmd": f"officecli create {docx}"},
+                            "id": "c-write",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    content=f'{{"ok": true, "path": "{docx}", "error": null}}',
+                    tool_call_id="c-write",
+                    name="bash",
+                ),
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=written,
+        min_mtime=time.time() - 10,
+    )
+    arts = [e for e in events if e.get("type") == "artifact.file"]
+    assert any(str(docx) in str(e.get("path")) for e in arts)
+    assert any(str(docx) in p for p in written)
+
+
+def test_bash_officecli_write_uses_prior_cmd(tmp_path: Path):
+    docx = tmp_path / "方案.docx"
+    docx.write_bytes(b"PK")
+    bus = _CollectBus()
+    cmds = {
+        "c-prior": f"officecli add {docx} /body --type paragraph --prop text=正文",
+    }
+    events = _tool_result_events(
+        bus,
+        "t-office-prior",
+        {
+            "messages": [
+                ToolMessage(
+                    content='{"ok": true, "error": null}',
+                    tool_call_id="c-prior",
+                    name="bash",
+                )
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=set(),
+        min_mtime=time.time() - 10,
+        tool_cmds=cmds,
+    )
+    arts = [e for e in events if e.get("type") == "artifact.file"]
+    assert any(str(docx) in str(e.get("path")) for e in arts)
+
+
+def test_docx_gongwen_format_emits_artifact(tmp_path: Path):
+    docx = tmp_path / "公文.docx"
+    docx.write_bytes(b"PK")
+    bus = _CollectBus()
+    events = _tool_result_events(
+        bus,
+        "t-gongwen",
+        {
+            "messages": [
+                {
+                    "type": "tool",
+                    "name": "docx_gongwen_format",
+                    "content": str(docx),
+                }
+            ]
+        },
+        workdir=tmp_path,
+        written_paths=set(),
+        min_mtime=time.time() - 10,
+    )
+    arts = [e for e in events if e.get("type") == "artifact.file"]
+    assert any(str(docx) in str(e.get("path")) for e in arts)
 
 
 def test_preview_events_do_not_open_png_tabs(tmp_path: Path):

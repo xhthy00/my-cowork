@@ -220,3 +220,122 @@
   --ds-border-callout-success: rgba(74, 222, 128, 0.4);
   --ds-border-callout-note: rgba(255, 255, 255, 0.12);
 }
+
+/* MyCowork logo palette: violet leads interactions; coral and sunshine warm
+   the supporting surfaces without changing the component contracts. */
+:root:not(.dark) {
+  --ui-brand-violet: #7d3df3;
+  --ui-brand-violet-deep: #6d2ccf;
+  --ui-brand-coral: #ec8d75;
+  --ui-brand-sunshine: #fdd226;
+  --colors-primary-1: #fbf7ff;
+  --colors-primary-2: #f3eaff;
+  --colors-primary-3: #e7d5fc;
+  --colors-primary-4: #c5a5f5;
+  --colors-primary-5: #9953e4;
+  --colors-primary-6: #7d3df3;
+  --colors-primary-7: #6d2ccf;
+  --colors-primary-8: #5721a9;
+  --colors-primary-10: #2b223b;
+  --colors-primary-default: #7d3df3;
+  --colors-off-white-100: #fbf7ff;
+  --colors-green-default: #1dab7a;
+  --colors-green-500: #26bf8a;
+
+  --ds-bg-neutral-muted-default: #f8f1f8;
+  --ds-bg-neutral-subtle-default: #ffffff;
+  --ds-bg-neutral-default-default: #fffbfe;
+  --ds-bg-neutral-default-hover: #f7effb;
+  --ds-bg-neutral-strong-default: #f0e5fa;
+  --ds-bg-brand-subtle-default: #f3eaff;
+  --ds-bg-brand-default-default: #7d3df3;
+  --ds-bg-brand-subtle-disabled: #f3eaff;
+
+  --ds-text-neutral-default-default: #2b223b;
+  --ds-text-neutral-muted-default: #615973;
+  --ds-text-neutral-subtle-default: #766d84;
+  --ds-text-brand-default-default: #6725bc;
+  --ds-text-brand-subtle-default: #7433ca;
+  --ds-text-brand-muted-default: #6f39b1;
+  --ds-text-brand-strong-default: #5721a9;
+  --ds-text-brand-inverse-default: #ffffff;
+  --ds-text-success-default-default: #168b64;
+  --ds-text-information-default-default: #6725bc;
+
+  --ds-border-neutral-default-default: #e7ddea;
+  --ds-border-neutral-subtle-default: #efe5ef;
+  --ds-border-neutral-subtle-disabled: #f5eef4;
+  --ds-border-neutral-strong-default: #cdb5e5;
+  --ds-border-information-default-default: #7d3df3;
+  --ds-icon-neutral-muted-default: #8b7e99;
+  --ds-icon-neutral-default-default: #615973;
+  --ds-ring-neutral-subtle-default: #a974ed;
+
+  --ds-bg-status-completed-subtle-default: #eaf9f3;
+  --ds-bg-status-completed-default-default: #1dab7a;
+  --ds-text-status-completed-default: #168b64;
+  --ds-icon-status-completed-default: #1dab7a;
+  --ds-icon-status-completed-default-default: #1dab7a;
+  --ds-bg-success-default-default: #1dab7a;
+
+  --ds-bg-chat-paper: #ffffff;
+  --ds-bg-code: #f8f2fa;
+  --ds-bg-table: #ffffff;
+  --ds-bg-callout-note: #faf3ff;
+  --ds-border-callout-note: #e8d7f7;
+
+  --accent: #7d3df3;
+  --accent-hover: #6d2ccf;
+  --accent-text: #6725bc;
+  --accent-2: #a84a3d;
+  --accent-2-soft: #fff0e9;
+  --info: #7d3df3;
+  --info-soft: #f3eaff;
+  --shadow-sm: 0 3px 10px rgba(101, 54, 135, 0.07);
+  --shadow-md: 0 8px 25px rgba(101, 54, 135, 0.10);
+  --shadow-lg: 0 15px 38px rgba(101, 54, 135, 0.13);
+  --shadow-soft: 0 10px 28px rgba(124, 61, 181, 0.14);
+
+  --ui-topbar-bg: linear-gradient(105deg, #fcf8ff 0%, #fff9f7 70%, #fffdf4 100%);
+  --ui-sidebar-bg: linear-gradient(158deg, #faf5ff 0%, #fff5f4 72%, #fff9ee 100%);
+  --ui-card-bg: #ffffff;
+  --ui-card-border: #ecdfed;
+  --ui-canvas: #fcf8ff;
+  --ui-accent-soft: #f2e7ff;
+  --ui-warm-soft: #fff2dc;
+}
+
+.dark {
+  --ui-brand-violet: #7d3df3;
+  --ui-brand-violet-deep: #6d2ccf;
+  --ui-brand-coral: #ec8d75;
+  --ui-brand-sunshine: #fdd226;
+  --ds-bg-neutral-muted-default: #1d1723;
+  --ds-bg-neutral-subtle-default: #352b3d;
+  --ds-bg-neutral-default-default: #2d2534;
+  --ds-bg-neutral-default-hover: #3a2d43;
+  --ds-bg-neutral-strong-default: #241b2b;
+  --ui-topbar-bg: linear-gradient(105deg, #2b2134 0%, #30242f 70%, #382a28 100%);
+  --ui-sidebar-bg: linear-gradient(158deg, #30233c 0%, #312631 72%, #382b2a 100%);
+  --ui-card-bg: #2d2534;
+  --ui-card-border: #57465d;
+  --ui-canvas: #211a28;
+  --ui-accent-soft: #473157;
+  --ui-warm-soft: #49342e;
+  --colors-primary-default: #7d3df3;
+  --ds-bg-brand-subtle-default: #473157;
+  --ds-bg-brand-default-default: #7d3df3;
+  --ds-border-information-default-default: #af78ff;
+  --ds-text-information-default-default: #ddbdff;
+  --ds-text-brand-default-default: #e0c4ff;
+  --ds-text-brand-subtle-default: #c699fb;
+  --ds-text-brand-muted-default: #e0c4ff;
+  --ds-text-brand-inverse-default: #ffffff;
+  --accent: #7d3df3;
+  --accent-hover: #6d2ccf;
+  --accent-text: #e0c4ff;
+  --accent-2: #ffad91;
+  --accent-2-soft: #49342e;
+  --info: #af78ff;
+  --info-soft: #473157;
+}

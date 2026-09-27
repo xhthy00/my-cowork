@@ -133,7 +133,7 @@ export default function SkillListItem(props: SkillListItemProps) {
   return (
     <div
       className={cn(
-        "flex w-full flex-col justify-between rounded-2xl bg-ds-bg-neutral-subtle-default p-4 transition-colors",
+        "skill-list-item flex w-full flex-col justify-between rounded-2xl bg-ds-bg-neutral-subtle-default p-4 transition-colors",
         skill.isExample && !skill.enabled && "opacity-50",
       )}
     >

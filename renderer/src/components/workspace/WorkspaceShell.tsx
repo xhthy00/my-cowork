@@ -13,7 +13,6 @@ import {
   type Layout,
 } from "react-resizable-panels";
 
-import { cn } from "@/lib/utils";
 import {
   PROJECT_SIDEBAR_EXPANDED_WIDTH_PX,
   PROJECT_SIDEBAR_RAIL_WIDTH_PX,
@@ -104,19 +103,12 @@ export default function WorkspaceShell({
         groupResizeBehavior="preserve-pixel-size"
         className="min-h-0 min-w-0 overflow-hidden"
       >
-        <div className="box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden pr-1">
+        <div className="box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
           {sidebar}
         </div>
       </Panel>
       <Separator
-        className={cn(
-          "relative z-10 w-[2px] shrink-0 cursor-col-resize bg-transparent transition-colors",
-          "hover:bg-ds-bg-brand-subtle-default",
-          // Widen the invisible hit area so the handle is easy to grab.
-          "before:absolute before:inset-y-0 before:-left-1.5 before:-right-1.5 before:content-['']",
-          "after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 after:bg-ds-bg-neutral-default-default after:transition-colors",
-          "data-[separator-state=active]:after:bg-ds-bg-brand-default-focus",
-        )}
+        className="relative z-10 w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-ds-bg-brand-subtle-default data-[separator-state=active]:bg-ds-bg-brand-subtle-default before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-['']"
       />
       <Panel id="main" minSize={MAIN_MIN_WIDTH_PX} className="min-h-0 min-w-0">
         <div className="workspace flex h-full min-h-0 min-w-0 overflow-hidden rounded-2xl bg-ds-bg-neutral-subtle-default">

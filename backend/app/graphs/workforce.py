@@ -14,7 +14,7 @@ from app.graphs.coordinator import coordinate
 from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks, wants_document
 from app.graphs.single_agent import run_with_floor_retries
 from app.graphs.state import WorkforceState
-from app.runtime.todo_context import todo_agent_scope
+from app.runtime.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope
 from app.runtime.v2.assemble import format_bound_knowledge_block, render_agent_prompt
 from app.runtime.v2.critic import (
     analyze_task,
@@ -23,6 +23,10 @@ from app.runtime.v2.critic import (
     needs_research,
 )
 from app.runtime.v2.office_gate import office_skills_scope
+from app.runtime.v2.compact import compact_session_history
+from app.runtime.v2.session import (
+    load_compaction, load_thread, save_compaction, write_compaction_transcript,
+)
 from app.runtime.v2.synthesize import compose_workforce_answer
 
 
@@ -51,11 +55,42 @@ def compile_workforce_graph(
 ):
     """workers maps id -> {model, tools, prompt_name}."""
 
+    async def earlier_conversation(state: WorkforceState) -> str:
+        session_id = str(state.get("session_id") or "")
+        if not session_id:
+            return ""
+        canonical = load_thread(session_id)
+        if not canonical:
+            return ""
+        old_state = load_compaction(session_id)
+        visible, new_state = await compact_session_history(
+            canonical, old_state, llm=planner_llm, threshold=12_000,
+        )
+        if new_state is not None and (
+            old_state is None or new_state["boundary_index"] != old_state.get("boundary_index")
+        ):
+            new_state["transcript_path"] = write_compaction_transcript(
+                session_id, canonical, int(new_state["boundary_index"]),
+            )
+            save_compaction(session_id, new_state)
+        lines = ["[同一会话的较早对话；当前用户消息仍是本轮目标]"]
+        for message in visible:
+            role = str(getattr(message, "type", "") or "")
+            label = "摘要" if role == "system" else "用户" if role == "human" else "助手"
+            lines.append(f"{label}：{str(getattr(message, 'content', '') or '')}")
+        transcript = str((new_state or {}).get("transcript_path") or "")
+        if transcript:
+            lines.append(
+                f"摘要缺少细节时，用 conversation_read 回查当前会话；原文文件：{transcript}"
+            )
+        return "\n".join(lines)
+
     async def coordinator_node(state: WorkforceState) -> dict:
         subtasks = apply_retry_or_fail(list(state.get("subtasks") or []))
         user_text = str(state.get("user_text") or "")
         bound = format_bound_knowledge_block(state.get("knowledge_bases"))
-        coord_text = f"{bound}\n\n{user_text}" if bound else user_text
+        earlier = await earlier_conversation(state)
+        coord_text = "\n\n".join(part for part in (bound, earlier, user_text) if part)
         decision = await coordinate(coord_text, subtasks, planner_llm)
         action = str(decision.get("action") or "finish")
         if action == "rework":
@@ -167,29 +202,60 @@ def compile_workforce_graph(
             bound = format_bound_knowledge_block(state.get("knowledge_bases"))
             if bound:
                 system = f"{system.rstrip()}\n\n{bound}\n"
+            from app.runtime.memory_context import get_long_term_runtime
+            from app.memory.scoped import project_memory_key
+
+            memory_store = get_long_term_runtime()
+            runtime = get_todo_runtime()
+            if memory_store is not None and hasattr(memory_store, "prompt_block"):
+                memory_key = project_memory_key(
+                    runtime.memory_root if runtime else None,
+                    runtime.project_id if runtime else None,
+                )
+                memory_block = memory_store.prompt_block(
+                    workspace=memory_key, session_id=str(state.get("session_id") or "") or None,
+                )
+                if memory_block:
+                    system = f"{system.rstrip()}\n\n{memory_block}\n"
+                settings = getattr(memory_store, "memory_settings", None)
+                if settings is not None and not settings.enabled:
+                    system += "\n记忆写入已关闭。已有记忆仍可读，不要保存新记忆。\n"
+                else:
+                    system += ("\n长期偏好与纠正用 remember(scope='global')；"
+                               "项目中无法从文件重建的事实用 scope='workspace'。"
+                               "已有条目用 memory_update；敏感信息先征得用户同意。\n")
+            earlier = await earlier_conversation(state)
+            if earlier:
+                system += f"\n{earlier}\n"
             invoke = [SystemMessage(content=system), HumanMessage(content=prompt)]
+            checkpoint_key = f"{state.get('session_id')}:worker:{task_id}"
+            if runtime is not None and runtime.resume_execution:
+                prior = load_thread(checkpoint_key)
+                if prior:
+                    invoke = [SystemMessage(content=system), *prior]
             # Gate office on the original user ask, not a planner brief that
             # invented「再生成 Word」after the user only wanted Markdown.
             format_text = user_text or brief
             with todo_agent_scope(name):
-                with office_skills_scope(wants_document(format_text)):
-                    result_messages = await run_with_floor_retries(
-                        model,
-                        tools,
-                        invoke,
-                        format_text,
-                        max_retries=1,
-                        act_max_steps=18,
-                        skip_file_gate=name == "browser_agent",
-                        apply_research=(
-                            name == "browser_agent"
-                            and needs_research(f"{user_text} {brief}")
-                        ),
-                        require_findings=(
-                            name == "browser_agent"
-                            and needs_research(f"{user_text} {brief}")
-                        ),
-                    )
+                with automation_checkpoint_scope(checkpoint_key):
+                    with office_skills_scope(wants_document(format_text)):
+                        result_messages = await run_with_floor_retries(
+                            model,
+                            tools,
+                            invoke,
+                            format_text,
+                            max_retries=1,
+                            act_max_steps=18,
+                            skip_file_gate=name == "browser_agent",
+                            apply_research=(
+                                name == "browser_agent"
+                                and needs_research(f"{user_text} {brief}")
+                            ),
+                            require_findings=(
+                                name == "browser_agent"
+                                and needs_research(f"{user_text} {brief}")
+                            ),
+                        )
             summary = _last_text(result_messages)
             digest = evidence_digest(result_messages)
             if digest:

@@ -90,9 +90,10 @@ describe("ChatBar", () => {
     expect(body).toMatchObject({
       text: "写 hello.txt",
       session_mode: "single-agent",
-      memory_enabled: true,
       space_id: "space-local",
     });
+    // Memory saving is configured in the backend, not a browser-local flag.
+    expect(body).not.toHaveProperty("memory_enabled");
   });
 
   it("includes prior conversation history on follow-up", async () => {

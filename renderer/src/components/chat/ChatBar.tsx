@@ -20,9 +20,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { trackChatStream, abortChatStream } from "../../api/chatStream";
+import { submitHumanReply } from "../../api/humanReply";
 import FileTypeIcon from "@/components/files/FileTypeIcon";
 import { postSSE, type SSEvent } from "../../api/sse";
-import { isMemoryEnabled } from "../memory/MemoryView";
 import { RichChatInput } from "./RichChatInput";
 import {
   ConnectorPickerPanel,
@@ -44,6 +44,7 @@ import { SessionMode } from "../../types/workforce";
 import ChatModelSelect from "./ChatModelSelect";
 import ContextUsageIndicator from "./ContextUsageIndicator";
 import { resolveContextUsage } from "@/lib/formatTokens";
+import { migrateLegacyMemorySetting } from "@/lib/memorySettingsMigration";
 
 interface ChatBarProps {
   onEvent: (event: SSEvent, projectId?: string) => void;
@@ -113,6 +114,7 @@ export default function ChatBar({
   const [openPanel, setOpenPanel] = useState<PickerPanelKind | null>(null);
   const [hoveredFilePath, setHoveredFilePath] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [replyError, setReplyError] = useState("");
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -133,6 +135,9 @@ export default function ChatBar({
     ? activeProject.assistantName || activeProject.title
     : null;
   const sessionMessages = useSessionStore((s) => s.messages);
+  const pendingQuestion = [...sessionMessages].reverse().find(
+    (m) => m.humanQuestion?.status === "pending",
+  )?.humanQuestion;
   const contextTokens = useSessionStore((s) => s.contextTokens);
   const contextLimit = useSessionStore((s) => s.contextLimit);
   const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
@@ -161,6 +166,10 @@ export default function ChatBar({
     window.addEventListener("my-cowork:composer-fill", onFill);
     return () => window.removeEventListener("my-cowork:composer-fill", onFill);
   }, []);
+
+  useEffect(() => {
+    if (pendingQuestion) focusInputEnd();
+  }, [pendingQuestion?.question_id]);
 
   useEffect(() => {
     if (!openPanel) return;
@@ -247,7 +256,7 @@ export default function ChatBar({
   }
 
   async function handleAddFile() {
-    if (disabled) return;
+    if (disabled || pendingQuestion) return;
     try {
       if (!window.api?.selectFile) {
         window.alert("请使用桌面客户端选择附件（需完整绝对路径）。");
@@ -283,6 +292,24 @@ export default function ChatBar({
   async function handleSend() {
     const raw = input.trim();
     if ((!raw && files.length === 0) || isLoading) return;
+
+    if (pendingQuestion) {
+      if (!raw) return;
+      const projectId = useSessionsStore.getState().activeId;
+      if (!projectId) return;
+      setIsLoading(true);
+      setReplyError("");
+      try {
+        await submitHumanReply(projectId, pendingQuestion.task_id, pendingQuestion.question_id, raw);
+        setInput("");
+        setFiles([]);
+      } catch (err) {
+        setReplyError(err instanceof Error ? err.message : "回复失败，请重试");
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
 
     let text = raw;
     if (files.length) {
@@ -346,13 +373,13 @@ export default function ChatBar({
         );
         return;
       }
+      await migrateLegacyMemorySetting(backendUrl);
       const controller = postSSE(
         `${backendUrl}/api/chat`,
         {
           text,
           task_id: taskId,
           session_mode: sessionMode,
-          memory_enabled: isMemoryEnabled(),
           ...(history.length ? { history } : {}),
           ...(enabledMcp.length ? { enabled_mcp: enabledMcp } : {}),
           space_id: space?.id || project?.spaceId || undefined,
@@ -412,7 +439,7 @@ export default function ChatBar({
   const remainingCount = files.length > 5 ? files.length - 5 : 0;
 
   return (
-    <div className="relative z-50 flex w-full min-w-0 flex-col rounded-3xl bg-ds-bg-neutral-default-default">
+    <div className="chat-composer relative z-50 flex w-full min-w-0 flex-col rounded-3xl bg-ds-bg-neutral-default-default">
       {openPanel && (
         <div className="pointer-events-auto absolute inset-x-0 bottom-full z-[60] mb-1 flex flex-col gap-1">
           <div ref={panelRef}>
@@ -477,7 +504,7 @@ export default function ChatBar({
 
       <div
         className={cn(
-          "relative flex w-full flex-col items-start rounded-3xl border border-solid border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default p-3 transition-colors",
+          "chat-composer-input relative flex w-full flex-col items-start rounded-3xl border border-solid border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default p-3 transition-colors",
           (focused || hasContent) && "border-ds-border-information-default-default",
         )}
       >
@@ -544,6 +571,9 @@ export default function ChatBar({
             }}
           />
         </div>
+        {replyError && pendingQuestion && (
+          <p className="mb-2 text-xs text-[var(--danger)]" role="alert">{replyError}</p>
+        )}
 
         <div className="flex w-full flex-wrap items-center justify-between gap-y-2">
           <div className="flex min-w-0 items-center gap-2">
@@ -552,7 +582,7 @@ export default function ChatBar({
               title="附件"
               aria-label="添加文件或照片"
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ds-icon-neutral-muted-default hover:bg-ds-bg-neutral-strong-default"
-              disabled={disabled}
+              disabled={disabled || Boolean(pendingQuestion)}
               onClick={() => void handleAddFile()}
             >
               <Paperclip className="h-4 w-4" />
@@ -568,7 +598,7 @@ export default function ChatBar({
                 "inline-flex h-8 w-8 items-center justify-center rounded-lg text-ds-icon-neutral-muted-default hover:bg-ds-bg-neutral-strong-default",
                 openPanel === "connector" && "bg-ds-bg-neutral-strong-default",
               )}
-              disabled={disabled}
+              disabled={disabled || Boolean(pendingQuestion)}
               onClick={() => togglePanel("connector")}
             >
               <Hammer className="h-4 w-4" />
@@ -584,7 +614,7 @@ export default function ChatBar({
                 "inline-flex h-8 w-8 items-center justify-center rounded-lg text-ds-icon-neutral-muted-default hover:bg-ds-bg-neutral-strong-default",
                 openPanel === "skill" && "bg-ds-bg-neutral-strong-default",
               )}
-              disabled={disabled}
+              disabled={disabled || Boolean(pendingQuestion)}
               onClick={() => togglePanel("skill")}
             >
               <WandSparkles className="h-4 w-4" />
@@ -601,14 +631,14 @@ export default function ChatBar({
                 (openPanel === "knowledge" || boundKnowledge.length > 0) &&
                   "bg-ds-bg-neutral-strong-default",
               )}
-              disabled={disabled}
+              disabled={disabled || Boolean(pendingQuestion)}
               onClick={() => togglePanel("knowledge")}
             >
               <Library className="h-4 w-4" />
             </button>
           </div>
 
-          {running && onStop ? (
+          {running && onStop && !pendingQuestion ? (
             <button
               type="button"
               title="停止"
@@ -626,7 +656,7 @@ export default function ChatBar({
               disabled={!hasContent || disabled || isLoading}
               onClick={() => void handleSend()}
               className={cn(
-                "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition-colors disabled:opacity-35",
+                "chat-send inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition-colors disabled:opacity-35",
                 hasContent
                   ? "bg-[var(--colors-green-default)]"
                   : "bg-ds-text-neutral-default-default",

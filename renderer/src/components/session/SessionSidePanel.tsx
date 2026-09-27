@@ -178,7 +178,7 @@ export default function SessionSidePanel() {
         </button>
       ) : (
         <>
-          <div className="flex h-11 shrink-0 items-center gap-2 px-2">
+          <div className="flex h-11 shrink-0 items-center gap-2 px-1">
             <Workflow className="h-4 w-4 text-ds-icon-neutral-muted-default" />
             <span className="text-body-sm font-semibold text-ds-text-neutral-default-default">
               {headerTitle}
@@ -190,7 +190,7 @@ export default function SessionSidePanel() {
             </Button>
           </div>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto px-1 pb-2">
             {mode === SessionMode.WORKFORCE && (
               <AccordionBox title="智能体池" defaultOpen={false}>
                 {({ open }) => <AgentPoolBody agents={agents} open={open} />}

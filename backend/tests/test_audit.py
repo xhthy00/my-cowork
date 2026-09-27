@@ -54,3 +54,18 @@ def test_command_filter_audits_forbidden(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["kind"] == "command_forbidden"
     audit.close()
+
+
+def test_audit_captures_tool_lifecycle_without_private_arguments(tmp_path: Path):
+    store = AuditStore(tmp_path / "audit.db")
+    store.on_trace({"type": "graph.start", "task_id": "task-1", "session_id": "session-a"})
+    store.on_trace({"type": "tool.start", "task_id": "task-1", "tool": "browser_type", "call_id": "c1", "agent_id": "browser_agent", "preview": "password=super-secret"})
+    store.on_trace({"type": "tool.result", "task_id": "task-1", "tool": "browser_type", "call_id": "c1", "result": "typed private value"})
+    store.log(kind="confirm_request", task_id="task-2", detail={"args": {"token": "super-secret"}})
+    rows = store.list_recent(task_id="task-1")
+    assert [row["kind"] for row in rows] == ["tool_result", "tool_call"]
+    assert all(row["task_id"] == "task-1" for row in rows)
+    assert len(store.list_recent(session_id="session-a")) == 2
+    assert "super-secret" not in (tmp_path / "audit.db").read_bytes().decode("utf-8", errors="ignore")
+    assert store.list_recent(task_id="task-2")[0]["detail"]["args"] == "[REDACTED]"
+    store.close()

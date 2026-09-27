@@ -306,7 +306,9 @@ describe("Settings", () => {
     render(<Settings />);
     expect(screen.getByRole("button", { name: "定时任务" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "定时任务" }));
-    expect(await screen.findByRole("button", { name: "刷新" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "刷新定时任务" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.getByLabelText("任务名称")).toBeInTheDocument();
+    expect(screen.getByLabelText("执行内容")).toBeInTheDocument();
   });
 });

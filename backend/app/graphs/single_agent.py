@@ -9,9 +9,11 @@ from langgraph.graph import END, START, StateGraph
 
 from app.graphs.routing import wants_document, wants_file_document
 from app.graphs.state import SupervisorState
+from app.llm.token_counter import count_tokens
 from app.runtime.agent_stream import _emit_step_delta
+from app.runtime.budget_context import context_window_limit
 from app.runtime.v2.assemble import assemble_system_messages
-from app.runtime.v2.compact import compact_messages
+from app.runtime.v2.compact import COMPACTION_CAP_TOKENS, compact_session_history
 from app.runtime.v2.critic import (
     floor_analysis,
     issues_need_fetch,
@@ -19,7 +21,11 @@ from app.runtime.v2.critic import (
 )
 from app.runtime.v2.loop import inject_forced_fetch, inject_forced_search, run_act_loop
 from app.runtime.v2.office_gate import office_skills_scope
-from app.runtime.v2.session import load_thread, save_thread
+from app.runtime.v2.session import (
+    load_compaction, load_thread, save_compaction, save_thread,
+    write_compaction_transcript,
+)
+from app.runtime.todo_context import get_todo_runtime
 from app.runtime.v2.synthesize import synthesize_answer
 
 _FLOOR_RETRIES = 3
@@ -131,15 +137,51 @@ def compile_single_agent_graph(
             assistant_id=str(state.get("assistant_id") or "") or None,
             enabled_skill_ids=list(state.get("enabled_skill_ids") or []),
             knowledge_bases=list(state.get("knowledge_bases") or []) or None,
+            session_id=session_id,
             user_text=user_text,
         )
-        prior = [
+        canonical = [
             m
             for m in (load_thread(session_id) if session_id else [])
             if not _is_system(m)
         ]
-        prior = await compact_messages(prior, llm=model)
-        assembled = [*prefix, *prior, HumanMessage(content=user_text)]
+        resume_run = bool(get_todo_runtime() and get_todo_runtime().resume_execution)
+        prior = canonical
+        compaction_state = None
+        if not resume_run and session_id:
+            previous_state = load_compaction(session_id)
+            trigger = min(int(context_window_limit() * 0.8), COMPACTION_CAP_TOKENS)
+            history_budget = max(
+                1, trigger - count_tokens([*prefix, HumanMessage(content=user_text)]),
+            )
+            prior, compaction_state = await compact_session_history(
+                canonical, previous_state, llm=model, threshold=history_budget,
+            )
+            if compaction_state is not None:
+                boundary = int(compaction_state["boundary_index"])
+                if previous_state is None or boundary != previous_state.get("boundary_index"):
+                    compaction_state["transcript_path"] = write_compaction_transcript(
+                        session_id, canonical, boundary,
+                    )
+                    save_compaction(session_id, compaction_state)
+        if prior and _is_system(prior[0]):
+            summary = str(prior[0].content)
+            transcript_path = str((compaction_state or {}).get("transcript_path") or "")
+            if transcript_path:
+                summary += (
+                    "\n\n压缩前的逐条原文保存在 " + transcript_path +
+                    "。若摘要缺少依据，请用 conversation_read 按序号读取当前会话原文；"
+                    "也可读取该文件。不要猜测。"
+                )
+            prefix = [SystemMessage(content=f"{prefix[0].content}\n\n[较早对话摘要]\n{summary}")]
+            prior = prior[1:]
+        assembled = [*prefix, *prior]
+        runtime = get_todo_runtime()
+        if runtime is not None and runtime.source == "schedule" and not resume_run:
+            runtime.checkpoint_canonical_prefix = list(canonical)
+            runtime.checkpoint_outbound_prefix_len = len(assembled)
+        if not (resume_run and prior):
+            assembled.append(HumanMessage(content=user_text))
         with office_skills_scope(wants_document(user_text)):
             result = await run_with_floor_retries(
                 model, tools or [], assembled, user_text
@@ -209,7 +251,18 @@ def compile_single_agent_graph(
             ):
                 result = [*result, AIMessage(content=final)]
         if session_id:
-            save_thread(session_id, [m for m in result if not _is_system(m)])
+            if resume_run:
+                save_thread(session_id, [m for m in result if not _is_system(m)])
+            else:
+                # `result` contains the compacted outbound view. Persist only this
+                # turn's additions after the full canonical transcript.
+                additions = [
+                    m for m in result[len(assembled):]
+                    if not _is_system(m)
+                    and not (str(getattr(m, "type", "")) == "human"
+                             and str(getattr(m, "content", "")).startswith("[Instruction]"))
+                ]
+                save_thread(session_id, [*canonical, *([HumanMessage(content=user_text)]), *additions])
         return {"messages": _delta_after_last_human(result), "round": 0}
 
     single_agent_node.__name__ = "single_agent_node"

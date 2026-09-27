@@ -88,6 +88,44 @@ function BrowserHub() {
   const [port, setPort] = useState("9222");
   const [status, setStatus] = useState("");
   const [extEnabled, setExtEnabled] = useState(false);
+  const [agentBrowser, setAgentBrowser] = useState<{ open: boolean; status: string; url: string; title: string } | null>(null);
+  const [agentImage, setAgentImage] = useState("");
+  const [agentError, setAgentError] = useState("");
+  const [restartingAgentBackend, setRestartingAgentBackend] = useState(false);
+
+  useEffect(() => {
+    if (section !== "agent") return;
+    let disposed = false;
+    async function refreshAgent() {
+      try {
+        const backendUrl = await window.api.getBackendUrl();
+        if (!backendUrl || disposed) return;
+        const stateResponse = await fetch(`${backendUrl}/api/browser/state`);
+        if (!stateResponse.ok) {
+          if (stateResponse.status === 404) {
+            throw new Error("当前运行的后端缺少代理浏览器接口（404）。更新代码后请重启后端；若使用安装包，请更新应用。");
+          }
+          throw new Error(`浏览器状态读取失败 (${stateResponse.status})`);
+        }
+        const state = await stateResponse.json() as { open: boolean; status: string; url: string; title: string };
+        if (disposed) return;
+        setAgentBrowser(state);
+        setAgentError("");
+        if (!state.open) { setAgentImage(""); return; }
+        const screenshotResponse = await fetch(`${backendUrl}/api/browser/screenshot`);
+        const shot = await screenshotResponse.json() as { image?: string; error?: string };
+        if (!disposed) {
+          setAgentImage(shot.image || "");
+          setAgentError(shot.error || "");
+        }
+      } catch (error) {
+        if (!disposed) setAgentError(error instanceof Error ? error.message : String(error));
+      }
+    }
+    void refreshAgent();
+    const interval = setInterval(() => void refreshAgent(), 4000);
+    return () => { disposed = true; clearInterval(interval); };
+  }, [section]);
 
   async function refresh() {
     try {
@@ -113,7 +151,8 @@ function BrowserHub() {
         <TabsList appearance="ghost" className="w-full">
           {(
             [
-              ["cdp", "连接"],
+              ["agent", "代理浏览器"],
+              ["cdp", "外部 CDP"],
               ["extension", "插件"],
               ["cookies", "Cookie"],
             ] as const
@@ -125,6 +164,51 @@ function BrowserHub() {
         </TabsList>
       </aside>
       <div className="m-auto flex h-auto w-full min-w-0 flex-1 flex-col">
+        {section === "agent" && (
+          <div className="px-6 pb-8 pt-8">
+            <div className="mb-5 text-heading-sm font-bold text-ds-text-neutral-default-default">代理浏览器</div>
+            <div className="overflow-hidden rounded-2xl bg-ds-bg-neutral-default-default p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <span className={cn("h-2.5 w-2.5 rounded-full", agentBrowser?.open ? "bg-green-500" : "bg-slate-300")} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{agentBrowser?.title || (agentBrowser?.open ? "浏览器已打开" : "等待代理打开浏览器")}</div>
+                  <div className="truncate text-xs text-ds-text-neutral-muted-default">{agentBrowser?.url || "代理使用内置 Playwright Chromium 时，这里会显示当前页面。"}</div>
+                </div>
+              </div>
+              {agentError && <p className="mb-3 text-xs text-ds-text-error-default-default">{agentError}</p>}
+              {agentError.includes("缺少代理浏览器接口") && (
+                <div className="mb-4 flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={restartingAgentBackend}
+                    onClick={async () => {
+                      setRestartingAgentBackend(true);
+                      try {
+                        await window.api.restartBackend?.();
+                        setAgentError("");
+                      } catch (error) {
+                        setAgentError(error instanceof Error ? error.message : "重启后端失败");
+                      } finally {
+                        setRestartingAgentBackend(false);
+                      }
+                    }}
+                  >
+                    {restartingAgentBackend ? "正在重启…" : "重启后端"}
+                  </Button>
+                  <span className="text-xs text-ds-text-neutral-muted-default">重启会中断正在执行的任务</span>
+                </div>
+              )}
+              {agentImage ? (
+                <img src={agentImage} alt="代理浏览器当前页面" className="w-full rounded-xl border border-ds-border-neutral-default-default" />
+              ) : (
+                <div className="flex min-h-64 items-center justify-center rounded-xl bg-ds-bg-neutral-subtle-default text-sm text-ds-text-neutral-muted-default">
+                  {agentBrowser?.open ? "正在获取页面预览…" : "暂无浏览器页面"}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {section === "cdp" && (
           <>
             {/* Adapted from eigent CDP.tsx */}
@@ -263,7 +347,7 @@ export default function HubView() {
   }, [hubTab]);
 
   return (
-    <div className="flex h-full w-full flex-1 flex-col px-1 pb-1">
+    <div className="hub-view flex h-full w-full flex-1 flex-col px-1 pb-1">
       {/* Grey scroll page — white welcome/nav sit on top */}
       <div className="scrollbar-hide h-full overflow-y-auto rounded-2xl bg-ds-bg-neutral-subtle-default">
         <div className="flex w-full flex-row flex-wrap items-center justify-between gap-x-5 gap-y-3 bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] py-8">

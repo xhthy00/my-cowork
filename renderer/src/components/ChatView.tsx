@@ -13,6 +13,7 @@ import type { SSEvent } from "../api/sse";
 import GridPatternBackground from "./Background/GridPatternBackground";
 import ChatBar from "./chat/ChatBar";
 import ChatConfirmCard, { ChatConfirmRecordGroup } from "./chat/ChatConfirmCard";
+import HumanQuestionCard from "./chat/HumanQuestionCard";
 import WorkspaceOverlaysBar from "./workspace/WorkspaceOverlaysBar";
 import OnboardingHint from "./workspace/OnboardingHint";
 import MessageContent from "./chat/MessageContent";
@@ -300,6 +301,40 @@ function AssistantBody({ content, streaming }: { content: string; streaming?: bo
   );
 }
 
+function MemoryNoticeCard({ message }: { message: Message }) {
+  const notice = message.memoryNotice!;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function undo() {
+    setBusy(true); setError("");
+    try {
+      const base = await window.api.getBackendUrl();
+      if (!base) throw new Error("后端未连接");
+      const response = await fetch(`${base}/api/memory/${notice.memoryId}`, notice.previous
+        ? { method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: notice.previous }) }
+        : { method: "DELETE" });
+      if (!response.ok) throw new Error(`撤销失败 (${response.status})`);
+      const activeId = useSessionsStore.getState().activeId;
+      const store = activeId ? getProjectRuntime(activeId).session : useSessionStore;
+      store.setState((state) => ({ messages: state.messages.map((item) =>
+        item.id === message.id && item.memoryNotice
+          ? { ...item, memoryNotice: { ...item.memoryNotice, undone: true } }
+          : item,
+      ) }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "撤销失败");
+    } finally { setBusy(false); }
+  }
+
+  return <div className="flex max-w-full items-center gap-2 rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default px-3 py-2 text-sm">
+    <span className="min-w-0 flex-1 truncate">{notice.undone ? "已撤销记忆变更" : `${notice.previous ? "已更新记忆" : "已记住"} · ${notice.content}`}</span>
+    {!notice.undone ? <Button size="xs" variant="ghost" disabled={busy} onClick={() => void undo()}>撤销</Button> : null}
+    {error ? <span role="alert" className="text-red-600">{error}</span> : null}
+  </div>;
+}
+
 function AssistantTimeline({
   assistants,
   streaming,
@@ -311,6 +346,16 @@ function AssistantTimeline({
   let i = 0;
   while (i < assistants.length) {
     const msg = assistants[i];
+    if (msg.memoryNotice) {
+      nodes.push(<MemoryNoticeCard key={msg.id} message={msg} />);
+      i++;
+      continue;
+    }
+    if (msg.humanQuestion) {
+      nodes.push(<HumanQuestionCard key={msg.id} question={msg.humanQuestion} text={msg.content} />);
+      i++;
+      continue;
+    }
     if (msg.confirm && msg.confirm.status !== "pending") {
       const group: Message[] = [];
       while (
@@ -364,28 +409,22 @@ function bindChatHandlers(
   beginRun: () => void,
   activeId: string | null,
   touchSession: (id: string, patch?: Parameters<ReturnType<typeof useSessionsStore.getState>["touchSession"]>[1]) => void,
-  messages: { role: string; content: string }[],
 ) {
   return {
     onEvent: (ev: SSEvent, projectId?: string) => {
       const pid = projectId || activeId;
       if (pid) dispatchProjectEvent(pid, ev);
       else handleEvent(ev);
-      if (ev.type === "graph.start" && pid) {
-        const firstUser = messages.find((x) => x.role === "user")?.content || "";
-        touchSession(pid, {
-          title: displayTitleFromUserContent(firstUser),
-        });
-      }
     },
     onSend: (text: string) => {
       if (activeId) {
         const rt = getProjectRuntime(activeId);
+        const isFirstPrompt = !rt.session.getState().messages.some((m) => m.role === "user");
         rt.session.getState().addUserMessage(text);
         rt.session.getState().beginRun();
         rt.workforce.getState().seedPlan(planTodosFromQuery(text));
         touchSession(activeId, {
-          title: displayTitleFromUserContent(text),
+          ...(isFirstPrompt ? { title: displayTitleFromUserContent(text) } : {}),
           status: "running",
         });
         return;
@@ -404,6 +443,11 @@ export default function ChatView() {
   const wasRunningRef = useRef(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const messages = useSessionStore((s) => s.messages);
+  const pendingQuestion = [...messages].reverse().find((m) => m.humanQuestion?.status === "pending")?.humanQuestion;
+  const pendingQuestionKey = messages
+    .filter((m) => m.humanQuestion?.status === "pending")
+    .map((m) => m.humanQuestion?.question_id)
+    .join(",");
   const confirmQueueLen = useSessionStore((s) => s.confirmQueue.length);
   const confirmCallId = useSessionStore((s) => s.confirmQueue[0]?.call_id);
   const addUserMessage = useSessionStore((s) => s.addUserMessage);
@@ -424,6 +468,36 @@ export default function ChatView() {
   const setActive = useSessionsStore((s) => s.setActive);
   const sessionMode = useWorkforceStore((s) => s.sessionMode);
   const [stopping, setStopping] = useState(false);
+
+  useEffect(() => {
+    if (!activeId) return;
+    let disposed = false;
+    const runtime = getProjectRuntime(activeId);
+    const pending = runtime.session.getState().messages
+      .map((m) => m.humanQuestion)
+      .filter((q): q is NonNullable<Message["humanQuestion"]> => Boolean(q && q.status === "pending"));
+    if (!pending.length) return;
+    void (async () => {
+      const backendUrl = await window.api.getBackendUrl();
+      if (!backendUrl || disposed) return;
+      for (const taskId of new Set(pending.map((q) => q.task_id))) {
+        try {
+          const response = await fetch(`${backendUrl}/api/chat/${encodeURIComponent(taskId)}/pending-questions`);
+          if (!response.ok || disposed) continue;
+          const body = await response.json() as { questions?: Array<{ question_id: string }> };
+          const active = new Set((body.questions ?? []).map((q) => q.question_id));
+          for (const q of pending) {
+            if (q.task_id === taskId && !active.has(q.question_id)) {
+              runtime.session.getState().cancelHumanQuestion(q.question_id);
+            }
+          }
+        } catch {
+          // A temporary connection failure should not discard the pending answer.
+        }
+      }
+    })();
+    return () => { disposed = true; };
+  }, [activeId, pendingQuestionKey]);
 
   useEffect(() => {
     // AionUi behavior: only auto-follow the stream while the user is near the bottom.
@@ -504,7 +578,6 @@ export default function ChatView() {
     beginRun,
     activeId,
     touchSession,
-    messages,
   );
 
   const activeProject = sessions.find((s) => s.id === activeId);
@@ -523,9 +596,9 @@ export default function ChatView() {
   if (messages.length === 0) {
     const recentPreview = recent.slice(0, 3);
     return (
-      <section className="main relative z-[1] flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <section className="main chat-empty relative z-[1] flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <GridPatternBackground />
-        <div className="relative z-[1] mx-auto flex h-full w-full max-w-[560px] min-h-0 flex-col px-4">
+        <div className="relative z-[1] mx-auto flex h-full w-full max-w-[680px] min-h-0 flex-col px-4">
           <div className="scrollbar-hide flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-x-hidden overflow-y-auto py-4">
             <div className="flex w-full flex-col items-center">
               <img
@@ -601,7 +674,7 @@ export default function ChatView() {
           </div>
 
           {recentPreview.length > 0 && (
-            <div className="w-full shrink-0 pb-5 pt-1">
+            <div className="recent-runs w-full shrink-0 pb-5 pt-1">
               <div className="mb-1.5 flex w-full items-center justify-between gap-2 px-1 text-ds-text-neutral-muted-default">
                 <h2 className="text-body-sm font-semibold">最近运行</h2>
                 <button
@@ -613,12 +686,12 @@ export default function ChatView() {
                   <ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/all:opacity-100" />
                 </button>
               </div>
-              <div className="flex flex-col">
+              <div className="recent-run-list flex flex-col">
                 {recentPreview.map((s) => (
                   <button
                     key={s.id}
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-body-sm text-ds-text-neutral-muted-default hover:bg-ds-bg-neutral-subtle-default hover:text-ds-text-neutral-default-default"
+                    className="recent-run flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-body-sm text-ds-text-neutral-muted-default hover:bg-ds-bg-neutral-subtle-default hover:text-ds-text-neutral-default-default"
                     onClick={() => setActive(s.id)}
                   >
                     {s.status === "done" ? (
@@ -681,10 +754,10 @@ export default function ChatView() {
           );
           const lastWithContent = [...turn.assistants]
             .reverse()
-            .find((m) => !m.confirm && m.content.trim());
-          const hasConfirm = turn.assistants.some((m) => m.confirm);
+            .find((m) => !m.confirm && !m.humanQuestion && !m.memoryNotice && m.content.trim());
+          const hasConfirm = turn.assistants.some((m) => m.confirm || m.humanQuestion || m.memoryNotice);
           const hasAnswer = turn.assistants.some(
-            (m) => !m.confirm && Boolean(m.content.trim()),
+            (m) => !m.confirm && !m.humanQuestion && !m.memoryNotice && Boolean(m.content.trim()),
           );
           const hasContent = hasConfirm || hasAnswer;
           return (
@@ -760,10 +833,10 @@ export default function ChatView() {
           <ComposerLiveStatus />
           <ChatBar
             {...handlers}
-            placeholder={runStatus === "running" ? "任务进行中，完成后可继续追问…" : "继续追问…"}
+            placeholder={pendingQuestion ? "回复代理的问题…" : runStatus === "running" ? "任务进行中，完成后可继续追问…" : "继续追问…"}
             showFooter
             modeInteractive={false}
-            disabled={runStatus === "running"}
+            disabled={runStatus === "running" && !pendingQuestion}
             stopping={stopping}
             onStop={() => void stopTask()}
           />

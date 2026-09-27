@@ -39,5 +39,6 @@ describe("userAttachments", () => {
         "[附件: /Users/me/Documents/关于议案.docx]",
       ),
     ).toBe("关于议案.docx");
+    expect(displayTitleFromUserContent("")).toBe("新对话");
   });
 });

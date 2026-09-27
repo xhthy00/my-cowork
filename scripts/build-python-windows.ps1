@@ -3,6 +3,9 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location "$Root\backend"
 uv sync
+$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $Root "build\playwright-browsers"
+uv run python -m playwright install --no-shell chromium
+if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed" }
 uv run pyinstaller "$Root\build\pyinstaller\windows.spec" --distpath "$Root\dist" --workpath "$Root\build\pyinstaller\work-windows" -y
 $Bin = "$Root\dist\python_runtime\python.exe"
 if (-not (Test-Path $Bin)) {

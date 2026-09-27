@@ -10,10 +10,11 @@ import type { UpdaterStatus } from "@/window";
 import ModelsPanel from "./ModelsPanel";
 import ChannelsPanel from "./channels/ChannelsPanel";
 import SearchPanel from "./SearchPanel";
+import AuditPanel from "./AuditPanel";
 import ScheduleView from "@/components/schedule/ScheduleView";
 import { openKeepAwakeSettings, takeSettingsTabPending } from "./KeepAwakeBanner";
 
-type TabId = "general" | "schedule" | "model" | "paths" | "channels" | "search";
+type TabId = "general" | "schedule" | "model" | "paths" | "channels" | "search" | "audit";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "general", label: "通用" },
@@ -22,6 +23,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "paths", label: "隐私 / 白名单" },
   { id: "search", label: "检索" },
   { id: "channels", label: "远程连接" },
+  { id: "audit", label: "操作审计" },
 ];
 
 const APPEARANCE_OPTIONS: { id: Appearance; label: string }[] = [
@@ -418,6 +420,7 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
             )}
 
             {!embedded && tab === "search" && <SearchPanel />}
+            {!embedded && tab === "audit" && <AuditPanel />}
             {!embedded && tab === "channels" && (
               <ChannelsPanel onOpenKeepAwake={openKeepAwakeSettings} />
             )}

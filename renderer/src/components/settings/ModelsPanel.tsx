@@ -331,6 +331,7 @@ export default function ModelsPanel() {
       <button
         key={tabId}
         type="button"
+        data-active={isActive}
         onClick={() => {
           const preset = findPreset(
             tabId.startsWith("local-") ? tabId.slice(6) : tabId.slice(5),
@@ -338,7 +339,7 @@ export default function ModelsPanel() {
           if (preset) applyPreset(preset, profileForPreset(models, preset));
         }}
         className={cn(
-          "flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors duration-200",
+          "model-provider flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors duration-200",
           isActive
             ? "bg-ds-bg-neutral-subtle-default hover:bg-ds-bg-neutral-subtle-default"
             : "bg-transparent hover:bg-ds-bg-neutral-subtle-default/70",

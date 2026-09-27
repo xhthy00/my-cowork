@@ -48,7 +48,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 - **办公助手目录**：按场景预加载 Skill，一键开始写周报、公文、表单、仪表盘、财务模型或合同审查。
 - **Skills + SkillHub**：本机技能可开关、可授权给指定智能体；也可从 SkillHub 浏览、安装套件。
 - **自带模型面板**：Anthropic / OpenAI / OpenRouter / DeepSeek / 通义 / Moonshot / MiniMax，以及 Ollama、LM Studio、vLLM 本地模型。Key 存在系统钥匙串，校验通过才保存。
-- **连接器与浏览器**：MCP 连接日常工具；内置浏览器自动化（Playwright MCP，按需安装 Chromium）。
+- **连接器与浏览器**：MCP 连接日常工具；内置 Playwright 浏览器支持打开、读取、点击、输入、选择、上传、等待和截图。安装包自带 Chromium；从源码开发时运行 `backend/.venv/bin/python -m playwright install chromium`。
 - **记忆、定时、调度**：长期记忆写入本机 SQLite；带 `schedule` 的 Skill 由本机 APScheduler 触发（应用保持运行才会执行）。
 - **可选远程入口**：飞书机器人经 Cloudflare Tunnel 把本机 `/webhook/lark` 暴露为 HTTPS（关机则不可达）。
 

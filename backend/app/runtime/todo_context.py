@@ -15,9 +15,24 @@ class TodoRuntime:
     agent_id: str = "single_agent"
     todos: list[dict[str, Any]] = field(default_factory=list)
     user_text: str = ""
+    human_input_hub: Any = None
+    source: str = "user"
+    project_id: str | None = None
+    space_id: str | None = None
+    workspace: str | None = None
+    memory_root: str | None = None
+    assistant_id: str | None = None
+    session_id: str | None = None
+    resume_execution: bool = False
+    automation_run_id: str | None = None
+    automation_store: Any = None
+    checkpoint_canonical_prefix: list[Any] | None = None
+    checkpoint_outbound_prefix_len: int = 0
 
 
 _todo_runtime: ContextVar[TodoRuntime | None] = ContextVar("todo_runtime", default=None)
+_current_agent: ContextVar[str | None] = ContextVar("todo_current_agent", default=None)
+_checkpoint_key: ContextVar[str | None] = ContextVar("automation_checkpoint_key", default=None)
 
 
 def set_todo_runtime(runtime: TodoRuntime | None):
@@ -32,12 +47,34 @@ def get_todo_runtime() -> TodoRuntime | None:
     return _todo_runtime.get()
 
 
+def get_current_agent_id() -> str | None:
+    """Agent for this async branch, including parallel workforce workers."""
+    return _current_agent.get()
+
+
+def get_automation_checkpoint_key() -> str | None:
+    return _checkpoint_key.get()
+
+
+@contextmanager
+def automation_checkpoint_scope(key: str) -> Iterator[None]:
+    token = _checkpoint_key.set(key)
+    try:
+        yield
+    finally:
+        _checkpoint_key.reset(token)
+
+
 @contextmanager
 def todo_agent_scope(agent_id: str) -> Iterator[None]:
     """Tag TraceBus events with the worker currently running (Eigent: per-agent log)."""
+    token = _current_agent.set(agent_id)
     rt = get_todo_runtime()
     if rt is None:
-        yield
+        try:
+            yield
+        finally:
+            _current_agent.reset(token)
         return
     prev = rt.agent_id
     rt.agent_id = agent_id
@@ -45,3 +82,4 @@ def todo_agent_scope(agent_id: str) -> Iterator[None]:
         yield
     finally:
         rt.agent_id = prev
+        _current_agent.reset(token)

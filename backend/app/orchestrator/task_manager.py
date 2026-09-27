@@ -89,6 +89,10 @@ class TaskRequest:
     enabled_skill_ids: list[str] | None = None
     knowledge_bases: list[dict[str, Any]] | None = None
     session_id: str | None = None
+    resume_execution: bool = False
+    run_started_at: float | None = None
+    automation_run_id: str | None = None
+    automation_store: Any = None
 
 
 @dataclass
@@ -97,6 +101,7 @@ class _Task:
 
     task_id: str
     text: str
+    source: str = "user"
     session_mode: str = "workforce"
     memory_enabled: bool = True
     history: list[dict[str, Any]] | None = None
@@ -108,6 +113,10 @@ class _Task:
     enabled_skill_ids: list[str] | None = None
     knowledge_bases: list[dict[str, Any]] | None = None
     session_id: str | None = None
+    resume_execution: bool = False
+    run_started_at: float | None = None
+    automation_run_id: str | None = None
+    automation_store: Any = None
 
 
 class TaskManager:
@@ -126,6 +135,7 @@ class TaskManager:
         planner_llm: Any = None,
         single_agent_graph: Any | None = None,
         confirm_hub: Any | None = None,
+        human_input_hub: Any | None = None,
         notes_root: Path | str | None = None,
         task_store: Any = None,
         short_term: Any = None,
@@ -140,6 +150,7 @@ class TaskManager:
         self.max_total_tokens = max_total_tokens
         self.planner_llm = planner_llm
         self.confirm_hub = confirm_hub
+        self.human_input_hub = human_input_hub
         self.notes_root = Path(notes_root) if notes_root else None
         self.task_store = task_store
         self.short_term = short_term
@@ -170,6 +181,8 @@ class TaskManager:
 
     def cancel(self, task_id: str) -> bool:
         """Request cancellation of a running task. Returns True if signaled."""
+        if self.human_input_hub is not None:
+            self.human_input_hub.cancel_task(task_id)
         ev = self._cancel_events.get(task_id)
         signaled = False
         if ev is not None and not ev.is_set():
@@ -253,6 +266,10 @@ class TaskManager:
             enabled_skill_ids: list[str] = []
             knowledge_bases: list[dict[str, Any]] = []
             session_id = None
+            resume_execution = False
+            run_started_at = None
+            automation_run_id = None
+            automation_store = None
             enabled_mcp: list[str] | None = None
             req_obj = TaskRequest(text=text, task_id=task_id)
         else:
@@ -269,6 +286,10 @@ class TaskManager:
             enabled_skill_ids = list(task_req.enabled_skill_ids or [])
             knowledge_bases = list(task_req.knowledge_bases or [])
             session_id = task_req.session_id or task_req.project_id
+            resume_execution = task_req.resume_execution
+            run_started_at = task_req.run_started_at
+            automation_run_id = task_req.automation_run_id
+            automation_store = task_req.automation_store
             enabled_mcp = task_req.enabled_mcp
             req_obj = task_req
 
@@ -295,6 +316,7 @@ class TaskManager:
         task = _Task(
             task_id=task_id,
             text=text,
+            source=source,
             session_mode=session_mode,
             memory_enabled=memory_enabled,
             history=history,
@@ -306,6 +328,10 @@ class TaskManager:
             enabled_skill_ids=enabled_skill_ids or None,
             knowledge_bases=knowledge_bases or None,
             session_id=session_id,
+            resume_execution=resume_execution,
+            run_started_at=run_started_at,
+            automation_run_id=automation_run_id,
+            automation_store=automation_store,
         )
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         budget = self._new_budget()
@@ -342,6 +368,7 @@ class TaskManager:
                     metrics=self.metrics,
                     planner_llm=self.planner_llm,
                     confirm_hub=self.confirm_hub,
+                    human_input_hub=self.human_input_hub,
                     notes_root=self.notes_root,
                     cancel_event=cancel_event,
                 ):
@@ -398,6 +425,8 @@ class TaskManager:
                     self._set_status(task_id, final, source=source, text=text)
                     break
         finally:
+            if self.human_input_hub is not None:
+                self.human_input_hub.cancel_task(task_id)
             unsub()
             reset_enabled_mcp(mcp_token)
             reset_remote_channel(remote_token)

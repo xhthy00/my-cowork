@@ -62,6 +62,7 @@ from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
 )
+from app.runtime.v2.office_gate import is_office_write_command
 from app.runtime.v2.synthesize import (
     extract_worker_summary,
     is_process_meta as _is_process_meta,
@@ -80,12 +81,18 @@ _OFFICE_ABS_FILE_RE = re.compile(
     r"\.(?:docx?|pptx?|xlsx|pdf))",
     re.IGNORECASE,
 )
+_OFFICE_FILE_TOKEN_RE = re.compile(
+    r"(?P<path>(?:~|/|[A-Za-z]:\\)[^\s\"'`，。；]+?\.(?:docx?|pptx?|xlsx?|pdf)"
+    r"|[^\s\"'`/\\]+?\.(?:docx?|pptx?|xlsx?|pdf))",
+    re.IGNORECASE,
+)
 _WRITE_TOOLS = frozenset(
     {
         "docx_gen",
         "pptx_gen",
         "xlsx_gen",
         "pdf_gen",
+        "docx_gongwen_format",
         "fs.write",
         "fs_write",
     }
@@ -177,6 +184,55 @@ def _content_blob(update: Any) -> str:
         else:
             parts.append(str(getattr(msg, "content", "") or ""))
     return "\n".join(parts)
+
+
+def _tool_cmds_from_update(update: Any) -> dict[str, str]:
+    """Map tool_call id → cmd/path blob from AIMessages in this graph update."""
+    out: dict[str, str] = {}
+    if not isinstance(update, dict):
+        return out
+    for msg in update.get("messages") or []:
+        calls = getattr(msg, "tool_calls", None)
+        if not calls and isinstance(msg, dict):
+            calls = msg.get("tool_calls")
+        if not calls:
+            extra = getattr(msg, "additional_kwargs", None) or {}
+            if isinstance(extra, dict):
+                calls = extra.get("tool_calls")
+            elif isinstance(msg, dict):
+                extra = msg.get("additional_kwargs") or {}
+                if isinstance(extra, dict):
+                    calls = extra.get("tool_calls")
+        for call in calls or []:
+            if isinstance(call, dict):
+                cid = str(call.get("id") or "")
+                args = call.get("args") or call.get("arguments") or {}
+            else:
+                cid = str(getattr(call, "id", "") or "")
+                args = getattr(call, "args", None) or {}
+            if not cid:
+                continue
+            if isinstance(args, dict):
+                blob = " ".join(
+                    str(args.get(key) or "")
+                    for key in ("cmd", "command", "path", "out_path")
+                )
+            else:
+                blob = str(args)
+            if blob.strip():
+                out[cid] = blob
+    return out
+
+
+def _office_file_tokens(text: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for m in _OFFICE_FILE_TOKEN_RE.finditer(text or ""):
+        raw = m.group("path").strip().rstrip("`'\".,;:)")
+        if raw and raw not in seen:
+            seen.add(raw)
+            found.append(raw)
+    return found
 
 
 def _track_path(
@@ -455,6 +511,7 @@ async def run_graph(
     compress_threshold: int = 120_000,
     planner_llm: Any = None,
     confirm_hub: Any = None,
+    human_input_hub: Any = None,
     notes_root: Path | str | None = None,
     cancel_event: Any = None,
 ) -> AsyncIterator[dict[str, Any]]:
@@ -481,7 +538,7 @@ async def run_graph(
         notes_token = set_notes_runtime(
             NotesRuntime(task_id=task_id, root=Path(notes_root))
         )
-    if getattr(task, "memory_enabled", True) and long_term is not None:
+    if long_term is not None:
         memory_token = set_long_term_runtime(long_term)
 
     budget_token = None
@@ -548,7 +605,23 @@ async def run_graph(
         workspace_token = None
         frozen = None
 
-    todo_rt = TodoRuntime(task_id=task_id, bus=bus, agent_id=agent_id, user_text=plan_ask)
+    todo_rt = TodoRuntime(
+        task_id=task_id,
+        bus=bus,
+        agent_id=agent_id,
+        user_text=plan_ask,
+        human_input_hub=human_input_hub,
+        source=str(getattr(task, "source", "user")),
+        project_id=getattr(task, "project_id", None),
+        space_id=getattr(task, "space_id", None),
+        workspace=str(frozen.working_directory) if frozen is not None else None,
+        memory_root=str(getattr(task, "space_root_path", None) or "") or None,
+        assistant_id=getattr(task, "assistant_id", None),
+        session_id=getattr(task, "session_id", None),
+        resume_execution=bool(getattr(task, "resume_execution", False)),
+        automation_run_id=getattr(task, "automation_run_id", None),
+        automation_store=getattr(task, "automation_store", None),
+    )
     todo_token = set_todo_runtime(todo_rt)
     workers_ran = 0
     run_messages: list[Any] = []
@@ -557,15 +630,16 @@ async def run_graph(
     confirmed: list[dict[str, Any]] | None = None
     live_subtasks: list[dict[str, Any]] = []
     written_paths: set[str] = set()
+    tool_cmds: dict[str, str] = {}
     # Files older than this timestamp were not produced by the current run —
     # merely mentioning their path must not surface them as new deliverables.
-    run_started_at = time.time()
+    run_started_at = getattr(task, "run_started_at", None) or time.time()
     workdir: Path | None = (
         Path(frozen.working_directory) if frozen is not None else None
     )
     gongwen_token = enable_gongwen_format(task_wants_gongwen_format(task))
 
-    start_event = _event(task_id, "graph.start")
+    start_event = _event(task_id, "graph.start", session_id=getattr(task, "session_id", None) or project_id)
     bus.emit(start_event)
     yield start_event
 
@@ -573,7 +647,22 @@ async def run_graph(
         yield roster_ev
 
     try:
-        if session_mode == "workforce":
+        run_config = {"configurable": {"thread_id": task_id}}
+        resume_snapshot = None
+        if getattr(task, "resume_execution", False):
+            try:
+                resume_snapshot = await graph.aget_state(run_config)
+                if resume_snapshot is not None and not resume_snapshot.values:
+                    resume_snapshot = None
+            except Exception:
+                resume_snapshot = None
+        if session_mode == "workforce" and resume_snapshot is not None:
+            confirmed = list(resume_snapshot.values.get("subtasks") or [])
+            live_subtasks = list(confirmed)
+            todos = _subtasks_to_todos(confirmed)
+            todo_rt.todos = todos
+            workers_ran = sum(1 for item in confirmed if item.get("status") in {"completed", "failed"})
+        elif session_mode == "workforce":
             subtasks = await decompose_subtasks(plan_ask, planner_llm)
             if subtasks:
                 decomp = _event(
@@ -646,16 +735,17 @@ async def run_graph(
                 bus.emit(mem_ev)
                 yield mem_ev
 
-        run_config = {
-            # One checkpoint per task run. Reusing session/project id caused
-            # the next question to inherit round>=16 and skip workers.
-            "configurable": {
-                "thread_id": task_id,
-            }
-        }
+        # One checkpoint per task run. Reusing session/project id caused the
+        # next question to inherit round>=16 and skip workers.
         last_graph_node = ""
+        graph_input = None if resume_snapshot is not None else state
+        if resume_snapshot is not None and not resume_snapshot.next:
+            run_messages = list(resume_snapshot.values.get("messages") or [])
+            if session_mode == "workforce":
+                last_graph_node = "synthesize"
         async for chunk in graph.astream(
-            state, config=run_config, stream_mode="updates"
+            graph_input,
+            config=run_config, stream_mode="updates"
         ):
             if _cancelled():
                 for ev in _emit_graph_end(
@@ -776,6 +866,7 @@ async def run_graph(
                     written_paths=written_paths,
                     workdir=workdir,
                     min_mtime=run_started_at,
+                    tool_cmds=tool_cmds,
                 ):
                     yield tool_ev
 
@@ -964,6 +1055,16 @@ async def run_graph(
             )
             if last:
                 end_extra["summary"] = last
+        if session_mode == "workforce":
+            from langchain_core.messages import AIMessage, HumanMessage
+            from app.runtime.v2.session import append_run
+
+            answer = str(end_extra.get("summary") or end_extra.get("error") or "").strip()
+            if answer:
+                append_run(
+                    str(getattr(task, "session_id", None) or task_id),
+                    [HumanMessage(content=user_ask), AIMessage(content=answer)],
+                )
         for ev in _emit_graph_end(
             bus,
             task_id,
@@ -1053,11 +1154,14 @@ def _tool_result_events(
     written_paths: set[str] | None = None,
     workdir: Path | None = None,
     min_mtime: float | None = None,
+    tool_cmds: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Emit ``tool.result`` for ToolMessages present in a graph update."""
     if not isinstance(update, dict):
         return []
     events: list[dict[str, Any]] = []
+    cmds = tool_cmds if tool_cmds is not None else {}
+    cmds.update(_tool_cmds_from_update(update))
     for msg in update.get("messages") or []:
         mtype = getattr(msg, "type", None) or (
             msg.get("type") if isinstance(msg, dict) else None
@@ -1078,23 +1182,27 @@ def _tool_result_events(
             )
             content = getattr(msg, "content", None)
         result_text = content if isinstance(content, str) else str(content)
+        cmd = cmds.get(call_id, "")
         if written_paths is not None:
             for m in _WROTE_PATH_RE.finditer(result_text):
                 _track_path(written_paths, m.group("path"), workdir=workdir)
             if tool_name in _BASH_TOOLS:
                 for m in _OFFICE_ABS_FILE_RE.finditer(result_text):
                     _track_path(written_paths, m.group("path"), workdir=workdir)
-        # Eigent FileToolkit: only write-family tools become chat artifacts.
-        # officecli via bash is tracked for completion gating, not surfaced.
+        # Write-family tools and officecli mutating commands become chat artifacts.
+        # officecli view/ls is still tracked for completion gating only.
         candidate_paths: list[str] = []
         write_name = tool_name.lower()
         is_write = write_name in _WRITE_TOOLS or write_name.endswith("fs_write")
+        is_office_bash = tool_name in _BASH_TOOLS and is_office_write_command(cmd)
         if is_write:
             for m in _WROTE_PATH_RE.finditer(result_text):
                 candidate_paths.append(m.group("path").strip())
             last = result_text.strip().splitlines()[-1] if result_text.strip() else ""
             if last:
                 candidate_paths.append(last)
+        if is_office_bash:
+            candidate_paths.extend(_office_file_tokens(f"{cmd}\n{result_text}"))
 
         seen_art: set[str] = set()
         for cand in candidate_paths:
@@ -1164,4 +1272,3 @@ def _tool_result_events(
             bus.emit(preview)
             events.append(preview)
     return events
-

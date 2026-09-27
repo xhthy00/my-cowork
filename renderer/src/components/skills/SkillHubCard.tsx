@@ -41,7 +41,7 @@ export default function SkillHubCard({
   const showIcon = Boolean(skill.iconUrl) && !iconFailed;
 
   return (
-    <div className="flex flex-col rounded-2xl bg-ds-bg-neutral-subtle-default p-4">
+    <div className="skillhub-card flex flex-col rounded-2xl bg-ds-bg-neutral-subtle-default p-4">
       <div className="mb-2 flex items-start gap-2">
         {showIcon ? (
           <img

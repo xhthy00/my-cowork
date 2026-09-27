@@ -1,6 +1,6 @@
 /**
  * Adapted from eigent: pages/Home (toolbar + Spaces/Projects/Tasks/Triggers).
- * Spaces/Projects are local; Triggers remain a stub.
+ * Spaces/Projects are local; Triggers show persistent scheduled automations.
  */
 import {
   ArrowUpDown,
@@ -15,12 +15,12 @@ import {
   Plus,
   PlusCircle,
   Trash2,
-  Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import SearchInput from "@/components/hub/SearchInput";
-import { openScheduleSettings } from "@/components/settings/KeepAwakeBanner";
+import ScheduleView from "@/components/schedule/ScheduleView";
+import { automationApi, type Automation } from "@/api/automations";
 import AlertDialog from "@/components/ui/alertDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,7 +41,7 @@ import {
 import { useSpacesStore, type CoworkSpace } from "@/store/spaces";
 
 const homeHubSurfaceClass =
-  "cursor-pointer rounded-xl border border-transparent bg-ds-bg-neutral-default-default px-6 py-4 text-left shadow-sm transition-colors duration-200 hover:border-ds-border-neutral-subtle-default hover:bg-ds-bg-neutral-subtle-default";
+  "home-hub-card cursor-pointer rounded-xl border border-transparent bg-ds-bg-neutral-default-default px-6 py-4 text-left shadow-sm transition-colors duration-200 hover:border-ds-border-neutral-subtle-default hover:bg-ds-bg-neutral-subtle-default";
 
 function formatAgo(ts: number): string {
   const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -143,6 +143,14 @@ export default function HomeHub() {
   const createFolderSpace = useSpacesStore((s) => s.createFolderSpace);
   const renameSpace = useSpacesStore((s) => s.renameSpace);
   const [query, setQuery] = useState("");
+  const [triggerCount, setTriggerCount] = useState(0);
+  useEffect(() => {
+    if (homeSection !== "triggers") return;
+    const load = () => { void automationApi<{ tasks: Automation[] }>("").then((data) => setTriggerCount(data.tasks.length)).catch(() => {}); };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [homeSection]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sortBy, setSortBy] = useState<SortBy>("updated");
   const [sortDesc, setSortDesc] = useState(true);
@@ -189,7 +197,7 @@ export default function HomeHub() {
     spaces: spaces.length,
     projects: sessions.filter((s) => !activeSpaceId || s.spaceId === activeSpaceId)
       .length,
-    triggers: 0,
+    triggers: triggerCount,
   };
 
   const menuItems: { id: HomeSection; name: string; count: number }[] = [
@@ -481,21 +489,7 @@ export default function HomeHub() {
       )}
 
       {homeSection === "triggers" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <Zap className="h-8 w-8 text-ds-text-neutral-subtle-default" />
-          <p className="text-sm text-ds-text-neutral-muted-default">
-            在设置里管理定时任务。
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              openScheduleSettings();
-            }}
-          >
-            打开定时任务
-          </Button>
-        </div>
+        <ScheduleView search={query} />
       )}
 
       <AlertDialog

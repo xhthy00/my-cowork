@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import struct
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -62,9 +63,10 @@ class LongTermStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._embed = embed_fn
+        self._lock = threading.RLock()
         self.dim = dim
         self.semantic_enabled = embed_fn is not None
-        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.vec_ready = _load_sqlite_vec(self._conn)
         if not self.vec_ready:
             self.semantic_enabled = False
@@ -84,6 +86,57 @@ class LongTermStore:
             )
             """
         )
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS persistent_memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope TEXT NOT NULL CHECK(scope IN ('global', 'workspace')),
+                workspace TEXT,
+                content TEXT NOT NULL,
+                summary TEXT,
+                created_at REAL NOT NULL,
+                legacy_id INTEGER UNIQUE
+            )
+        """)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_persistent_memories_scope "
+            "ON persistent_memories(scope, workspace, id)"
+        )
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS memory_snapshots (
+                session_id TEXT PRIMARY KEY,
+                block TEXT NOT NULL
+            )
+        """)
+        self._conn.execute("CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT)")
+        if self._conn.execute("SELECT 1 FROM memory_meta WHERE key='scoped_migration'").fetchone() is None:
+            # One-time import. A deleted memory must stay deleted on later launches.
+            self._conn.execute("""
+                INSERT OR IGNORE INTO persistent_memories
+                    (scope, workspace, content, summary, created_at, legacy_id)
+                SELECT 'global', NULL, content, NULL, COALESCE(created_at, 0), id
+                FROM memory WHERE kind IN ('note', 'user_note', 'pref', 'fact')
+                  AND COALESCE(task_id, '') = ''
+            """)
+            self._conn.execute(
+                "INSERT INTO memory_meta(key, value) VALUES ('scoped_migration', '1')"
+            )
+        if self._conn.execute("SELECT 1 FROM memory_meta WHERE key='scoped_migration_v2'").fetchone() is None:
+            # Older imports may have treated task-specific notes as global.
+            # Retain the data under a private task key instead of exposing it
+            # to unrelated projects.
+            self._conn.execute("""
+                UPDATE persistent_memories
+                SET scope='workspace',
+                    workspace='project:' || (
+                        SELECT task_id FROM memory WHERE memory.id=persistent_memories.legacy_id
+                    )
+                WHERE legacy_id IN (
+                    SELECT id FROM memory WHERE COALESCE(task_id, '') != ''
+                )
+            """)
+            self._conn.execute(
+                "INSERT INTO memory_meta(key, value) VALUES ('scoped_migration_v2', '1')"
+            )
         # vec0 virtual table — rowid aligns with memory.id
         if self.vec_ready:
             try:
@@ -201,6 +254,112 @@ class LongTermStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    def remember(self, content: str, *, scope: str = "workspace",
+                 workspace: str | None = None, summary: str = "") -> dict[str, Any]:
+        content = content.strip()
+        if not content:
+            raise ValueError("Memory content is required")
+        if scope not in {"global", "workspace"}:
+            raise ValueError("Memory scope must be global or workspace")
+        if scope == "workspace" and not workspace:
+            raise ValueError("Workspace memory requires a project")
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT INTO persistent_memories(scope, workspace, content, summary, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scope, workspace if scope == "workspace" else None, content,
+                 summary.strip() or None, time.time()),
+            )
+            self._conn.commit()
+            return self.get_memory(int(cursor.lastrowid)) or {}
+
+    def get_memory(self, memory_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, scope, workspace, content, summary, created_at "
+                "FROM persistent_memories WHERE id = ?", (memory_id,)
+            ).fetchone()
+        return dict(zip(("id", "scope", "workspace", "content", "summary", "created_at"), row)) if row else None
+
+    def list_memories(self, *, workspace: str | None = None,
+                      all_scopes: bool = False, q: str = "",
+                      limit: int | None = None) -> list[dict[str, Any]]:
+        sql = ("SELECT id, scope, workspace, content, summary, created_at "
+               "FROM persistent_memories WHERE 1=1")
+        args: list[Any] = []
+        if not all_scopes:
+            sql += " AND (scope = 'global'"
+            if workspace:
+                sql += " OR (scope = 'workspace' AND workspace = ?))"
+                args.append(workspace)
+            else:
+                sql += ")"
+        if q.strip():
+            sql += " AND (content LIKE ? OR summary LIKE ?)"
+            pattern = f"%{q.strip()}%"
+            args.extend((pattern, pattern))
+        sql += " ORDER BY id DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            args.append(max(1, min(int(limit), 1000)))
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        fields = ("id", "scope", "workspace", "content", "summary", "created_at")
+        return [dict(zip(fields, row)) for row in rows]
+
+    def update_memory(self, memory_id: int, content: str, *, summary: str = "") -> dict[str, Any] | None:
+        if not content.strip():
+            raise ValueError("Memory content is required")
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE persistent_memories SET content=?, summary=? WHERE id=?",
+                (content.strip(), summary.strip() or None, memory_id),
+            )
+            self._conn.commit()
+        return self.get_memory(memory_id) if cursor.rowcount else None
+
+    def forget_memory(self, memory_id: int) -> bool:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM persistent_memories WHERE id=?", (memory_id,))
+            self._conn.commit()
+        return bool(cursor.rowcount)
+
+    def forget_all_memories(self) -> int:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM persistent_memories")
+            self._conn.commit()
+        return int(cursor.rowcount)
+
+    def prompt_block(self, *, workspace: str | None, session_id: str | None = None) -> str:
+        """Freeze remembered knowledge for a session; new sessions see later edits."""
+        from .scoped import render_memories
+
+        if session_id:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT block FROM memory_snapshots WHERE session_id=?", (session_id,)
+                ).fetchone()
+            if row is not None:
+                return str(row[0])
+        settings = getattr(self, "memory_settings", None)
+        rules = str(settings.snapshot()["user_rules"] or "").strip() if settings else ""
+        parts = []
+        if rules:
+            parts.append("用户在设置中编写的长期规则（优先于学习到的记忆）：\n" + rules)
+        items = self.list_memories(workspace=workspace)
+        remembered = render_memories(items)
+        if remembered:
+            parts.append(remembered)
+        block = "\n\n".join(parts)
+        if session_id:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO memory_snapshots(session_id, block) VALUES (?, ?)",
+                    (session_id, block),
+                )
+                self._conn.commit()
+        return block
 
 
 def extract_remember_content(text: str) -> str | None:

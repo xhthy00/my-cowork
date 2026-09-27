@@ -37,6 +37,7 @@ const OPERATION_LABEL: Record<OperationKind, string> = {
 
 function getOperationKind(tool: string): OperationKind {
   const key = tool.toLowerCase();
+  if (key.startsWith("browser_")) return "fetch";
   if (key.includes("bash") || key.includes("exec") || key.includes("terminal")) return "execute";
   if (key.includes("write") || key.includes("edit") || key.includes("patch")) return "edit";
   if (key.includes("read") || key.includes("list") || key.includes("info")) return "read";
@@ -57,6 +58,16 @@ function getOperationDescription(tool: string, kind: OperationKind): string | un
 }
 
 function renderDetail(tool: string, args: Record<string, unknown>): string {
+  if (tool.startsWith("browser_")) {
+    const lines = [
+      args.url != null ? `网址: ${String(args.url)}` : "",
+      args.target != null ? `目标: ${String(args.target)}` : "",
+      args.value != null ? `选项: ${String(args.value)}` : "",
+      args.path != null ? `路径: ${String(args.path)}` : "",
+      args.text_length != null ? `输入长度: ${String(args.text_length)} 字符` : "",
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
   if (tool.includes("bash") || tool.includes("exec")) {
     return `命令: ${String(args.cmd ?? "")}\n工作目录: ${String(args.cwd ?? "")}`;
   }

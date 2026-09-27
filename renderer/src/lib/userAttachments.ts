@@ -35,6 +35,6 @@ export function parseUserAttachments(content: string): {
 export function displayTitleFromUserContent(content: string, maxLen = 40): string {
   const { text, paths } = parseUserAttachments(content);
   const base = text || (paths[0] ? fileNameFromPath(paths[0]) : "");
-  if (!base) return "任务中";
+  if (!base) return "新对话";
   return base.length > maxLen ? base.slice(0, maxLen) : base;
 }

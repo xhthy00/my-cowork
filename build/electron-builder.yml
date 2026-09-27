@@ -86,6 +86,8 @@ mac:
   extraResources:
     - from: dist/my-cowork-backend
       to: python_bin
+    - from: build/playwright-browsers
+      to: playwright-browsers
     - from: resources/prebuilt
       to: prebuilt
       filter:
@@ -107,6 +109,8 @@ win:
   extraResources:
     - from: dist/python_runtime
       to: python_runtime
+    - from: build/playwright-browsers
+      to: playwright-browsers
     - from: resources/prebuilt
       to: prebuilt
       filter:

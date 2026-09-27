@@ -207,6 +207,7 @@ class ChannelManager:
         self._runtimes: dict[str, Any] = {}
         self._creds: dict[str, dict[str, Any]] = {}
         self._events: dict[str, int] = {}
+        self._human_questions: dict[tuple[str, str, str], list[tuple[str, str]]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._seed_plugins()
 
@@ -670,6 +671,14 @@ class ChannelManager:
             return {"ok": True, "pairing": True, "code": pairing["code"]}
 
         self.store.touch_user(platform, user_id, chat_id)
+        key = (platform, user_id, chat_id)
+        waiting = self._human_questions.get(key)
+        if waiting:
+            task_id, question_id = waiting.pop(0)
+            if not waiting:
+                self._human_questions.pop(key, None)
+            self._schedule(self._reply_to_human_question(key, task_id, question_id, text))
+            return {"ok": True, "human_reply": True}
         skill_id = None
         m = _SKILL_MENTION_RE.search(text)
         if m:
@@ -709,6 +718,30 @@ class ChannelManager:
             )
         )
         return {"ok": True}
+
+    async def _reply_to_human_question(
+        self,
+        key: tuple[str, str, str],
+        task_id: str,
+        question_id: str,
+        answer: str,
+    ) -> None:
+        hub = getattr(self.task_manager, "human_input_hub", None)
+        if hub is not None and answer.strip().isdigit():
+            match = next(
+                (q for q in hub.pending(task_id) if q["question_id"] == question_id),
+                None,
+            )
+            choices = (match or {}).get("options") or []
+            index = int(answer.strip()) - 1
+            if 0 <= index < len(choices):
+                answer = str(choices[index])
+        if hub is None or not hub.reply(task_id, question_id, answer):
+            await self._send_text(key[2], "该问题已结束，请重新发送任务。", platform=key[0])
+        queue = self._human_questions.get(key, [])
+        self._human_questions[key] = [row for row in queue if row != (task_id, question_id)]
+        if not self._human_questions[key]:
+            self._human_questions.pop(key, None)
 
     def ingest_webhook(self, body: dict[str, Any]) -> dict[str, Any]:
         event = body.get("event") or body
@@ -767,11 +800,45 @@ class ChannelManager:
         summary = ""
         error = ""
         artifacts: list[str] = []
+        owned_question_ids: set[str] = set()
+        human_turns: list[dict[str, str]] = []
         last_progress = WEIXIN_WORKING
         last_progress_at = time.monotonic() if platform == "weixin" else 0.0
         try:
             async for event in tm.handle(task_req):
                 etype = event.get("type")
+                if etype == "human.ask":
+                    key = (platform, user_id, chat_id)
+                    owner = str(event.get("task_id") or "")
+                    question_id = str(event.get("question_id") or "")
+                    if owner and question_id:
+                        self._human_questions.setdefault(key, []).append((owner, question_id))
+                        owned_question_ids.add(question_id)
+                    question = str(event.get("question") or "")
+                    human_turns.append({"role": "assistant", "content": question})
+                    options = event.get("options") or []
+                    if options:
+                        question += "\n" + "\n".join(
+                            f"{i}. {option}" for i, option in enumerate(options, 1)
+                        )
+                    fields = event.get("fields") or []
+                    if fields:
+                        question += "\n" + "\n".join(
+                            f"{i}. {field['label']}"
+                            + (f"（{' / '.join(field.get('options') or [])} / 自行填写）" if field.get("options") else "")
+                            for i, field in enumerate(fields, 1)
+                        )
+                    await self._send_text(chat_id, question, platform=platform)
+                    continue
+                if etype == "human.answered":
+                    human_turns.append({"role": "user", "content": str(event.get("answer") or "")})
+                    key = (platform, user_id, chat_id)
+                    answered_id = str(event.get("question_id") or "")
+                    self._human_questions[key] = [
+                        row for row in self._human_questions.get(key, []) if row[1] != answered_id
+                    ]
+                    if not self._human_questions[key]:
+                        self._human_questions.pop(key, None)
                 if platform == "weixin":
                     progress = weixin_progress_text(event)
                     now = time.monotonic()
@@ -797,6 +864,14 @@ class ChannelManager:
                     summary = str(event.get("summary") or "")
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
+        key = (platform, user_id, chat_id)
+        remaining = [
+            row for row in self._human_questions.get(key, []) if row[1] not in owned_question_ids
+        ]
+        if remaining:
+            self._human_questions[key] = remaining
+        else:
+            self._human_questions.pop(key, None)
         stream = "".join(chunks)
         text = compose_channel_reply(
             summary=summary,
@@ -831,6 +906,7 @@ class ChannelManager:
                 chat_id,
                 [
                     {"role": "user", "content": user_text},
+                    *human_turns,
                     {"role": "assistant", "content": text},
                 ],
             )

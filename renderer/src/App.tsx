@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { automationApi, type Automation } from "./api/automations";
 
 import ChatView from "./components/ChatView";
 import PreviewPanel from "./components/preview/PreviewPanel";
@@ -12,8 +13,8 @@ import TopBar from "./components/shell/TopBar";
 import TitleBar from "./components/TitleBar";
 import { usePageTabStore } from "./store/pageTab";
 import { useSessionStore } from "./store/session";
+import { connectDesktopSessionSync, initDesktopSessionSync } from "./store/desktopSessionSync";
 import {
-  ensureActiveSession,
   useSessionsStore,
 } from "./store/sessions";
 
@@ -26,19 +27,53 @@ export default function App() {
   const activeId = useSessionsStore((s) => s.activeId);
   const messageCount = useSessionStore((s) => s.messages.length);
   const [backendReady, setBackendReady] = useState(false);
+  const [automationNotice, setAutomationNotice] = useState("");
 
   useEffect(() => {
+    if (!backendReady) return;
+    let prior: Map<string, string> | null = null;
+    let dismissed: ReturnType<typeof setTimeout> | null = null;
+    const check = async () => {
+      try {
+        const { tasks } = await automationApi<{ tasks: Automation[] }>("");
+        const current = new Map<string, string>();
+        for (const task of tasks) {
+          const active = task.active_run;
+          const marker = active ? `${active.run_id}:${active.status}` : `${task.last_run || 0}:${task.last_status || ""}`;
+          current.set(task.id, marker);
+          const needsAttention = active?.status === "waiting_user" || active?.status === "recovery_review";
+          if ((!prior && needsAttention) || (prior && prior.get(task.id) !== marker && (task.notify_on_completion || needsAttention))) {
+            const action = active?.status === "recovery_review" ? "需要检查恢复" :
+              active?.status === "waiting_user" ? "需要你的回复" :
+              task.last_status === "error" ? "执行失败" : task.last_status === "ok" ? "已完成" : "已开始";
+            setAutomationNotice(`${task.title} · ${action}`);
+            if (dismissed) clearTimeout(dismissed);
+            dismissed = setTimeout(() => setAutomationNotice(""), 6500);
+          }
+        }
+        prior = current;
+      } catch { /* Offline state is shown by the task page. */ }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 5000);
+    return () => { clearInterval(timer); if (dismissed) clearTimeout(dismissed); };
+  }, [backendReady]);
+
+  useEffect(() => {
+    initDesktopSessionSync();
     // Already up (restart / fast boot)? Skip splash.
     void window.api.getBackendUrl().then((url) => {
-      if (url) setBackendReady(true);
+      if (url) {
+        setBackendReady(true);
+        void connectDesktopSessionSync(url);
+      }
     });
     const offReady =
-      window.api.onBackendReady?.(() => setBackendReady(true)) ?? (() => {});
+      window.api.onBackendReady?.((url) => {
+        setBackendReady(true);
+        if (url) void connectDesktopSessionSync(url);
+      }) ?? (() => {});
     return offReady;
-  }, []);
-
-  useEffect(() => {
-    ensureActiveSession();
   }, []);
 
   useEffect(() => {
@@ -74,6 +109,7 @@ export default function App() {
 
   return (
     <div className="window font-sans bg-ds-bg-neutral-muted-default">
+      {automationNotice ? <button type="button" className="fixed right-5 top-16 z-[120] max-w-sm rounded-2xl border border-violet-200 bg-white px-4 py-3 text-left text-sm font-medium text-ds-text-neutral-default-default shadow-xl" onClick={() => { setAutomationNotice(""); usePageTabStore.getState().setHubTab("home"); usePageTabStore.getState().setHomeSection("triggers"); }}>{automationNotice}<span className="ml-2 text-violet-700">查看</span></button> : null}
       {!backendReady && <StartupSplash />}
       <TitleBar />
       <TopBar />

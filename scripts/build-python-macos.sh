@@ -21,6 +21,11 @@ else
   echo "WARNING: sqlite-vec extensions unavailable; LongTermStore will degrade"
 fi
 
+# Keep Chrome.app outside PyInstaller's one-file archive: macOS codesign cannot
+# process its nested frameworks there. Electron-builder includes this directory
+# as an extra resource. --no-shell omits the unused headless shell.
+export PLAYWRIGHT_BROWSERS_PATH="$ROOT/build/playwright-browsers"
+uv run python -m playwright install --no-shell chromium
 uv run pyinstaller "$ROOT/build/pyinstaller/macos.spec" --distpath "$ROOT/dist" --workpath "$ROOT/build/pyinstaller/work-macos" -y
 BIN="$ROOT/dist/my-cowork-backend"
 if [[ ! -f "$BIN" ]]; then

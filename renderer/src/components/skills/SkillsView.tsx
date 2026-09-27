@@ -138,7 +138,7 @@ export default function SkillsView() {
   }
 
   return (
-    <div className="m-auto flex h-auto w-full flex-1 flex-col">
+    <div className="skills-view m-auto flex h-auto w-full flex-1 flex-col">
       <div className="flex w-full items-center justify-between px-6 pb-6 pt-8">
         <div className="text-heading-sm font-bold text-ds-text-neutral-default-default">
           技能
@@ -146,7 +146,7 @@ export default function SkillsView() {
       </div>
 
       <div className="mb-12 flex flex-col gap-6">
-        <div className="flex w-full flex-col gap-4 rounded-2xl bg-ds-bg-neutral-default-default px-6 py-4">
+        <div className="skills-panel flex w-full flex-col gap-4 rounded-2xl bg-ds-bg-neutral-default-default px-6 py-4">
           <Tabs defaultValue="your-skills" className="w-full">
             <div className="z-10 flex w-full items-center justify-between gap-4 border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default bg-ds-bg-neutral-default-default">
               <TabsList appearance="border" className="h-auto flex-1 justify-start">

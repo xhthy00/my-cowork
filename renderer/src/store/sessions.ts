@@ -20,6 +20,7 @@ import {
   setProjectMessagePersist,
 } from "./projectRuntime";
 import type { Message } from "./session";
+import { displayTitleFromUserContent } from "@/lib/userAttachments";
 
 import "./session";
 import {
@@ -60,6 +61,8 @@ export interface Project {
 }
 
 type CreateProjectOpts = {
+  id?: string;
+  initialMessages?: Message[];
   spaceId?: string;
   workdirMode?: WorkdirMode;
   assistantId?: string;
@@ -84,6 +87,7 @@ interface SessionsState {
   getMessages: (id: string) => Message[];
   projectsForSpace: (spaceId: string) => Project[];
   deleteProjectsInSpace: (spaceId: string) => void;
+  replaceSnapshot: (snapshot: Pick<SessionsState, "sessions" | "activeId" | "messagesById">) => void;
 }
 
 function newId() {
@@ -115,7 +119,7 @@ export function hydrateLiveChat(): void {
   setLiveBoundId(id);
 }
 
-function migrateProject(raw: Record<string, unknown>): Project {
+function migrateProject(raw: Record<string, unknown>, messages: Message[]): Project {
   const spaceId =
     typeof raw.spaceId === "string" && raw.spaceId
       ? raw.spaceId
@@ -125,9 +129,13 @@ function migrateProject(raw: Record<string, unknown>): Project {
   ).includes(raw.workdirMode as WorkdirMode)
     ? (raw.workdirMode as WorkdirMode)
     : "artifact-only";
+  const title = String(raw.title || "新对话");
+  const firstUserContent = messages.find((message) => message.role === "user" && message.content?.trim())?.content;
   return {
     id: String(raw.id),
-    title: String(raw.title || "新对话"),
+    title: title === "任务中"
+      ? firstUserContent ? displayTitleFromUserContent(firstUserContent) : "新对话"
+      : title,
     spaceId,
     workdirMode,
     createdAt: Number(raw.createdAt) || Date.now(),
@@ -160,6 +168,10 @@ export const useSessionsStore = create<SessionsState>()(
   persist(
     (set, get) => {
       const createProject = (title = "新对话", opts?: CreateProjectOpts) => {
+        if (opts?.id && get().sessions.some((item) => item.id === opts.id)) {
+          get().setActive(opts.id);
+          return opts.id;
+        }
         const spaceId =
           opts?.spaceId ||
           useSpacesStore.getState().activeSpaceId ||
@@ -167,7 +179,7 @@ export const useSessionsStore = create<SessionsState>()(
         const workdirMode =
           opts?.workdirMode ||
           useSpacesStore.getState().defaultWorkdirMode(spaceId);
-        const id = newId();
+        const id = opts?.id || newId();
         const now = Date.now();
         const session: Project = {
           id,
@@ -195,10 +207,10 @@ export const useSessionsStore = create<SessionsState>()(
             ...(prev
               ? { [prev]: useSessionsStore.getState().getMessages(prev) }
               : {}),
-            [id]: [],
+            [id]: opts?.initialMessages || [],
           },
         }));
-        restoreProject(id, []);
+        restoreProject(id, opts?.initialMessages || []);
         setLiveBoundId(id);
         return id;
       };
@@ -306,24 +318,40 @@ export const useSessionsStore = create<SessionsState>()(
           }
           set({ sessions, messagesById, activeId: nextActive });
         },
+        replaceSnapshot: (snapshot) => {
+          // Rehydration may already have created a runtime from localStorage.
+          // Drop it before binding the durable backend messages.
+          for (const session of get().sessions) dropProjectPark(session.id);
+          const sessions = snapshot.sessions.map((session) => {
+            const migrated = migrateProject(session as unknown as Record<string, unknown>, snapshot.messagesById[session.id] || []);
+            return migrated.status === "running" ? { ...migrated, status: "error" as const } : migrated;
+          });
+          const activeId = sessions.some((session) => session.id === snapshot.activeId)
+            ? snapshot.activeId : sessions[0]?.id ?? null;
+          set({ sessions, messagesById: snapshot.messagesById, activeId });
+          if (activeId) restoreProject(activeId, snapshot.messagesById[activeId] ?? []);
+          else setActiveProjectRuntime(null);
+          setLiveBoundId(activeId);
+        },
       };
     },
     {
       name: "my-cowork-sessions",
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
         const state = (persisted || {}) as {
           sessions?: Record<string, unknown>[];
           activeId?: string | null;
           messagesById?: Record<string, Message[]>;
         };
+        const messagesById = state.messagesById || {};
         const sessions = (state.sessions || []).map((raw) =>
-          migrateProject(raw as Record<string, unknown>),
+          migrateProject(raw as Record<string, unknown>, messagesById[String(raw.id)] || []),
         );
         return {
           sessions,
           activeId: state.activeId ?? null,
-          messagesById: state.messagesById || {},
+          messagesById,
         };
       },
       onRehydrateStorage: () => (state) => {

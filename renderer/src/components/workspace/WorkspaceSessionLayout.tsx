@@ -24,6 +24,7 @@ const CHAT_DEFAULT_WIDTH = 680;
 const CHAT_MIN_WIDTH = 360;
 /** Keep at least this much room for the preview when the chat is widened. */
 const PREVIEW_MIN_WIDTH = 320;
+const RESIZE_HANDLE_WIDTH = 4;
 const CHAT_WIDTH_STORAGE_KEY = "my-cowork-chat-preview-width";
 
 function loadSavedChatWidth(): number | null {
@@ -69,8 +70,9 @@ function ResizeHandle({
       aria-orientation="vertical"
       title="拖动调整宽度，双击重置"
       data-resize-handle-state={active ? "drag" : "inactive"}
+      style={{ width: RESIZE_HANDLE_WIDTH }}
       className={cn(
-        "relative z-10 flex w-[2px] shrink-0 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-ds-bg-brand-subtle-default",
+        "relative z-10 flex shrink-0 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-ds-bg-brand-subtle-default",
         "before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-['']",
         "after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 after:bg-ds-bg-neutral-default-default after:transition-colors",
         active &&
@@ -105,10 +107,15 @@ export default function WorkspaceSessionLayout({
   const computeMaxChat = useCallback(() => {
     const rowWidth =
       rowRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-    const sidePanelWidth =
-      document.getElementById("session-side-panel")?.getBoundingClientRect()
-        .width ?? 0;
-    return Math.max(CHAT_MIN_WIDTH, rowWidth - sidePanelWidth - PREVIEW_MIN_WIDTH);
+    const sidePanel = document.getElementById("session-side-panel");
+    const sidePanelWidth = sidePanel?.getBoundingClientRect().width ?? 0;
+    const sidePanelGap = sidePanel
+      ? parseFloat(window.getComputedStyle(sidePanel).marginLeft) || 0
+      : 0;
+    return Math.max(
+      CHAT_MIN_WIDTH,
+      rowWidth - sidePanelWidth - sidePanelGap - PREVIEW_MIN_WIDTH - RESIZE_HANDLE_WIDTH,
+    );
   }, []);
 
   useEffect(() => {
@@ -189,12 +196,15 @@ export default function WorkspaceSessionLayout({
   return (
     <div
       ref={rowRef}
-      className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-row overflow-hidden"
+      className={cn(
+        "workspace-session-layout flex h-full min-h-0 w-full min-w-0 flex-1 flex-row overflow-hidden",
+        side && "has-side-panel",
+      )}
     >
       <div
         style={previewOpen ? { width: chatWidth } : undefined}
         className={cn(
-          "flex min-h-0 min-w-0 flex-col overflow-hidden",
+          "session-chat-column flex min-h-0 min-w-0 flex-col overflow-hidden",
           previewOpen ? "shrink-0" : "flex-1",
           !isResizing && "transition-[width] duration-200 ease-out",
         )}
@@ -211,7 +221,7 @@ export default function WorkspaceSessionLayout({
             onPointerUp={handlePreviewResizeEnd}
             onDoubleClick={handlePreviewResizeReset}
           />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="session-preview-column flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {preview}
           </div>
         </>
@@ -220,7 +230,7 @@ export default function WorkspaceSessionLayout({
       {side ? (
         <div
           id="session-side-panel"
-          className="flex min-h-0 shrink-0 flex-col overflow-hidden"
+          className="session-side-column flex min-h-0 shrink-0 flex-col overflow-hidden"
         >
           {side}
         </div>

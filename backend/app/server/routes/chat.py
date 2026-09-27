@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -64,6 +64,11 @@ class StopBody(BaseModel):
     task_id: str | None = None
 
 
+class HumanReplyBody(BaseModel):
+    question_id: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
+
+
 async def _event_stream(
     task_manager: Any, req: ChatRequest
 ) -> AsyncIterator[str]:
@@ -120,6 +125,26 @@ async def workforce_start(request: Request, body: WorkforceStartBody) -> dict[st
     subtasks = normalize_subtasks(body.subtasks)
     hub.resolve_plan(body.task_id, subtasks)
     return {"ok": True, "task_id": body.task_id, "count": len(subtasks)}
+
+
+@router.get("/api/chat/{task_id}/pending-questions")
+async def pending_human_questions(task_id: str, request: Request) -> dict[str, Any]:
+    hub = getattr(request.app.state, "human_input_hub", None)
+    return {"questions": hub.pending(task_id) if hub is not None else []}
+
+
+@router.get("/api/chat/{task_id}/question-history")
+async def human_question_history(task_id: str, request: Request) -> dict[str, Any]:
+    hub = getattr(request.app.state, "human_input_hub", None)
+    return {"questions": hub.history(task_id) if hub is not None else []}
+
+
+@router.post("/api/chat/{task_id}/human-reply")
+async def human_reply(task_id: str, body: HumanReplyBody, request: Request) -> dict[str, Any]:
+    hub = getattr(request.app.state, "human_input_hub", None)
+    if hub is None or not hub.reply(task_id, body.question_id, body.answer):
+        raise HTTPException(status_code=409, detail="Question is no longer waiting for a reply")
+    return {"ok": True, "question_id": body.question_id}
 
 
 @router.post("/api/chat/stop")

@@ -1,0 +1,226 @@
+/* Visual system shared by the workspace and hub. Layout and behavior stay in
+   their React components; this file only supplies the new surface language. */
+
+#root { width: 100%; }
+
+.app-topbar {
+  background: var(--ui-topbar-bg);
+  border-bottom: 1px solid var(--ui-card-border);
+  box-shadow: 0 2px 12px rgba(92, 43, 116, 0.05);
+}
+.app-topbar > div:first-child > button:hover,
+.app-topbar > div:last-child > button:hover {
+  color: var(--ds-text-brand-default-default);
+}
+.body { padding: 4px; }
+.workspace {
+  border: 1px solid var(--ui-card-border);
+  background: var(--ui-card-bg);
+  box-shadow: 0 10px 30px rgba(95, 48, 123, 0.07);
+}
+.workspace:has(.workspace-session-layout.has-side-panel) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-session-layout.has-side-panel .session-chat-column,
+.workspace-session-layout.has-side-panel .session-preview-column,
+.workspace-session-layout.has-side-panel .session-side-column {
+  border: 1px solid var(--ui-card-border);
+  border-radius: 16px;
+  background: var(--ui-card-bg);
+  box-shadow: 0 10px 30px rgba(95, 48, 123, 0.07);
+}
+.workspace-session-layout.has-side-panel .session-side-column {
+  margin-left: 4px;
+}
+
+/* Workspace rail */
+.project-sidebar {
+  padding: 12px;
+  border: 1px solid var(--ui-card-border);
+  background: var(--ui-sidebar-bg);
+  box-shadow: 0 8px 24px rgba(119, 65, 124, 0.08);
+}
+.project-sidebar nav > button { min-height: 38px; }
+.project-sidebar nav > button:first-child {
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-card-bg);
+  border: 1px solid var(--ui-card-border);
+  box-shadow: var(--shadow-sm);
+}
+.project-sidebar nav > button:first-child svg { color: currentColor; }
+.project-sidebar .project-new-action {
+  min-height: 38px;
+  color: #fff;
+  background: linear-gradient(110deg, var(--ui-brand-violet-deep), var(--ui-brand-violet));
+  box-shadow: 0 6px 15px rgba(125, 61, 243, 0.25);
+}
+.project-sidebar .project-new-action:hover {
+  color: #fff;
+  background: linear-gradient(110deg, #5d22b3, var(--ui-brand-violet-deep));
+}
+.project-sidebar .project-row[data-active="true"] {
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+}
+.project-sidebar .project-row[data-active="true"] button { font-weight: 700; }
+.project-sidebar .project-row[data-active="false"]:hover {
+  background: color-mix(in srgb, var(--ui-card-bg) 68%, transparent);
+}
+
+/* Welcome and ongoing chat */
+.chat-empty {
+  background:
+    radial-gradient(circle at 48% 26%, var(--ui-accent-soft), transparent 56%),
+    radial-gradient(circle at 92% 92%, var(--ui-warm-soft), transparent 42%),
+    var(--ui-card-bg);
+}
+.chat-empty h1 {
+  font-size: calc(24px * var(--ui-font-scale, 1));
+  letter-spacing: -0.025em;
+}
+.chat-empty img[draggable="false"] { filter: drop-shadow(0 14px 20px rgba(125, 61, 243, 0.14)); }
+.chat-composer { background: transparent; }
+.chat-composer-input {
+  background: var(--ui-card-bg);
+  border-color: color-mix(in srgb, var(--ds-border-information-default-default) 30%, var(--ui-card-border));
+  box-shadow: 0 10px 27px rgba(125, 61, 243, 0.11), 0 2px 4px rgba(125, 61, 243, 0.04);
+}
+.chat-composer-input:focus-within {
+  border-color: var(--ds-border-information-default-default);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-border-information-default-default) 13%, transparent),
+    0 10px 27px rgba(125, 61, 243, 0.11);
+}
+.chat-composer-input button:not(.chat-send):hover { color: var(--ds-text-brand-default-default); }
+.chat-composer-input .chat-send {
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--ui-brand-violet-deep), var(--ui-brand-violet));
+  box-shadow: 0 5px 13px rgba(125, 61, 243, 0.29);
+}
+.chat-composer-input .chat-send:disabled { opacity: 0.58; }
+.chat-composer > div:last-child button:first-child {
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+}
+.chat-empty .recent-runs { color: var(--ds-text-neutral-default-default); }
+.chat-empty .recent-runs > div:first-child button { color: var(--ds-text-brand-default-default); }
+.chat-empty .recent-run-list { gap: 7px; }
+.chat-empty .recent-run {
+  min-height: 36px;
+  padding: 8px 11px;
+  border: 1px solid var(--ui-card-border);
+  background: var(--ui-card-bg);
+  box-shadow: var(--shadow-sm);
+}
+.chat-empty .recent-run:hover { border-color: var(--ds-border-neutral-strong-default); }
+.chat-empty .recent-run svg { color: var(--ds-text-success-default-default); }
+.chat-empty .recent-run span:last-child { color: var(--ds-text-neutral-default-default); }
+.chat-header { border-bottom: 1px solid var(--ui-card-border); }
+.composer-wrap { background: linear-gradient(to top, var(--ui-card-bg) 70%, transparent); }
+.preview-panel { background: var(--ui-canvas); }
+.preview-head { background: var(--ui-card-bg); }
+.preview-tab.active,
+.preview-tab:hover {
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+  border-color: transparent;
+}
+
+/* Hub navigation and management cards */
+.hub-view > div:first-child {
+  border: 1px solid var(--ui-card-border);
+  background: var(--ui-card-bg);
+  box-shadow: 0 10px 30px rgba(95, 48, 123, 0.07);
+}
+.hub-view > div:first-child > div:first-child {
+  background: linear-gradient(115deg, var(--ui-card-bg), var(--ui-accent-soft) 70%, var(--ui-warm-soft));
+}
+.hub-view [data-history-tab][aria-selected="true"] { color: var(--ds-text-brand-default-default); }
+.hub-view [data-tabs-appearance="ghost"][data-state="active"] {
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+}
+.hub-view [data-tabs-appearance="border"][data-state="active"] { color: var(--ds-text-brand-default-default); }
+
+.assistant-card,
+.skill-list-item,
+.skillhub-card,
+.home-hub-card {
+  position: relative;
+  border: 1px solid var(--ui-card-border);
+  background: var(--ui-card-bg);
+  box-shadow: 0 8px 24px rgba(97, 48, 119, 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.assistant-card:hover,
+.skillhub-card:hover,
+.home-hub-card:hover {
+  border-color: var(--ds-border-neutral-strong-default);
+  box-shadow: 0 12px 28px rgba(97, 48, 119, 0.12);
+  transform: translateY(-2px);
+}
+.home-hub-card:hover {
+  border-color: color-mix(in srgb, var(--ui-brand-coral) 50%, var(--ui-card-border));
+}
+.assistant-card { overflow: hidden; }
+.assistant-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: linear-gradient(90deg, var(--ui-brand-violet), var(--ui-brand-coral) 62%, var(--ui-brand-sunshine));
+}
+.assistant-card-icon {
+  box-sizing: content-box;
+  padding: 8px;
+  border-radius: 11px;
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+}
+.assistant-card p { line-height: 1.55; }
+.assistant-prompt {
+  border: 1px solid var(--ui-card-border);
+  background: var(--ui-canvas);
+}
+.assistant-prompt:hover { border-color: var(--ds-border-neutral-strong-default); }
+.skills-panel {
+  border: 1px solid var(--ui-card-border);
+  background: color-mix(in srgb, var(--ui-canvas) 75%, var(--ui-card-bg));
+}
+.skill-list-item,
+.skillhub-card { border-radius: 14px; }
+.skillhub-card img { border-radius: 8px; }
+.skillhub-card > p { line-height: 1.55; }
+
+/* Model configuration */
+.model-provider:hover { background: var(--ds-bg-neutral-default-hover); }
+.model-provider[data-active="true"] {
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+}
+.config-model-card {
+  border: 1px solid color-mix(in srgb, var(--ds-border-information-default-default) 27%, var(--ui-card-border));
+  background: var(--ui-card-bg);
+  box-shadow: 0 8px 26px rgba(125, 61, 243, 0.12);
+}
+.config-model-card input,
+.config-model-card select { color: var(--ds-text-neutral-default-default); }
+
+@media (min-width: 1080px) and (min-height: 760px) {
+  .chat-empty img[draggable="false"] { max-height: 184px; }
+  .chat-empty .recent-run-list { flex-direction: row; }
+  .chat-empty .recent-run { flex: 1; min-width: 0; }
+}
+@media (max-width: 760px) {
+  .project-sidebar { padding: 5px; }
+  .chat-empty h1 { font-size: calc(20px * var(--ui-font-scale, 1)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-card,
+  .skillhub-card,
+  .home-hub-card { transition: none; }
+  .assistant-card:hover,
+  .skillhub-card:hover,
+  .home-hub-card:hover { transform: none; }
+}

@@ -32,28 +32,40 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from app.graphs.single_agent import compile_single_agent_graph
 from app.graphs.workforce import compile_workforce_graph
 from app.guardrails.approval import ConfirmHub
+from app.guardrails.human_input import HumanInputHub
 from app.guardrails.audit import AuditStore
 from app.guardrails.command_filter import CommandFilter
 from app.llm import gateway, model_picker
 from app.llm.fallback import FallbackChatModel
 from app.memory.long_term import LongTermStore
+from app.memory.settings import MemorySettings
+from app.memory.tools import make_memory_tools
 from app.memory.short_term import ShortTermStore
 from app.observability.metrics import MetricsStore
 from app.observability.trace import TraceBus
 from app.observability.trace_store import TraceStore
 from app.orchestrator.task_manager import TaskManager
 from app.orchestrator.task_store import TaskStore
-from app.orchestrator.scheduler import SkillScheduler
+from app.automation import AutomationScheduler, AutomationStore
+from app.automation.migration import import_legacy_jobs, import_skill_schedules
+from app.automation.runtime import AutomationRunner
+from app.automation.tools import make_automation_tools
 from app.runtime.checkpointer import get_checkpointer
+from app.runtime.v2.context_tools import make_context_tools
 from app.sandbox.path_guard import PathGuard
 from app.workspace.paths import data_root
 from app.server.localhost_only import LocalhostOnlyMiddleware
 from app.server.channels.manager import ChannelManager
 from app.server.channels.store import ChannelStore
+from app.server.desktop_sessions import DesktopSessionStore
 from app.server.routes import (
+    audit as audit_routes,
+    automations as automation_routes,
+    browser as browser_routes,
     assistants as assistants_routes,
     channels as channels_routes,
     chat,
+    desktop_sessions as desktop_sessions_routes,
     confirm,
     ima as ima_routes,
     mcp as mcp_routes,
@@ -78,6 +90,7 @@ from app.tools.builtin.docgen.tools import (
 from app.tools.builtin.fs import fs_list, fs_read, make_fs_write, set_guard
 from app.tools.builtin.lark.tools import make_lark_send_tool
 from app.tools.builtin.notes import make_note_tools
+from app.tools.builtin.human import make_ask_human_tool
 from app.tools.builtin.skills import make_skill_tools
 from app.tools.builtin.todo import make_todo_write_tool
 from app.tools.builtin.web_search import make_web_search_tool
@@ -252,12 +265,34 @@ def build_stack(
 
     guard = PathGuard(whitelist or _default_whitelist())
     data_dir = _data_dir()
+    from app.runtime.v2.session import configure_session_store
+
+    configure_session_store(data_dir / "sessions.db")
+    automation_store = AutomationStore(
+        Path(os.environ.get("MY_COWORK_AUTOMATIONS_DB", str(data_dir / "automations.db")))
+    )
     audit_store = AuditStore(data_dir / "audit.db")
     command_filter = CommandFilter(audit=audit_store)
     bus = TraceBus()
     trace_store = TraceStore(data_dir / "trace.db")
     bus.subscribe(trace_store.append)
+    bus.subscribe(audit_store.on_trace)
+    desktop_sessions = DesktopSessionStore(data_dir / "desktop-sessions.db")
     confirm_hub = ConfirmHub(emit=bus.emit, audit=audit_store)
+    human_input_hub = HumanInputHub(emit=bus.emit, db_path=data_dir / "human-questions.db")
+    from app.memory.embed import make_embed_config
+
+    embed_cfg = make_embed_config()
+    if embed_cfg.enabled and embed_cfg.fn is not None:
+        long_term = LongTermStore(data_dir / "memory.db", embed_fn=embed_cfg.fn, dim=embed_cfg.dim)
+    else:
+        long_term = LongTermStore(data_dir / "memory.db")
+    memory_settings = MemorySettings(data_dir / "memory-settings.json")
+    long_term.memory_settings = memory_settings
+    from app.runtime.todo_context import get_todo_runtime
+
+    memory_tools = make_memory_tools(long_term, memory_settings, get_todo_runtime)
+    context_tools = make_context_tools()
 
     set_guard(guard)
     write_tool = make_fs_write(guard, confirm_hub)
@@ -275,11 +310,13 @@ def build_stack(
     single_bash_tool = exec_tool.make_bash(
         guard, command_filter, confirm_hub, agent_name="single_agent"
     )
-    lark_tool = make_lark_send_tool()
+    lark_tool = make_lark_send_tool(confirm_hub)
     note_tools = make_note_tools()
+    ask_human_tool = make_ask_human_tool(human_input_hub)
+    automation_tools = make_automation_tools(automation_store, confirm_hub)
     web_search_tool = make_web_search_tool()
     web_fetch_tool = make_web_fetch_tool()
-    browser_tools = make_browser_tools()
+    browser_tools = make_browser_tools(guard, confirm_hub)
     ima_tools = make_ima_tools()
 
     registry = ToolRegistry()
@@ -294,6 +331,10 @@ def build_stack(
     registry.register("builtin.lark.send_message", lark_tool)
     for tool in ima_tools:
         registry.register(f"builtin.ima.{tool.name}", tool)
+    for tool in memory_tools:
+        registry.register(f"builtin.memory.{tool.name}", tool)
+    for tool in context_tools:
+        registry.register(f"builtin.context.{tool.name}", tool)
 
     mcp_json_path = Path(
         os.environ.get("MY_COWORK_MCP_JSON") or str(default_mcp_json_path())
@@ -386,6 +427,10 @@ def build_stack(
     # Eigent Single Agent: one meta-agent with the full tool set (no routing).
     single_agent_tools = [
         todo_tool,
+        ask_human_tool,
+        *automation_tools,
+        *memory_tools,
+        *context_tools,
         *_skills_for("single_agent"),
         *note_tools,
         fs_read,
@@ -408,6 +453,10 @@ def build_stack(
             "developer_agent": {
                 "model": developer_llm,
                 "tools": [
+                    ask_human_tool,
+                    *automation_tools,
+                    *memory_tools,
+                    *context_tools,
                     *_skills_for("developer_agent"),
                     *note_tools,
                     fs_read,
@@ -420,6 +469,10 @@ def build_stack(
             "document_agent": {
                 "model": document_llm,
                 "tools": [
+                    ask_human_tool,
+                    *automation_tools,
+                    *memory_tools,
+                    *context_tools,
                     *_skills_for("document_agent"),
                     *note_tools,
                     fs_read,
@@ -437,6 +490,10 @@ def build_stack(
             "browser_agent": {
                 "model": browser_llm,
                 "tools": [
+                    ask_human_tool,
+                    *automation_tools,
+                    *memory_tools,
+                    *context_tools,
                     *_skills_for("browser_agent"),
                     *note_tools,
                     fs_read,
@@ -452,6 +509,10 @@ def build_stack(
             "multi_modal_agent": {
                 "model": multi_modal_llm,
                 "tools": [
+                    ask_human_tool,
+                    *automation_tools,
+                    *memory_tools,
+                    *context_tools,
                     *_skills_for("multi_modal_agent"),
                     *note_tools,
                     fs_read,
@@ -470,17 +531,6 @@ def build_stack(
         checkpointer=checkpointer,
     )
 
-    from app.memory.embed import make_embed_config
-
-    embed_cfg = make_embed_config()
-    if embed_cfg.enabled and embed_cfg.fn is not None:
-        long_term = LongTermStore(
-            data_dir / "memory.db", embed_fn=embed_cfg.fn, dim=embed_cfg.dim
-        )
-        long_term.semantic_enabled = True
-    else:
-        long_term = LongTermStore(data_dir / "memory.db")
-        long_term.semantic_enabled = False
     short_term = ShortTermStore(data_dir / "memory.db")
     task_store = TaskStore(data_dir / "tasks.db")
     metrics = MetricsStore(data_dir / "metrics.db")
@@ -494,18 +544,23 @@ def build_stack(
         planner_llm=planner_llm,
         single_agent_graph=single_agent_graph,
         confirm_hub=confirm_hub,
+        human_input_hub=human_input_hub,
         notes_root=data_dir / "notes",
         task_store=task_store,
         short_term=short_term,
     )
     return {
         "task_manager": task_manager,
+        "automation_store": automation_store,
         "bus": bus,
         "confirm_hub": confirm_hub,
+        "human_input_hub": human_input_hub,
         "long_term": long_term,
+        "memory_settings": memory_settings,
         "short_term": short_term,
         "task_store": task_store,
         "trace_store": trace_store,
+        "desktop_sessions": desktop_sessions,
         "audit_store": audit_store,
         "mcp_manager": mcp_manager,
         "mcp_json_path": mcp_json_path,
@@ -531,13 +586,34 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        automation_scheduler = getattr(app.state, "automation_scheduler", None)
+        if automation_scheduler is not None:
+            try:
+                import_legacy_jobs(app.state.automations, app.state.legacy_scheduler_db)
+            except Exception as exc:  # noqa: BLE001
+                print(f"legacy schedule migration failed: {exc}", file=sys.stderr)
+            try:
+                import_skill_schedules(
+                    app.state.automations, root=app.state.skills_root,
+                    config_path=app.state.skills_config_path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"skill schedule import failed: {exc}", file=sys.stderr)
+            automation_scheduler.start()
         mgr = getattr(app.state, "channels", None)
         if mgr is not None:
             mgr.bind_loop(asyncio.get_running_loop())
             autostart = os.environ.get("MY_COWORK_CHANNEL_AUTOSTART", "1") != "0"
             if autostart and not os.environ.get("PYTEST_CURRENT_TEST"):
                 mgr.restore_enabled()
-        yield
+        try:
+            yield
+        finally:
+            if automation_scheduler is not None:
+                await automation_scheduler.stop()
+            automation_store = getattr(app.state, "automations", None)
+            if automation_store is not None:
+                automation_store.close()
 
     app = FastAPI(title="my-cowork", lifespan=lifespan)
     app.add_middleware(
@@ -548,6 +624,9 @@ def create_app(
     )
     app.add_middleware(LocalhostOnlyMiddleware)
     app.include_router(chat.router)
+    app.include_router(audit_routes.router)
+    app.include_router(browser_routes.router)
+    app.include_router(desktop_sessions_routes.router)
     app.include_router(confirm.router)
     app.include_router(webhook_lark.router)
     app.include_router(channels_routes.router)
@@ -558,6 +637,7 @@ def create_app(
     app.include_router(officecli_routes.router)
     app.include_router(memory_routes.router)
     app.include_router(schedule_routes.router)
+    app.include_router(automation_routes.router)
     app.include_router(workspace_routes.router)
     app.include_router(trace_routes.router)
     app.include_router(model_routes.router)
@@ -576,10 +656,14 @@ def create_app(
         started_stack = True
 
     app.state.task_manager = task_manager
+    app.state.automations = stack.get("automation_store")
     app.state.bus = bus
     app.state.confirm_hub = confirm_hub or ConfirmHub()
+    app.state.human_input_hub = getattr(app.state.task_manager, "human_input_hub", None)
     app.state.long_term = stack.get("long_term") or getattr(task_manager, "long_term", None)
+    app.state.memory_settings = stack.get("memory_settings")
     app.state.trace_store = stack.get("trace_store")
+    app.state.desktop_sessions = stack.get("desktop_sessions")
     app.state.audit_store = stack.get("audit_store")
     app.state.mcp_manager = stack.get("mcp_manager")
     app.state.mcp_json_path = stack.get("mcp_json_path")
@@ -606,15 +690,13 @@ def create_app(
     )
 
     if started_stack and os.environ.get("MY_COWORK_ENABLE_SCHEDULER", "1") != "0":
-        db = Path(os.environ.get("MY_COWORK_SCHEDULER_DB", str(Path.home() / ".my-cowork" / "scheduler.db")))
-        db.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            sched = SkillScheduler(task_manager=task_manager, db_path=db)
-            sched.start()
-            sched.register_discovered()
-            app.state.scheduler = sched
-        except Exception as exc:  # noqa: BLE001
-            print(f"scheduler failed to start: {exc}", file=sys.stderr)
+        app.state.legacy_scheduler_db = Path(
+            os.environ.get("MY_COWORK_SCHEDULER_DB", str(Path.home() / ".my-cowork" / "scheduler.db"))
+        )
+        app.state.automation_scheduler = AutomationScheduler(
+            app.state.automations,
+            AutomationRunner(app.state.automations, task_manager, bus),
+        )
 
     return app
 
@@ -642,7 +724,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="my-cowork-backend")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--browser-smoke", action="store_true", help="Launch bundled Chromium headlessly and verify a screenshot")
     args = parser.parse_args()
+    if args.browser_smoke:
+        if getattr(sys, "frozen", False) and not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+            binary_dir = Path(sys.executable).resolve().parent
+            for candidate in (binary_dir / "playwright-browsers", binary_dir.parent / "playwright-browsers"):
+                if candidate.is_dir():
+                    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
+                    break
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            # --no-shell bundles the full Chromium binary, not headless_shell.
+            browser = playwright.chromium.launch(channel="chromium", headless=True)
+            try:
+                page = browser.new_page()
+                page.goto("data:text/html,<title>MyCowork browser smoke</title><h1>ready</h1>")
+                assert page.title() == "MyCowork browser smoke"
+                assert page.screenshot(type="png").startswith(b"\x89PNG")
+            finally:
+                browser.close()
+        print("BROWSER SMOKE OK", flush=True)
+        return
     application = create_app()
     uvicorn.run(application, host=args.host, port=args.port, log_level="info")
 

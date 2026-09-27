@@ -100,7 +100,7 @@ export default function AssistantsView() {
   }
 
   return (
-    <div className="m-auto flex h-auto w-full flex-1 flex-col">
+    <div className="assistants-view m-auto flex h-auto w-full flex-1 flex-col">
       <div className="flex w-full items-center justify-between px-6 pb-6 pt-8">
         <div>
           <div className="text-heading-sm font-bold">办公助手</div>
@@ -122,10 +122,10 @@ export default function AssistantsView() {
               {group.items.map((a) => (
                 <div
                   key={a.id}
-                  className="flex flex-col rounded-2xl bg-ds-bg-neutral-default-default p-5"
+                  className="assistant-card flex flex-col rounded-2xl bg-ds-bg-neutral-default-default p-5"
                 >
                   <div className="mb-2 flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-ds-icon-neutral-muted-default" />
+                    <Sparkles className="assistant-card-icon h-4 w-4 text-ds-icon-neutral-muted-default" />
                     <div className="font-semibold text-ds-text-neutral-default-default">
                       {a.name}
                     </div>
@@ -149,7 +149,7 @@ export default function AssistantsView() {
                         <button
                           key={p}
                           type="button"
-                          className="rounded-lg bg-ds-bg-neutral-subtle-default px-2.5 py-1.5 text-left text-xs text-ds-text-neutral-default-default transition-opacity hover:opacity-80"
+                          className="assistant-prompt rounded-lg bg-ds-bg-neutral-subtle-default px-2.5 py-1.5 text-left text-xs text-ds-text-neutral-default-default transition-opacity hover:opacity-80"
                           onClick={() => startWith(a, p)}
                         >
                           {p}

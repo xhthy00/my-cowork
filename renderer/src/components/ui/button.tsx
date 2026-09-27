@@ -25,7 +25,7 @@ const buttonVariants = cva(
         primary: [
           "!bg-ds-bg-brand-default-default !border-ds-bg-brand-default-default",
           "!text-ds-text-brand-inverse-default shadow-button",
-          "hover:!bg-ds-text-brand-strong-default hover:!border-ds-text-brand-strong-default",
+          "hover:!bg-[var(--accent-hover)] hover:!border-[var(--accent-hover)]",
         ].join(" "),
         secondary: [
           "!bg-ds-bg-neutral-subtle-default !border-ds-bg-neutral-subtle-default",

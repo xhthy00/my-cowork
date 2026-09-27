@@ -91,6 +91,38 @@ describe("session store", () => {
     resetStore();
   });
 
+  it("keeps a saved memory notice separate from the assistant answer", () => {
+    const store = useSessionStore.getState();
+    store.addUserMessage("以后用中文");
+    store.handleEvent({ type: "memory.saved", payload: { id: 7, content: "以后用中文", previous: "" } });
+    useSessionStore.getState().appendDelta("好的。");
+    const messages = useSessionStore.getState().messages;
+    expect(messages[1].memoryNotice?.memoryId).toBe(7);
+    expect(messages[1].content).toBe("");
+    expect(messages.at(-1)?.content).toContain("好的。");
+  });
+
+  it("keeps a human question separate from streamed answers and accepts one reply", () => {
+    const store = useSessionStore.getState();
+    store.addUserMessage("生成报告");
+    store.handleEvent({
+      type: "human.ask",
+      payload: { task_id: "task-1", question_id: "q-1", agent: "single_agent", question: "用哪种格式？", options: ["PDF", "Word"] },
+    });
+    store.appendDelta("处理中");
+    let messages = useSessionStore.getState().messages;
+    expect(messages[1].content).toBe("用哪种格式？");
+    expect(messages[1].humanQuestion?.status).toBe("pending");
+    useSessionStore.getState().handleEvent({
+      type: "human.answered",
+      payload: { task_id: "task-1", question_id: "q-1", answer: "Word" },
+    });
+    useSessionStore.getState().answerHumanQuestion("q-1", "Word");
+    messages = useSessionStore.getState().messages;
+    expect(messages[1].humanQuestion?.status).toBe("answered");
+    expect(messages.filter((m) => m.role === "user" && m.content === "Word")).toHaveLength(1);
+  });
+
   it("appendDelta creates an assistant message and appends text", () => {
     useSessionStore.getState().appendDelta("hi");
     useSessionStore.getState().appendDelta(" there");

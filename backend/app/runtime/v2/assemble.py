@@ -11,7 +11,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.factory import load_prompt
 from app.graphs.routing import wants_document, wants_pptx
-from app.runtime.context import format_memory_block
 from app.runtime.v2.office_gate import is_office_skill
 from app.runtime.v2.session import load_thread
 from app.runtime.workspace_context import get_workspace_runtime
@@ -161,6 +160,7 @@ def assemble_system_messages(
     enabled_skill_ids: list[str] | None = None,
     knowledge_bases: list[dict[str, Any]] | None = None,
     long_term: Any = None,
+    session_id: str | None = None,
     user_text: str = "",
     extra_placeholders: dict[str, str] | None = None,
 ) -> list[Any]:
@@ -201,23 +201,34 @@ def assemble_system_messages(
         if not sid:
             continue
         messages.append(SystemMessage(content=_skill_block(sid)))
-    if long_term is not None:
-        from app.memory.long_term import extract_remember_content
+    if long_term is not None and hasattr(long_term, "prompt_block"):
+        from app.memory.scoped import project_memory_key
+        from app.runtime.todo_context import get_todo_runtime
 
-        remember = extract_remember_content(user_text)
-        if remember:
-            try:
-                long_term.write(remember, kind="user_note")
-            except Exception:
-                pass
-        if getattr(long_term, "semantic_enabled", False):
-            try:
-                hits = long_term.query(user_text, k=3)
-            except Exception:
-                hits = []
-            block = format_memory_block(hits)
-            if block:
-                messages.append(SystemMessage(content=block))
+        runtime = get_todo_runtime()
+        workspace = project_memory_key(
+            runtime.memory_root if runtime else None,
+            runtime.project_id if runtime else None,
+        )
+        block = long_term.prompt_block(workspace=workspace, session_id=session_id)
+        if block:
+            messages.append(SystemMessage(content=block))
+        settings = getattr(long_term, "memory_settings", None)
+        if settings is not None and not settings.enabled:
+            messages.append(SystemMessage(content=(
+                "保存新记忆已关闭。你仍可使用已知记忆，但 remember、memory_update 和 "
+                "memory_forget 无法写入；不要声称已记住新内容。"
+            )))
+        else:
+            messages.append(SystemMessage(content=(
+                "记忆：长期有效的用户偏好与纠正用 remember(scope='global') 保存；"
+                "当前项目中无法从代码重建的事实用 scope='workspace'。"
+                "用户明确要求记住时保存；模糊的一次性信息不要保存。"
+                "健康、财务、关系、信仰等敏感信息先征得同意。"
+                "已有相同记忆时用 memory_update，过时或错误时用 memory_forget；"
+                "不要把代码、Git 历史或当前任务细节当作长期记忆。"
+                "保存后在回复中简短告知用户。"
+            )))
     # MiniMax (and other strict OpenAI-compat APIs) reject multiple `system`
     # messages with 400 / 2013. Keep a single leading system block.
     if len(messages) <= 1:
@@ -245,6 +256,7 @@ def assemble_messages(
         enabled_skill_ids=enabled_skill_ids,
         knowledge_bases=knowledge_bases,
         long_term=long_term,
+        session_id=session_id,
         user_text=user_text,
         extra_placeholders=extra_placeholders,
     )

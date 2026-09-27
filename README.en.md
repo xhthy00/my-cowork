@@ -48,7 +48,7 @@ Workspace: chat, task list, deliverable cards, and a live document preview on on
 - **Office assistant catalog**: scene-specific skills are preloaded so you can start weekly reports, official documents, forms, dashboards, financial models, or contract review in one click.
 - **Skills + SkillHub**: toggle local skills, grant them to specific agents, or browse and install suites from SkillHub.
 - **Built-in model panel**: Anthropic, OpenAI, OpenRouter, DeepSeek, Tongyi, Moonshot, MiniMax, plus local Ollama, LM Studio, and vLLM. Keys live in the OS keychain and are saved only after a successful validate.
-- **Connectors and browser**: MCP for everyday tools; Playwright MCP for browser automation (Chromium is installed on demand).
+- **Connectors and browser**: MCP for everyday tools; built-in Playwright actions for navigation, reading, clicking, typing, selecting, uploading, waiting, and screenshots. Installers include Chromium; source checkouts need `backend/.venv/bin/python -m playwright install chromium`.
 - **Memory, timers, scheduling**: long-term memory in local SQLite; skills with a `schedule` are registered with on-device APScheduler (the app must stay running).
 - **Optional remote entry**: a Lark/Feishu bot can expose local `/webhook/lark` over HTTPS via Cloudflare Tunnel (unreachable when the machine is off).
 

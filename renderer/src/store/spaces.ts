@@ -26,6 +26,7 @@ interface SpacesState {
   deleteSpace: (id: string) => void;
   getActiveSpace: () => CoworkSpace | null;
   defaultWorkdirMode: (spaceId: string) => "direct-write" | "artifact-only";
+  replaceSnapshot: (spaces: CoworkSpace[], activeSpaceId: string | null) => void;
 }
 
 export const DEFAULT_SPACE_ID = "space-local";
@@ -122,6 +123,14 @@ export const useSpacesStore = create<SpacesState>()(
       defaultWorkdirMode: (spaceId) => {
         const space = get().spaces.find((x) => x.id === spaceId);
         return space?.sourceType === "folder" ? "direct-write" : "artifact-only";
+      },
+      replaceSnapshot: (spaces, activeSpaceId) => {
+        const normalized = ensureDefaultSpace(spaces);
+        set({
+          spaces: normalized,
+          activeSpaceId: normalized.some((space) => space.id === activeSpaceId)
+            ? activeSpaceId : DEFAULT_SPACE_ID,
+        });
       },
     }),
     {

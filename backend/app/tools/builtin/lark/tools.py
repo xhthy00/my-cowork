@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from app.guardrails.approval import ConfirmHub
 from app.tools.builtin.lark import send_message as lark_send
 
 
@@ -15,7 +16,7 @@ class LarkSendArgs(BaseModel):
     text: str = Field(..., description="Message text")
 
 
-def make_lark_send_tool() -> StructuredTool:
+def make_lark_send_tool(confirm_hub: ConfirmHub | None = None) -> StructuredTool:
     def _invoke(chat_id: str, text: str) -> str:
         import asyncio
 
@@ -39,8 +40,25 @@ def make_lark_send_tool() -> StructuredTool:
             # would otherwise never surface as artifacts.
             return f"发送飞书消息失败：{exc}"
 
+    async def _ainvoke(chat_id: str, text: str) -> str:
+        if confirm_hub is not None:
+            import uuid
+
+            allowed = await confirm_hub.request(
+                f"lark.send_message:{uuid.uuid4().hex}",
+                "lark.send_message", {"chat_id": chat_id, "text": text},
+            )
+            if not allowed:
+                return "Operation rejected by user"
+        try:
+            msg_id = await lark_send.send(chat_id, text)
+            return f"sent message_id={msg_id}"
+        except Exception as exc:
+            return f"发送飞书消息失败：{exc}"
+
     return StructuredTool.from_function(
         func=_invoke,
+        coroutine=_ainvoke,
         name="lark_send_message",
         description=(
             "Send a text message via Feishu/Lark to a chat_id. "

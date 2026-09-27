@@ -10,6 +10,7 @@ import pytest
 
 from app.main import create_app
 from app.memory.long_term import LongTermStore
+from app.memory.settings import MemorySettings
 from app.skills.config import save_skills_config
 
 
@@ -40,6 +41,7 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     application.state.skills_config_path = cfg
     application.state.mcp_json_path = mcp_json
     application.state.long_term = mem
+    application.state.memory_settings = MemorySettings(tmp_path / "memory-settings.json")
     application.state.reload_mcp = lambda: {"connected": {}}
     return application
 
@@ -83,6 +85,30 @@ async def test_memory_crud(app):
         assert res.status_code == 200
         res = await client.get("/api/memory/list")
         assert all(i["id"] != mid for i in res.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_memory_scope_settings_and_stats(app, tmp_path):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        workspace = str(tmp_path / "project-a")
+        global_res = await client.post("/api/memory", json={
+            "content": "使用中文", "scope": "global",
+        })
+        project_res = await client.post("/api/memory", json={
+            "content": "项目私有路径", "scope": "workspace", "workspace": workspace,
+        })
+        assert global_res.status_code == project_res.status_code == 200
+        scoped = await client.get("/api/memory/list", params={"workspace": str(tmp_path / "project-b")})
+        assert [item["content"] for item in scoped.json()["items"]] == ["使用中文"]
+        stats = await client.get("/api/memory/stats")
+        assert stats.status_code == 200 and stats.json()["count"] == 2
+        settings = await client.put("/api/memory/settings", json={
+            "enabled": False, "user_rules": "回复简洁",
+        })
+        assert settings.json() == {"enabled": False, "user_rules": "回复简洁"}
+        assert (await client.get("/api/memory/settings")).json() == settings.json()
 
 
 @pytest.mark.asyncio

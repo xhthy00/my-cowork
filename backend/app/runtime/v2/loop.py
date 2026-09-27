@@ -25,6 +25,7 @@ from app.runtime.context import is_user_facing_answer, looks_like_process_narrat
 from app.runtime.v2.office import office_bypass_refuse, paths_from_text, validate_office_file
 from app.runtime.v2.critic import collect_evidence, fetch_candidates
 from app.tools.mcp.manager import filter_mcp_tools, get_enabled_mcp
+from app.runtime.todo_context import get_automation_checkpoint_key, get_todo_runtime
 
 _DEFAULT_MAX_STEPS = 40
 _MAX_RESEARCH_SEARCHES = 8
@@ -79,6 +80,11 @@ async def _invoke_tool(
 ) -> str:
     tool_name = name or str(getattr(tool, "name", "") or "")
     cid = call_id or tool_name
+    runtime = get_todo_runtime()
+    if (runtime is not None and runtime.source == "schedule"
+            and runtime.automation_store is not None and runtime.automation_run_id):
+        checkpoint_key = get_automation_checkpoint_key() or runtime.session_id or ""
+        runtime.automation_store.tool_started(runtime.automation_run_id, cid, tool_name, checkpoint_key)
     if tool_name:
         _emit_tool_event("tool.start", name=tool_name, call_id=cid, args=args)
     out = ""
@@ -135,6 +141,22 @@ def _tool_calls_of(msg: Any) -> list[dict[str, Any]]:
             }
         )
     return [c for c in out if c.get("name")]
+
+
+def _pending_checkpoint_calls(messages: list[Any]) -> list[dict[str, Any]]:
+    """Return only tool calls without a matching persisted result."""
+    for index in range(len(messages) - 1, -1, -1):
+        calls = _tool_calls_of(messages[index])
+        if calls:
+            completed = {
+                str(getattr(message, "tool_call_id", "") or "")
+                for message in messages[index + 1:]
+                if isinstance(message, ToolMessage)
+            }
+            return [call for call in calls if str(call.get("id") or call.get("name") or "") not in completed]
+        if isinstance(messages[index], HumanMessage):
+            break
+    return []
 
 
 def _is_file_write_call(name: str, args: dict[str, Any]) -> bool:
@@ -472,6 +494,30 @@ async def run_act_loop(
     mapping = _tool_map(tools)
     bound = model.bind_tools(tools) if tools and hasattr(model, "bind_tools") else model
     working = list(messages)
+    runtime = get_todo_runtime()
+    checkpoint_key = get_automation_checkpoint_key() or (
+        runtime.session_id if runtime is not None and runtime.source == "schedule" else None
+    )
+    pending_calls = _pending_checkpoint_calls(working) if runtime is not None and runtime.resume_execution else []
+
+    def _checkpoint() -> None:
+        if checkpoint_key:
+            from app.runtime.v2.session import save_thread
+
+            if (runtime is not None and runtime.source == "schedule"
+                    and runtime.checkpoint_canonical_prefix is not None
+                    and checkpoint_key == runtime.session_id):
+                # The model may see a compacted prefix. A pause checkpoint must
+                # still preserve the full older transcript for later retrieval.
+                current_turn = working[runtime.checkpoint_outbound_prefix_len:]
+                saved = [*runtime.checkpoint_canonical_prefix, *current_turn]
+            else:
+                saved = working
+            save_thread(checkpoint_key, [m for m in saved if getattr(m, "type", "") != "system"])
+
+    def _complete_attempt(call_id: str) -> None:
+        if runtime is not None and runtime.automation_store is not None and runtime.automation_run_id:
+            runtime.automation_store.tool_completed(runtime.automation_run_id, call_id)
     started = time.monotonic()
     steps = 0
 
@@ -482,14 +528,26 @@ async def run_act_loop(
             return True
         return False
 
+    async def _wait_for_human() -> None:
+        runtime = get_todo_runtime()
+        if runtime is not None and runtime.human_input_hub is not None:
+            await runtime.human_input_hub.wait_until_clear(runtime.task_id)
+
     while steps < max_steps:
         if _cancelled():
             break
+        await _wait_for_human()
         steps += 1
-        payload = prepare_model_messages(ensure_tool_responses(working))
-        ai = await _invoke_model(bound, payload)
-        working.append(ai)
-        calls = list(getattr(ai, "tool_calls", None) or [])
+        if pending_calls:
+            calls = pending_calls
+            pending_calls = []
+            ai = next((message for message in reversed(working) if _tool_calls_of(message)), None)
+        else:
+            payload = prepare_model_messages(ensure_tool_responses(working))
+            ai = await _invoke_model(bound, payload)
+            working.append(ai)
+            _checkpoint()
+            calls = list(getattr(ai, "tool_calls", None) or [])
         if not calls:
             break
         if not allow_file_writes:
@@ -506,6 +564,7 @@ async def run_act_loop(
         for call in calls:
             if _cancelled():
                 break
+            await _wait_for_human()
             name = str(call.get("name") if isinstance(call, dict) else getattr(call, "name", "") or "")
             cid = str(call.get("id") if isinstance(call, dict) else getattr(call, "id", "") or "")
             args = _call_args(call)
@@ -513,6 +572,7 @@ async def run_act_loop(
                 working.append(
                     ToolMessage(content=_FILE_REFUSE, tool_call_id=cid or name, name=name)
                 )
+                _checkpoint()
                 continue
             from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
 
@@ -522,6 +582,7 @@ async def run_act_loop(
                         content=OFFICE_WRITE_REFUSE, tool_call_id=cid or name, name=name
                     )
                 )
+                _checkpoint()
                 continue
             searches, fetches = _completed_research_counts(working)
             over_search = name == "web_search" and searches >= _MAX_RESEARCH_SEARCHES
@@ -534,6 +595,7 @@ async def run_act_loop(
                         name=name,
                     )
                 )
+                _checkpoint()
                 continue
             if name in _BASH_NAMES:
                 cmd = str(args.get("command") or args.get("cmd") or args.get("input") or "")
@@ -542,6 +604,7 @@ async def run_act_loop(
                     working.append(
                         ToolMessage(content=refused, tool_call_id=cid or name, name=name)
                     )
+                    _checkpoint()
                     continue
             tool = mapping.get(name)
             if tool is None:
@@ -567,4 +630,6 @@ async def run_act_loop(
             working.append(
                 ToolMessage(content=content, tool_call_id=cid or name, name=name)
             )
+            _checkpoint()
+            _complete_attempt(cid or name)
     return working

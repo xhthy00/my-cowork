@@ -68,6 +68,13 @@ function injectPackagedSkillEnv(env: Record<string, string | undefined>): void {
   }
 }
 
+function injectPackagedBrowserEnv(env: Record<string, string | undefined>): void {
+  const browsers = path.join(process.resourcesPath, "playwright-browsers");
+  if (existsSync(browsers) && !env.PLAYWRIGHT_BROWSERS_PATH) {
+    env.PLAYWRIGHT_BROWSERS_PATH = browsers;
+  }
+}
+
 export function start(options: RunnerOptions): Promise<BackendInfo> {
   const env = { ...process.env, ...options.env };
   env.PYTHONUTF8 = env.PYTHONUTF8 || "1";
@@ -75,12 +82,13 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
   env.PYTHONUNBUFFERED = env.PYTHONUNBUFFERED || "1";
   if (!options.dev) {
     injectPackagedSkillEnv(env);
+    injectPackagedBrowserEnv(env);
   }
   const appModule = env.MY_COWORK_UVICORN_APP || "app.main:app";
   const packaged = options.dev ? null : resolvePackagedBackend();
   const cmd = options.dev ? "uv" : packaged!.cmd;
   const args = options.dev
-    ? ["run", "uvicorn", appModule, "--port", "0"]
+    ? ["run", "uvicorn", appModule, "--port", "0", "--reload", "--reload-dir", path.join(options.cwd, "app")]
     : packaged!.args;
 
   if (packaged && !existsSync(packaged.cmd)) {
@@ -91,7 +99,11 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
     cwd: packaged ? spawnCwd(packaged.cwd, process.cwd()) : options.cwd,
     env,
     windowsHide: true,
+    // Keep uvicorn's reloader and worker in one stoppable process group.
+    detached: Boolean(options.dev && process.platform !== "win32"),
   });
+  (proc as ChildProcess & { backendProcessGroup?: boolean }).backendProcessGroup =
+    Boolean(options.dev && process.platform !== "win32");
 
   return new Promise<BackendInfo>((resolve, reject) => {
     let resolved = false;
@@ -142,6 +154,8 @@ export function stop(proc: ChildProcess | null | undefined): void {
       spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
         stdio: "ignore",
       });
+    } else if ((proc as ChildProcess & { backendProcessGroup?: boolean }).backendProcessGroup) {
+      process.kill(-pid, "SIGTERM");
     } else {
       spawnSync("pkill", ["-TERM", "-P", String(pid)], { stdio: "ignore" });
       try {

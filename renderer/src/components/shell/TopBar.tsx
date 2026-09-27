@@ -96,7 +96,7 @@ export default function TopBar() {
 
   return (
     <header
-      className={`relative z-50 flex h-10 shrink-0 items-center gap-1 py-1 ${
+      className={`app-topbar relative z-50 flex h-10 shrink-0 items-center gap-1 py-1 ${
         isElectron ? (isMac ? "pl-[72px] pr-2" : "pl-2 pr-2") : "px-2"
       }`}
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}

@@ -62,10 +62,11 @@ describe("python_runner", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "uv",
-      ["run", "uvicorn", "app.main:app", "--port", "0"],
+      ["run", "uvicorn", "app.main:app", "--port", "0", "--reload", "--reload-dir", "/fake/cwd/app"],
       expect.objectContaining({
         cwd: "/fake/cwd",
         env: expect.objectContaining({ PYTHONUNBUFFERED: "1" }),
+        detached: process.platform !== "win32",
       }),
     );
   });

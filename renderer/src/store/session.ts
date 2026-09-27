@@ -38,6 +38,27 @@ export interface Message {
     status: "pending" | "allowed" | "denied";
     responded_at?: number;
   };
+  humanQuestion?: {
+    question_id: string;
+    task_id: string;
+    agent: string;
+    options: string[];
+    fields?: Array<{
+      label: string;
+      kind: "single" | "multiple" | "text";
+      options: string[];
+      required: boolean;
+      placeholder?: string;
+    }>;
+    status: "pending" | "answered" | "cancelled";
+    answer?: string;
+  };
+  memoryNotice?: {
+    memoryId: number;
+    content: string;
+    previous: string;
+    undone: boolean;
+  };
 }
 
 export interface TraceEvent {
@@ -117,6 +138,8 @@ export interface SessionState {
   appendToolResult: (tool: string, result: Record<string, unknown>) => void;
   enqueueConfirm: (request: ConfirmRequest) => void;
   resolveConfirm: (call_id: string, ok?: boolean) => void;
+  answerHumanQuestion: (questionId: string, answer: string) => void;
+  cancelHumanQuestion: (questionId: string) => void;
   addAlwaysAllowTool: (tool: string) => void;
   /** Re-queue confirm_request still pending on the backend (queue empty / always-allow miss). */
   recoverPendingConfirms: () => void;
@@ -289,7 +312,7 @@ function openFinalImagePreview(
 }
 
 function isConfirmMessage(message: Message | undefined): boolean {
-  return Boolean(message?.confirm);
+  return Boolean(message?.confirm || message?.humanQuestion || message?.memoryNotice);
 }
 
 function lastUserIndex(messages: Message[]): number {
@@ -738,6 +761,33 @@ export function createSessionStore(
       ),
     })),
 
+  answerHumanQuestion: (questionId, answer) =>
+    set((state) => {
+      const target = state.messages.find(
+        (m) => m.humanQuestion?.question_id === questionId && m.humanQuestion.status === "pending",
+      );
+      if (!target?.humanQuestion) return state;
+      return {
+        messages: [
+          ...state.messages.map((m) =>
+            m.id === target.id && m.humanQuestion
+              ? { ...m, humanQuestion: { ...m.humanQuestion, status: "answered" as const, answer } }
+              : m,
+          ),
+          { id: nextId(), role: "user" as const, content: answer, createdAt: Date.now() },
+        ],
+      };
+    }),
+
+  cancelHumanQuestion: (questionId) =>
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.humanQuestion?.question_id === questionId && m.humanQuestion.status === "pending"
+          ? { ...m, humanQuestion: { ...m.humanQuestion, status: "cancelled" as const } }
+          : m,
+      ),
+    })),
+
   addAlwaysAllowTool: (tool) =>
     set((state) => {
       const name = tool.trim();
@@ -837,6 +887,13 @@ export function createSessionStore(
   handleEvent: (event, projectId) => {
     const payload = event.payload ?? {};
 
+    if (event.type === "human.answered") {
+      get().answerHumanQuestion(
+        String(payload.question_id ?? ""),
+        String(payload.answer ?? ""),
+      );
+    }
+
     if (event.type === "graph.start") {
       // Keep seeded Progress plan; only clear agent roster / running slots.
       const workforce = deps.getWorkforce();
@@ -929,7 +986,51 @@ export function createSessionStore(
         updates.lastContentAt = Date.now();
       }
 
-      if (event.type === "budget.update" || event.type === "budget.exhausted") {
+      if (event.type === "human.ask") {
+        const questionId = String(payload.question_id ?? "");
+        if (questionId && !state.messages.some((m) => m.humanQuestion?.question_id === questionId)) {
+          updates.messages = [
+            ...state.messages,
+            {
+              id: nextId(),
+              role: "assistant" as const,
+              content: String(payload.question ?? ""),
+              createdAt: Date.now(),
+              humanQuestion: {
+                question_id: questionId,
+                task_id: String(payload.task_id ?? ""),
+                agent: String(payload.agent ?? ""),
+                options: Array.isArray(payload.options) ? payload.options.map(String) : [],
+                fields: Array.isArray(payload.fields)
+                  ? payload.fields.filter((field): field is Record<string, unknown> => Boolean(field && typeof field === "object"))
+                    .map((field) => ({
+                      label: String(field.label ?? ""),
+                      kind: field.kind === "single" || field.kind === "multiple" ? field.kind : "text",
+                      options: Array.isArray(field.options) ? field.options.map(String) : [],
+                      required: Boolean(field.required),
+                      placeholder: String(field.placeholder ?? ""),
+                    }))
+                  : [],
+                status: "pending" as const,
+              },
+            },
+          ];
+          updates.thinking = null;
+        }
+      } else if (event.type === "memory.saved") {
+        const memoryId = Number(payload.id ?? 0);
+        if (memoryId > 0) {
+          updates.messages = [...state.messages, {
+            id: nextId(), role: "assistant" as const, content: "", createdAt: Date.now(),
+            memoryNotice: {
+              memoryId,
+              content: String(payload.content ?? ""),
+              previous: String(payload.previous ?? ""),
+              undone: false,
+            },
+          }];
+        }
+      } else if (event.type === "budget.update" || event.type === "budget.exhausted") {
         updates.budgetTokens = Number(payload.tokens ?? state.budgetTokens);
         updates.budgetMaxTokens = Number(
           payload.max_tokens ?? state.budgetMaxTokens,
@@ -1064,6 +1165,11 @@ export function createSessionStore(
           }
         }
       } else if (event.type === "graph.end") {
+        updates.messages = (updates.messages ?? state.messages).map((m) =>
+          m.humanQuestion?.status === "pending"
+            ? { ...m, humanQuestion: { ...m.humanQuestion, status: "cancelled" as const } }
+            : m,
+        );
         const started = state.taskStartedAt;
         const elapsed =
           (started ? Date.now() - started : 0) + state.taskElapsedMs;
