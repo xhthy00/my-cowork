@@ -226,7 +226,7 @@ export default function ModelsPanel() {
         return;
       }
 
-      let result = { ok: false, error: "无法校验", latency_ms: 0 as number | undefined };
+      let result: { ok: boolean; error?: string; latency_ms?: number } = { ok: false, error: "无法校验" };
       if (window.api?.validateModel) {
         result = await window.api.validateModel({
           provider,

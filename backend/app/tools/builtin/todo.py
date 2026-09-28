@@ -8,13 +8,13 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.runtime.todo_context import get_todo_runtime
-from app.runtime.todo_planner import (
+from app.task_support.todo_context import get_todo_runtime
+from app.task_support.todos import (
     apply_todo_write,
     todos_match_user_language,
     without_office_todos,
 )
-from app.runtime.v2.office_gate import office_skills_allowed
+from app.guardrails.office_gate import office_skills_allowed
 
 
 class TodoItemModel(BaseModel):
@@ -78,7 +78,7 @@ def todo_write(todos: list[dict[str, Any]] | list[TodoItemModel]) -> str:
             "[ERROR] 用户使用中文。每条 todo 的 content 与 active_form 必须是简体中文，"
             "禁止英文步骤标题（例如 Loading officecli skill）。请用中文重写全部 todos 后再调用。"
         )
-    from app.graphs.routing import wants_document, wants_markdown_file
+    from app.task_support.documents import wants_document, wants_markdown_file
 
     md_only = wants_markdown_file(runtime.user_text) and not wants_document(
         runtime.user_text

@@ -1,4 +1,5 @@
 import json
+import sys
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -145,7 +146,8 @@ class TestExecBash:
         """Binary/incomplete UTF-8 (e.g. truncated docx via head -c) must soft-decode."""
         bash = _make(make_bash, tmp_path, ok=True)
         # 0xe4 alone is an incomplete UTF-8 lead byte — classic crash with strict decode.
-        result = await bash.ainvoke({"cmd": "printf '\\xe4'", "cwd": str(tmp_path)})
+        cmd = f'"{sys.executable}" -c "import sys; sys.stdout.buffer.write(bytes([228]))"'
+        result = await bash.ainvoke({"cmd": cmd, "cwd": str(tmp_path)})
         parsed = json.loads(result)
         assert parsed["exit_code"] == 0
         assert isinstance(parsed["stdout"], str)

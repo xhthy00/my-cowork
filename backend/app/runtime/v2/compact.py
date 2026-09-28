@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from app.agents.factory import load_prompt
 from app.llm.token_counter import count_tokens
 from app.runtime.compressor import DEFAULT_THRESHOLD, KEEP_LAST, SummarizeFn
-from app.runtime.budget_context import context_window_limit
+from app.llm.budget_context import context_window_limit
 
 KEEP_FULL_TURNS = 3
 COMPACTION_CAP_TOKENS = 250_000

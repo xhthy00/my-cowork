@@ -1,3 +1,4 @@
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 import { subscribeSSE, type SSEvent } from "@/api/sse";
 import type {
   ChannelPairing,
@@ -8,7 +9,7 @@ import type {
 
 async function base(): Promise<string> {
   const url = await window.api.getBackendUrl();
-  if (!url) throw new Error("后端未连接");
+  if (!url) throw new Error(await backendUnavailableMessage());
   return url.replace(/\/$/, "");
 }
 

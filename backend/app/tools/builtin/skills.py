@@ -10,7 +10,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.skills import find_skill, format_loaded_skill
-from app.runtime.v2.office_gate import is_office_skill, office_skills_allowed
+from app.guardrails.office_gate import is_office_skill, office_skills_allowed
 from app.skills.config import (
     default_skills_config_path,
     default_skills_root,

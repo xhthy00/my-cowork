@@ -14,7 +14,7 @@ from app.graphs.coordinator import coordinate
 from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks, wants_document
 from app.graphs.single_agent import run_with_floor_retries
 from app.graphs.state import WorkforceState
-from app.runtime.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope
+from app.task_support.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope
 from app.runtime.v2.assemble import format_bound_knowledge_block, render_agent_prompt
 from app.runtime.v2.critic import (
     analyze_task,
@@ -22,7 +22,7 @@ from app.runtime.v2.critic import (
     finalize_worker_result,
     needs_research,
 )
-from app.runtime.v2.office_gate import office_skills_scope
+from app.guardrails.office_gate import office_skills_scope
 from app.runtime.v2.compact import compact_session_history
 from app.runtime.v2.session import (
     load_compaction, load_thread, save_compaction, write_compaction_transcript,

@@ -10,7 +10,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 from app.llm.token_counter import count_tokens
-from app.runtime.budget_context import LiveTokenPreview, record_llm_tokens
+from app.llm.budget_context import LiveTokenPreview, record_llm_tokens
 
 
 def _flatten_chat_messages(messages: list[list[BaseMessage]]) -> list[BaseMessage]:

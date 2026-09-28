@@ -13,7 +13,7 @@ from app.guardrails.approval import (
     reset_remote_channel,
     set_remote_channel,
 )
-from app.runtime.budget import Budget
+from app.llm.budget import Budget
 from app.runtime.graph_runner import run_graph
 from app.skills import find_skill
 

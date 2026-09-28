@@ -47,7 +47,7 @@ Workspace: chat, task list, deliverable cards, and a live document preview on on
   - **Multi-agent (Workforce)**: a planner splits the work → you confirm subtasks → a coordinator fans out document / browser / developer workers by dependency, and can replan on failure.
 - **Office assistant catalog**: scene-specific skills are preloaded so you can start weekly reports, official documents, forms, dashboards, financial models, or contract review in one click.
 - **Skills + SkillHub**: toggle local skills, grant them to specific agents, or browse and install suites from SkillHub.
-- **Built-in model panel**: Anthropic, OpenAI, OpenRouter, DeepSeek, Tongyi, Moonshot, MiniMax, plus local Ollama, LM Studio, and vLLM. Keys live in the OS keychain and are saved only after a successful validate.
+- **Built-in model panel**: Anthropic, OpenAI, OpenRouter, DeepSeek, Tongyi, Moonshot, MiniMax, plus local Ollama, LM Studio, and vLLM. Keys are saved after successful validation using OS-backed encryption; saving fails explicitly when secure storage is unavailable.
 - **Connectors and browser**: MCP for everyday tools; built-in Playwright actions for navigation, reading, clicking, typing, selecting, uploading, waiting, and screenshots. Installers include Chromium; source checkouts need `backend/.venv/bin/python -m playwright install chromium`.
 - **Memory, timers, scheduling**: long-term memory in local SQLite; skills with a `schedule` are registered with on-device APScheduler (the app must stay running).
 - **Optional remote entry**: a Lark/Feishu bot can expose local `/webhook/lark` over HTTPS via Cloudflare Tunnel (unreachable when the machine is off).
@@ -103,7 +103,7 @@ Fat desktop client: Electron starts a local Python (FastAPI) process. The render
          Optional: Cloudflare Tunnel → Lark event subscription
 ```
 
-The backend is split into nine harness layers. Dependencies may only point downward (`import-linter` enforces this in CI):
+The backend organizes responsibilities into harness layers. Dependency contracts are defined in `backend/.importlinter`, and CI is configured to check them.
 
 | Layer | Package | Role |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ The backend is split into nine harness layers. Dependencies may only point downw
 | L2 Models | `llm/` | Provider gateway, token counting |
 | L1 Sandbox | `sandbox/` | Path allowlist, egress policy |
 
-Keys are not written to `config.toml`. Electron stores them in the OS keychain (macOS Keychain / Windows Credential Manager) and injects them as env vars when starting Python.
+Keys are not written to `config.toml` and are injected as environment variables when Python starts. Electron uses OS-backed encryption and reports an error when it is unavailable. Legacy plaintext is removed only after the encrypted copy is verified. See [file permissions and local storage](docs/文件权限与本地存储.md) (Chinese) for boundaries and migration behavior.
 
 ---
 
@@ -226,7 +226,7 @@ Skill conventions: [docs/开发指南.md](docs/开发指南.md) (Chinese) and [s
 ## Safety
 
 - **Local-first, single-tenant**: no cloud hosting, multi-tenancy, billing, or SSO.
-- **Path allowlist**: includes the home directory by default; tighten it in settings. `../` escape is rejected.
+- **Path allowlist**: permits explicitly bound workspaces and directories added in settings. The home directory is not granted by default. This is not OS-level shell isolation.
 - **Dangerous commands denied**: e.g. destructive `rm -rf /` against the filesystem root.
 - **Remote channel is tighter**: skills that write disk, `exec`, or generate documents cannot be triggered via Lark; webhooks need a verify token and source IPs.
 - **Out of scope**: desktop GUI Computer Use, training your own models, 24/7 unattended operation (timers and webhooks stop when the app is quit).
@@ -239,7 +239,7 @@ Skill conventions: [docs/开发指南.md](docs/开发指南.md) (Chinese) and [s
 backend/                 Python backend (harness layers)
 electron/                Electron main process
 renderer/                React UI
-skills/                  User / workspace skills
+skills/                  Templates and legacy skills (user skills move to the user data directory)
 resources/example-skills Bundled skills (official docs, legal, officecli recipes, …)
 resources/bin/           Platform binaries from fetch:officecli (not committed)
 build/                   electron-builder config and app icon

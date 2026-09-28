@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { automationApi, type Automation } from "./api/automations";
 
 import ChatView from "./components/ChatView";
@@ -27,6 +27,9 @@ export default function App() {
   const activeId = useSessionsStore((s) => s.activeId);
   const messageCount = useSessionStore((s) => s.messages.length);
   const [backendReady, setBackendReady] = useState(false);
+  // First run without an API key: keep the UI usable so Settings is reachable.
+  const [needsModel, setNeedsModel] = useState(false);
+  const routedToModels = useRef(false);
   const [automationNotice, setAutomationNotice] = useState("");
 
   useEffect(() => {
@@ -61,19 +64,47 @@ export default function App() {
 
   useEffect(() => {
     initDesktopSessionSync();
-    // Already up (restart / fast boot)? Skip splash.
-    void window.api.getBackendUrl().then((url) => {
-      if (url) {
+    let changed = false;
+    const offReady =
+      window.api.onBackendReady?.((url) => {
+        changed = true;
+        setBackendReady(true);
+        setNeedsModel(false);
+        if (url) void connectDesktopSessionSync(url);
+      }) ?? (() => {});
+    const enterNeedsModel = () => {
+      changed = true;
+      setBackendReady(false);
+      setNeedsModel(true);
+      if (routedToModels.current) return;
+      routedToModels.current = true;
+      window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }));
+    };
+    // The event may fire before this listener exists, so also ask for the current state.
+    const offNeedsModel = window.api.onBackendNeedsModel?.(enterNeedsModel) ?? (() => {});
+    const offFailed = window.api.onBackendFailed?.(() => {
+      changed = true;
+      setBackendReady(false); setNeedsModel(false);
+    }) ?? (() => {});
+    const offStarting = window.api.onBackendStarting?.(() => {
+      changed = true;
+      setBackendReady(false); setNeedsModel(false);
+    }) ?? (() => {});
+    void Promise.all([window.api.getBackendStatus?.(), window.api.getBackendUrl()]).then(([status, url]) => {
+      if (changed) return;
+      if (status?.state === "needs-model") enterNeedsModel();
+      else if (url && (!status || status.state === "ready")) {
         setBackendReady(true);
         void connectDesktopSessionSync(url);
       }
-    });
-    const offReady =
-      window.api.onBackendReady?.((url) => {
-        setBackendReady(true);
-        if (url) void connectDesktopSessionSync(url);
-      }) ?? (() => {});
-    return offReady;
+    }).catch(() => {});
+    return () => {
+      changed = true;
+      offReady();
+      offNeedsModel();
+      offFailed();
+      offStarting();
+    };
   }, []);
 
   useEffect(() => {
@@ -109,8 +140,9 @@ export default function App() {
 
   return (
     <div className="window font-sans bg-ds-bg-neutral-muted-default">
-      {automationNotice ? <button type="button" className="fixed right-5 top-16 z-[120] max-w-sm rounded-2xl border border-violet-200 bg-white px-4 py-3 text-left text-sm font-medium text-ds-text-neutral-default-default shadow-xl" onClick={() => { setAutomationNotice(""); usePageTabStore.getState().setHubTab("home"); usePageTabStore.getState().setHomeSection("triggers"); }}>{automationNotice}<span className="ml-2 text-violet-700">查看</span></button> : null}
-      {!backendReady && <StartupSplash />}
+      {automationNotice ? <button type="button" className="fixed right-5 top-16 z-[120] max-w-sm rounded-2xl border border-violet-200 bg-ds-bg-neutral-subtle-default dark:border-violet-700 px-4 py-3 text-left text-sm font-medium text-ds-text-neutral-default-default shadow-xl" onClick={() => { setAutomationNotice(""); usePageTabStore.getState().setHubTab("home"); usePageTabStore.getState().setHomeSection("triggers"); }}>{automationNotice}<span className="ml-2 text-ds-text-brand-default-default">查看</span></button> : null}
+      {needsModel && !backendReady ? <button type="button" className="fixed left-1/2 top-16 z-[120] max-w-md -translate-x-1/2 rounded-2xl border border-violet-200 bg-ds-bg-neutral-subtle-default dark:border-violet-700 px-4 py-3 text-left text-sm font-medium text-ds-text-neutral-default-default shadow-xl" onClick={() => window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }))}>还没有配置模型，填写 API 密钥后即可开始使用<span className="ml-2 text-ds-text-brand-default-default">去配置</span></button> : null}
+      {!backendReady && !needsModel && <StartupSplash />}
       <TitleBar />
       <TopBar />
       <div className="body">

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -29,8 +30,8 @@ class FakeConfirmHub:
 def _make_fake_base(tmp_path: Path) -> Path:
     """Minimal terminal_base layout usable by clone (Unix)."""
     base = tmp_path / "terminal_base"
-    bin_dir = base / "bin"
-    lib_dir = base / "lib" / "python3.10" / "site-packages"
+    bin_dir = base / ("Scripts" if os.name == "nt" else "bin")
+    lib_dir = base / "Lib" / "site-packages" if os.name == "nt" else base / "lib" / "python3.10" / "site-packages"
     bin_dir.mkdir(parents=True)
     lib_dir.mkdir(parents=True)
     # Real-ish python home with a python3 stub
@@ -40,7 +41,11 @@ def _make_fake_base(tmp_path: Path) -> Path:
     py.write_text("#!/bin/sh\necho ok\n")
     py.chmod(0o755)
     (base / "pyvenv.cfg").write_text(f"home = {home}\ninclude-system-site-packages = false\n")
-    (bin_dir / "python").symlink_to(py)
+    if os.name == "nt":
+        (bin_dir / "python.exe").write_text("stub")
+        (bin_dir / "activate.bat").write_text(f'set "VIRTUAL_ENV={base}"\n')
+    else:
+        (bin_dir / "python").symlink_to(py)
     (bin_dir / "activate").write_text(
         f'VIRTUAL_ENV="{base}"\nexport VIRTUAL_ENV\n'
     )
@@ -52,12 +57,15 @@ class TestCloneVenv:
         base = _make_fake_base(tmp_path)
         target = tmp_path / "agent" / ".venv"
         clone_venv_with_symlinks(base, target)
-        assert (target / "bin" / "python").exists()
-        assert (target / "lib").is_symlink()
-        assert (target / "bin" / "activate").exists()
-        act = (target / "bin" / "activate").read_text()
+        bin_name = "Scripts" if os.name == "nt" else "bin"
+        python_name = "python.exe" if os.name == "nt" else "python"
+        activate_name = "activate.bat" if os.name == "nt" else "activate"
+        lib_name = "Lib" if os.name == "nt" else "lib"
+        assert (target / bin_name / python_name).exists()
+        assert (target / lib_name).samefile(base / lib_name)
+        act = (target / bin_name / activate_name).read_text()
         assert str(target) in act
-        assert f'VIRTUAL_ENV="{target}"' in act
+        assert "VIRTUAL_ENV" in act
 
     def test_ensure_agent_venv_fallback_when_base_missing(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MY_COWORK_TERMINAL_BASE", str(tmp_path / "missing"))
@@ -69,7 +77,7 @@ class TestCloneVenv:
         out = tmp_path / "task_out"
         venv = ensure_agent_venv("developer_agent", out)
         assert venv == out / "developer_agent" / ".venv"
-        assert (venv / "bin" / "python").exists()
+        assert (venv / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")).exists()
         # Second call reuses
         assert ensure_agent_venv("developer_agent", out) == venv
 
@@ -80,7 +88,8 @@ class TestCloneVenv:
 
 
 class TestWrapActivate:
-    def test_unix_wrap(self, tmp_path):
+    def test_unix_wrap(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("app.tools.builtin.terminal_venv.platform.system", lambda: "Linux")
         venv = tmp_path / ".venv"
         (venv / "bin").mkdir(parents=True)
         (venv / "bin" / "activate").write_text("# activate\n")

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from app.graphs.routing import extract_claimed_office_paths, wants_document
+from app.task_support.documents import extract_claimed_office_paths, wants_document
 from app.guardrails.policy import skill_usable_via_remote
 from app.orchestrator.task_manager import TaskRequest
 from app.runtime.context import looks_like_plan_only, looks_like_workspace_dump

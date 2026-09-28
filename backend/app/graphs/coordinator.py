@@ -8,7 +8,7 @@ from typing import Any
 
 from app.agents.factory import load_prompt
 from app.graphs.routing import ready_subtasks
-from app.runtime.notes_context import notes_excerpt
+from app.task_support.notes_context import notes_excerpt
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 

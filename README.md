@@ -47,7 +47,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
   - **多智能体（Workforce）**：Planner 拆任务 → 你确认子任务 → Coordinator 按依赖并行委派文档 / 浏览 / 开发工人，失败可重规划。
 - **办公助手目录**：按场景预加载 Skill，一键开始写周报、公文、表单、仪表盘、财务模型或合同审查。
 - **Skills + SkillHub**：本机技能可开关、可授权给指定智能体；也可从 SkillHub 浏览、安装套件。
-- **自带模型面板**：Anthropic / OpenAI / OpenRouter / DeepSeek / 通义 / Moonshot / MiniMax，以及 Ollama、LM Studio、vLLM 本地模型。Key 存在系统钥匙串，校验通过才保存。
+- **自带模型面板**：Anthropic / OpenAI / OpenRouter / DeepSeek / 通义 / Moonshot / MiniMax，以及 Ollama、LM Studio、vLLM 本地模型。Key 校验通过后使用系统加密保存；安全存储不可用时明确报错。
 - **连接器与浏览器**：MCP 连接日常工具；内置 Playwright 浏览器支持打开、读取、点击、输入、选择、上传、等待和截图。安装包自带 Chromium；从源码开发时运行 `backend/.venv/bin/python -m playwright install chromium`。
 - **记忆、定时、调度**：长期记忆写入本机 SQLite；带 `schedule` 的 Skill 由本机 APScheduler 触发（应用保持运行才会执行）。
 - **可选远程入口**：飞书机器人经 Cloudflare Tunnel 把本机 `/webhook/lark` 暴露为 HTTPS（关机则不可达）。
@@ -103,7 +103,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
          可选：Cloudflare Tunnel → 飞书事件订阅
 ```
 
-后端按 harness 九层划分，跨层依赖只允许向下（`import-linter` 在 CI 里卡）：
+后端以 harness 分层组织职责；具体依赖约束见 `backend/.importlinter`，CI 已配置分层检查。
 
 | 层 | 目录 | 职责 |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 | L2 模型 | `llm/` | Provider 网关、token 计数 |
 | L1 沙箱 | `sandbox/` | 路径白名单、出网策略 |
 
-密钥不写进 `config.toml`：Electron 用系统钥匙串（macOS Keychain / Windows Credential Manager）保管，启动 Python 时注入环境变量。
+密钥不写进 `config.toml`，启动 Python 时通过环境变量注入。Electron 使用系统支持的加密存储；不可用时明确报错。旧明文在安全副本验证成功后清除。实现与边界见[文件权限与本地存储](docs/文件权限与本地存储.md)。
 
 ---
 
@@ -255,7 +255,7 @@ xattr -dr com.apple.quarantine /Applications/MyCowork.app
 ## 安全边界
 
 - **本地优先、单租户**：不做云托管、多租户、计费或 SSO。
-- **路径白名单**：默认含用户主目录，可在设置中收紧；禁止 `../` 穿越。
+- **路径白名单**：允许主动绑定的工作目录及设置中显式添加的目录；不默认开放用户主目录。该检查不等同于操作系统级 shell 隔离。
 - **高危命令硬拒**：例如针对根目录的破坏性 `rm -rf /`。
 - **远程通道收紧**：含写盘 / `exec` / 文档生成的 Skill 不能经飞书远程触发；webhook 需配置校验 token 与来源 IP。
 - **不做**：桌面 GUI Computer Use、自训练模型、24 小时无人值守（关机则定时与 webhook 都停）。
@@ -268,7 +268,7 @@ xattr -dr com.apple.quarantine /Applications/MyCowork.app
 backend/                 Python 后端（harness 分层）
 electron/                Electron 主进程
 renderer/                React 界面
-skills/                  用户 / 工作区技能
+skills/                  模板与旧技能（用户技能迁至用户数据目录）
 resources/example-skills 内置技能（公文、法务、officecli 配方等）
 resources/bin/           fetch:officecli 下载的平台二进制（不入库）
 build/                   electron-builder 配置与应用图标

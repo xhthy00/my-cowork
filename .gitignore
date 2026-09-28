@@ -83,3 +83,12 @@ tmp/
 temp/
 .cache/
 .vite/
+
+# Do not add new local skills from the legacy user-skills directory.
+# Keep templates and README eligible for tracking; existing tracked skills remain.
+skills/*
+!skills/_templates/
+!skills/README.md
+
+# Isolated backend verification environment
+backend/.venv-test/

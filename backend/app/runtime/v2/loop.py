@@ -25,7 +25,7 @@ from app.runtime.context import is_user_facing_answer, looks_like_process_narrat
 from app.runtime.v2.office import office_bypass_refuse, paths_from_text, validate_office_file
 from app.runtime.v2.critic import collect_evidence, fetch_candidates
 from app.tools.mcp.manager import filter_mcp_tools, get_enabled_mcp
-from app.runtime.todo_context import get_automation_checkpoint_key, get_todo_runtime
+from app.task_support.todo_context import get_automation_checkpoint_key, get_todo_runtime
 
 _DEFAULT_MAX_STEPS = 40
 _MAX_RESEARCH_SEARCHES = 8
@@ -228,7 +228,7 @@ def _emit_tool_event(
 ) -> None:
     from datetime import datetime, timezone
 
-    from app.runtime.todo_context import get_todo_runtime
+    from app.task_support.todo_context import get_todo_runtime
 
     rt = get_todo_runtime()
     if rt is None or rt.bus is None or not name:
@@ -574,7 +574,7 @@ async def run_act_loop(
                 )
                 _checkpoint()
                 continue
-            from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
+            from app.guardrails.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
 
             if office_writes_blocked() and _is_file_write_call(name, args):
                 working.append(

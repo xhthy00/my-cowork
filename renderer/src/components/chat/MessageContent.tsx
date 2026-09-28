@@ -48,7 +48,7 @@ export function sanitizeThinkText(text: string): string {
 }
 
 function dropProcessNarration(segments: ContentSegment[]): ContentSegment[] {
-  return segments.flatMap((s) => {
+  return segments.flatMap<ContentSegment>((s) => {
     if (s.type !== "answer") return [s];
     const text = stripProcessNarration(s.text);
     return text ? [{ type: "answer" as const, text }] : [];

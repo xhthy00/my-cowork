@@ -73,11 +73,23 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("backend:ready", handler);
     return () => ipcRenderer.removeListener("backend:ready", handler);
   },
+  onBackendStarting: (cb: () => void): (() => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("backend:starting", handler);
+    return () => ipcRenderer.removeListener("backend:starting", handler);
+  },
   onBackendFailed: (cb: (message: string) => void): (() => void) => {
     const handler = (_: unknown, message: string) => cb(message);
     ipcRenderer.on("backend:failed", handler);
     return () => ipcRenderer.removeListener("backend:failed", handler);
   },
+  onBackendNeedsModel: (cb: () => void): (() => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("backend:needs-model", handler);
+    return () => ipcRenderer.removeListener("backend:needs-model", handler);
+  },
+  getBackendStatus: (): Promise<{ state: string; error: string }> =>
+    ipcRenderer.invoke("backend:status"),
   getUpdaterStatus: (): Promise<unknown> => ipcRenderer.invoke("updater:status"),
   checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke("updater:check"),
   downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke("updater:download"),

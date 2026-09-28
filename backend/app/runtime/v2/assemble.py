@@ -10,10 +10,10 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.factory import load_prompt
-from app.graphs.routing import wants_document, wants_pptx
-from app.runtime.v2.office_gate import is_office_skill
+from app.task_support.documents import wants_document, wants_pptx
+from app.guardrails.office_gate import is_office_skill
 from app.runtime.v2.session import load_thread
-from app.runtime.workspace_context import get_workspace_runtime
+from app.task_support.workspace_context import get_workspace_runtime
 from app.skills import find_skill
 
 _SKILL_CAP = 32_000
@@ -203,7 +203,7 @@ def assemble_system_messages(
         messages.append(SystemMessage(content=_skill_block(sid)))
     if long_term is not None and hasattr(long_term, "prompt_block"):
         from app.memory.scoped import project_memory_key
-        from app.runtime.todo_context import get_todo_runtime
+        from app.task_support.todo_context import get_todo_runtime
 
         runtime = get_todo_runtime()
         workspace = project_memory_key(

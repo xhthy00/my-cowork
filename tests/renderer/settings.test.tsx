@@ -31,7 +31,12 @@ describe("Settings", () => {
     window.localStorage.removeItem("my-cowork-settings");
     resetStore();
     originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn(async (_url, init) => ({
+      ok: true,
+      json: async () => String(_url).includes("/api/admin/whitelist")
+        ? (init?.body ? JSON.parse(String(init.body)) : { paths: ["~/Desktop", "~/Documents", "~/Downloads"], workspace_paths: [] })
+        : { tasks: [], runs: [] },
+    })) as unknown as typeof fetch;
     window.api = {
       getBackendUrl: vi.fn().mockResolvedValue(BACKEND_URL),
       restartBackend: vi.fn().mockResolvedValue(BACKEND_URL),
@@ -102,6 +107,26 @@ describe("Settings", () => {
       "~/Documents",
       "~/Downloads",
     ]);
+  });
+
+  it("keeps saved permissions unchanged when the server rejects a save", async () => {
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "隐私 / 白名单" }));
+    await userEvent.type(screen.getByPlaceholderText("例如 ~/Projects"), "~/Private");
+    await userEvent.click(screen.getByRole("button", { name: "+ 添加目录…" }));
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({ detail: "目录权限保存失败" }) } as Response);
+    await userEvent.click(screen.getByRole("button", { name: "保存白名单" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("目录权限保存失败");
+    expect(useSettingsStore.getState().whitelist).not.toContain("~/Private");
+  });
+
+  it("loads saved directories from the backend instead of stale local state", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ paths: ["C:/Chosen"], workspace_paths: ["C:/Bound"] }) } as Response);
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "隐私 / 白名单" }));
+    expect(await screen.findByText("C:/Chosen")).toBeInTheDocument();
+    expect(screen.getByText("C:/Bound")).toBeInTheDocument();
+    expect(screen.queryByText("~/Desktop")).not.toBeInTheDocument();
   });
 
   it("updates zustand whitelist after editing and saving", async () => {

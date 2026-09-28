@@ -36,7 +36,7 @@ def _prepare_write(path: str) -> Path:
 def _prepare(path: str) -> Path:
     """Normalize aliases then enforce whitelist; return absolute path."""
     target = resolve_tool_path(path)
-    _guard.check_path(str(target))
+    _guard.check_path(str(target), read_only=True)
     return target
 
 
@@ -170,7 +170,7 @@ def make_fs_write(guard: PathGuard, confirm_hub: ConfirmHub | None) -> BaseTool:
         except PathGuardError as exc:
             return f"[ERROR] {exc}"
 
-        from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_path_blocked
+        from app.guardrails.office_gate import OFFICE_WRITE_REFUSE, office_path_blocked
 
         if office_path_blocked(str(target)):
             return OFFICE_WRITE_REFUSE

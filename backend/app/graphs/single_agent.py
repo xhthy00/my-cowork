@@ -11,7 +11,7 @@ from app.graphs.routing import wants_document, wants_file_document
 from app.graphs.state import SupervisorState
 from app.llm.token_counter import count_tokens
 from app.runtime.agent_stream import _emit_step_delta
-from app.runtime.budget_context import context_window_limit
+from app.llm.budget_context import context_window_limit
 from app.runtime.v2.assemble import assemble_system_messages
 from app.runtime.v2.compact import COMPACTION_CAP_TOKENS, compact_session_history
 from app.runtime.v2.critic import (
@@ -20,12 +20,12 @@ from app.runtime.v2.critic import (
     issues_need_search,
 )
 from app.runtime.v2.loop import inject_forced_fetch, inject_forced_search, run_act_loop
-from app.runtime.v2.office_gate import office_skills_scope
+from app.guardrails.office_gate import office_skills_scope
 from app.runtime.v2.session import (
     load_compaction, load_thread, save_compaction, save_thread,
     write_compaction_transcript,
 )
-from app.runtime.todo_context import get_todo_runtime
+from app.task_support.todo_context import get_todo_runtime
 from app.runtime.v2.synthesize import synthesize_answer
 
 _FLOOR_RETRIES = 3

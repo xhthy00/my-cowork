@@ -9,6 +9,16 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
+
+_STARTUP_STARTED = time.perf_counter()
+
+
+def _startup_stage(name: str) -> None:
+    print(f"[startup] {name} ({time.perf_counter() - _STARTUP_STARTED:.2f}s)", file=sys.stderr, flush=True)
+
+
+_startup_stage("loading modules")
 
 # Child processes inherit these. Set before other imports that spawn tools.
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -98,6 +108,7 @@ from app.tools.builtin.web_fetch import make_web_fetch_tool
 from app.tools.builtin.browser import make_browser_tools
 from app.tools.builtin.ima.tools import make_ima_tools
 from app.skills.config import default_skills_config_path, default_skills_root
+from app.skills import default_example_skills_root, legacy_user_skills_roots
 from app.tools.mcp.manager import (
     McpManager,
     default_mcp_json_path,
@@ -107,10 +118,6 @@ from app.tools.mcp.manager import (
     save_mcp_json,
 )
 from app.tools.registry import ToolRegistry
-
-
-def _default_whitelist() -> list[str]:
-    return [str(Path.home())]
 
 
 def _parse_fallback_specs() -> list[tuple[str, str]]:
@@ -261,10 +268,16 @@ def build_stack(
     msg_worker_llm: BaseChatModel | None = None,
 ) -> dict[str, Any]:
     """Wire the full backend stack and return a dict of core services."""
+    _startup_stage("modules loaded; assembling stores and tools")
     pptx_gen.ensure_templates()
 
-    guard = PathGuard(whitelist or _default_whitelist())
     data_dir = _data_dir()
+    from app.workspace.resolver import get_workspace_resolver
+    guard = PathGuard(
+        whitelist, config_path=data_dir / "directory-permissions.json",
+        workspace_paths=lambda: [b.workspace_root for b in get_workspace_resolver().store.list_bindings()],
+        read_only_paths=[str(p) for p in [default_skills_root(), default_example_skills_root(), *legacy_user_skills_roots()]],
+    )
     from app.runtime.v2.session import configure_session_store
 
     configure_session_store(data_dir / "sessions.db")
@@ -289,7 +302,7 @@ def build_stack(
         long_term = LongTermStore(data_dir / "memory.db")
     memory_settings = MemorySettings(data_dir / "memory-settings.json")
     long_term.memory_settings = memory_settings
-    from app.runtime.todo_context import get_todo_runtime
+    from app.task_support.todo_context import get_todo_runtime
 
     memory_tools = make_memory_tools(long_term, memory_settings, get_todo_runtime)
     context_tools = make_context_tools()
@@ -363,7 +376,9 @@ def build_stack(
                 connected[cfg.name] = []
         return {"connected": connected}
 
+    _startup_stage("stores and tools ready; connecting MCP")
     reload_mcp()
+    _startup_stage("MCP ready; assembling models and graphs")
 
     def _llm_for(kind: str, override: BaseChatModel | None, fallback: BaseChatModel | None) -> BaseChatModel:
         if override is not None:
@@ -549,6 +564,7 @@ def build_stack(
         task_store=task_store,
         short_term=short_term,
     )
+    _startup_stage("runtime assembled")
     return {
         "task_manager": task_manager,
         "automation_store": automation_store,
@@ -567,6 +583,7 @@ def build_stack(
         "reload_mcp": reload_mcp,
         "registry": registry,
         "data_dir": data_dir,
+        "path_guard": guard,
         "graph": graph,
         "single_agent_graph": single_agent_graph,
     }
@@ -586,7 +603,16 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _startup_stage("migrating skills")
+        app.state.skills_migration_warnings = []
+        if started_stack:
+            from app.skills.config import migrate_user_skills
+            try:
+                app.state.skills_migration_warnings = migrate_user_skills()
+            except (OSError, ValueError) as exc:
+                app.state.skills_migration_warnings = [f"技能迁移未完成，旧文件已保留：{exc}"]
         automation_scheduler = getattr(app.state, "automation_scheduler", None)
+        _startup_stage("skills ready; preparing scheduled tasks")
         if automation_scheduler is not None:
             try:
                 import_legacy_jobs(app.state.automations, app.state.legacy_scheduler_db)
@@ -601,12 +627,14 @@ def create_app(
                 print(f"skill schedule import failed: {exc}", file=sys.stderr)
             automation_scheduler.start()
         mgr = getattr(app.state, "channels", None)
+        _startup_stage("scheduled tasks ready; preparing channels")
         if mgr is not None:
             mgr.bind_loop(asyncio.get_running_loop())
             autostart = os.environ.get("MY_COWORK_CHANNEL_AUTOSTART", "1") != "0"
             if autostart and not os.environ.get("PYTEST_CURRENT_TEST"):
                 mgr.restore_enabled()
         try:
+            _startup_stage("application ready")
             yield
         finally:
             if automation_scheduler is not None:
@@ -639,6 +667,8 @@ def create_app(
     app.include_router(schedule_routes.router)
     app.include_router(automation_routes.router)
     app.include_router(workspace_routes.router)
+    from app.server.routes import permissions
+    app.include_router(permissions.router)
     app.include_router(trace_routes.router)
     app.include_router(model_routes.router)
 
@@ -656,6 +686,7 @@ def create_app(
         started_stack = True
 
     app.state.task_manager = task_manager
+    app.state.path_guard = stack.get("path_guard")
     app.state.automations = stack.get("automation_store")
     app.state.bus = bus
     app.state.confirm_hub = confirm_hub or ConfirmHub()

@@ -52,7 +52,7 @@ export function buildProgressItems(
   if (planned.length > 0) {
     return planned.map((t) => ({
       id: t.id,
-      content: humanizeAssignContent(t.content, t.assignee),
+      content: humanizeAssignContent(t.content, t.agent),
       status: (t.status === "completed" || runDone
         ? "completed"
         : t.status === "failed"

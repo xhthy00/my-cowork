@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from app.agents.workers import WORKER_IDS, WORKER_LABELS
-from app.graphs.routing import (
+from app.task_support.documents import (
     document_tools_succeeded,
     extract_claimed_office_paths,
     has_office_deliverable,
@@ -22,8 +22,8 @@ from app.graphs.routing import (
 from app.guardrails.approval import is_remote_channel
 from app.llm.token_counter import count_tokens
 from app.runtime.attachments import stage_attachments_for_task
-from app.runtime.budget import BudgetExhausted
-from app.runtime.budget_context import (
+from app.llm.budget import BudgetExhausted
+from app.llm.budget_context import (
     BudgetRuntime,
     context_window_limit,
     reset_budget_runtime,
@@ -43,8 +43,8 @@ from app.runtime.memory_context import (
     reset_long_term_runtime,
     set_long_term_runtime,
 )
-from app.runtime.notes_context import NotesRuntime, reset_notes_runtime, set_notes_runtime
-from app.runtime.workspace_context import (
+from app.task_support.notes_context import NotesRuntime, reset_notes_runtime, set_notes_runtime
+from app.task_support.workspace_context import (
     WorkspaceRuntime,
     reset_workspace_runtime,
     set_workspace_runtime,
@@ -57,12 +57,12 @@ from app.tools.builtin.docgen.gongwen_format import (
 )
 from app.workspace.output_files import list_new_office_files
 from app.workspace.resolver import get_workspace_resolver
-from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
+from app.task_support.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
 from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
 )
-from app.runtime.v2.office_gate import is_office_write_command
+from app.guardrails.office_gate import is_office_write_command
 from app.runtime.v2.synthesize import (
     extract_worker_summary,
     is_process_meta as _is_process_meta,
@@ -322,7 +322,7 @@ def _is_process_code_file(path: str) -> bool:
 
 def _hide_office_artifact(path: str) -> bool:
     """Markdown-only tasks must not surface Word/PPT/Excel chips."""
-    from app.runtime.todo_context import get_todo_runtime
+    from app.task_support.todo_context import get_todo_runtime
 
     rt = get_todo_runtime()
     if rt is None or not markdown_only(rt.user_text):
@@ -571,17 +571,10 @@ async def run_graph(
                 space_root=frozen.space_root,
             )
         )
-        # Ensure tools may touch workdir / run output / space root
+        # Stage selected attachments in the task's already-authorized workdir.
         try:
-            from app.tools.builtin.fs import get_guard
-
-            guard = get_guard()
-            guard.add_whitelist(str(frozen.working_directory))
-            guard.add_whitelist(str(frozen.task_output_root))
-            if frozen.space_root is not None:
-                guard.add_whitelist(str(frozen.space_root))
             user_ask = stage_attachments_for_task(
-                user_ask, frozen.working_directory, guard
+                user_ask, frozen.working_directory
             )
             user_ask = (
                 f"{user_ask.rstrip()}\n\n"
@@ -763,7 +756,7 @@ async def run_graph(
                     if extra_msgs:
                         run_messages.extend(extra_msgs)
                     if session_mode == "workforce" and update.get("subtasks"):
-                        from app.graphs.state import merge_subtasks
+                        from app.task_support.state import merge_subtasks
 
                         live_subtasks = merge_subtasks(
                             live_subtasks, list(update["subtasks"])

@@ -3,6 +3,15 @@ import * as os from "os";
 import * as path from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const secureStorage = vi.hoisted(() => ({
+  isEncryptionAvailable: vi.fn(() => true),
+  getSelectedStorageBackend: vi.fn(() => "gnome_libsecret"),
+  encryptString: vi.fn((text: string) => Buffer.from(`encrypted:${Buffer.from(text).toString("base64")}`)),
+  decryptString: vi.fn((data: Buffer) => Buffer.from(data.toString().slice(10), "base64").toString()),
+}));
+vi.mock("electron", () => ({ safeStorage: secureStorage }));
+beforeEach(() => { secureStorage.isEncryptionAvailable.mockReturnValue(true); });
+
 import {
   buildPythonEnv,
   deleteKey,
@@ -42,13 +51,40 @@ describe("keychain", () => {
     expect(setter).toHaveBeenCalledWith("my-cowork", "openai", "sk-new-key");
   });
 
-  it("initKeychain file fallback persists across reads", async () => {
+  it("encrypted credentials persist without writing plaintext", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-"));
     initKeychain(dir);
     await setKey("my-cowork", "openai", "sk-persisted");
     expect(await getKey("my-cowork", "openai")).toBe("sk-persisted");
+    expect(fs.existsSync(path.join(dir, "credentials.json"))).toBe(false);
+    expect(fs.readFileSync(path.join(dir, "credentials.enc"), "utf8")).not.toContain("sk-persisted");
     initKeychain(dir);
     expect(await getKey("my-cowork", "openai")).toBe("sk-persisted");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses new secrets when OS encryption is unavailable", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-unavailable-"));
+    initKeychain(dir);
+    secureStorage.isEncryptionAvailable.mockReturnValue(false);
+    await expect(setKey("my-cowork", "openai", "fake-secret")).rejects.toThrow();
+    expect(fs.readdirSync(dir)).toEqual([]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("migrates old plaintext only after encrypted data can be read back", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-migrate-"));
+    const legacy = path.join(dir, "credentials.json");
+    fs.writeFileSync(legacy, JSON.stringify({ "my-cowork:openai": "fake-legacy" }));
+    initKeychain(dir);
+    secureStorage.isEncryptionAvailable.mockReturnValue(false);
+    await expect(getKey("my-cowork", "openai")).rejects.toThrow();
+    expect(fs.existsSync(legacy)).toBe(true);
+    secureStorage.isEncryptionAvailable.mockReturnValue(true);
+    expect(await getKey("my-cowork", "openai")).toBe("fake-legacy");
+    expect(fs.existsSync(legacy)).toBe(false);
+    initKeychain(dir);
+    expect(await getKey("my-cowork", "openai")).toBe("fake-legacy");
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -58,6 +94,28 @@ describe("keychain", () => {
     await setKey("my-cowork", "model:x", "sk-gone");
     expect(await deleteKey("my-cowork", "model:x")).toBe(true);
     expect(await getKey("my-cowork", "model:x")).toBeNull();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps the legacy file when encryption verification fails", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-verify-"));
+    const legacy = path.join(dir, "credentials.json");
+    fs.writeFileSync(legacy, JSON.stringify({ "my-cowork:openai": "fake-legacy" }));
+    initKeychain(dir);
+    secureStorage.decryptString.mockReturnValueOnce("wrong");
+    await expect(getKey("my-cowork", "openai")).rejects.toThrow();
+    expect(fs.existsSync(legacy)).toBe(true);
+    expect(fs.existsSync(path.join(dir, "credentials.enc"))).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does not replace an unreadable encrypted file on a new save", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-corrupt-"));
+    const encrypted = path.join(dir, "credentials.enc");
+    fs.writeFileSync(encrypted, "corrupt ciphertext");
+    initKeychain(dir);
+    await expect(setKey("my-cowork", "openai", "new-secret")).rejects.toThrow();
+    expect(fs.readFileSync(encrypted, "utf8")).toBe("corrupt ciphertext");
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -6,7 +6,7 @@ from typing import Any, Callable
 def _runtime_task_id() -> str | None:
     """Stamp emits with the in-flight task when callers omit ``task_id``."""
     try:
-        from app.runtime.todo_context import get_todo_runtime
+        from app.task_support.todo_context import get_todo_runtime
 
         todo = get_todo_runtime()
         if todo is not None and getattr(todo, "task_id", None):
@@ -14,7 +14,7 @@ def _runtime_task_id() -> str | None:
     except Exception:
         pass
     try:
-        from app.runtime.budget_context import get_budget_runtime
+        from app.llm.budget_context import get_budget_runtime
 
         budget = get_budget_runtime()
         if budget is not None and getattr(budget, "task_id", None):

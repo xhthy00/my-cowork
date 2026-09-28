@@ -187,7 +187,7 @@ def align_subtasks_to_user_format(
     Eigent document agent writes the user-specified extension via write_to_file;
     unspecified format is HTML. Workforce Progress is this subtask list.
     """
-    from app.graphs.routing import wants_document, wants_markdown_file
+    from app.task_support.documents import wants_document, wants_markdown_file
 
     q = (text or "").strip()
     if not subtasks or not (wants_markdown_file(q) and not wants_document(q)):

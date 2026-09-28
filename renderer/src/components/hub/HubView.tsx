@@ -6,6 +6,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { Globe, Link2, Plus, Trash2 } from "lucide-react";
 
 import logoHorizontal from "@/assets/brand/logo-horizontal.png";
+import logoHorizontalDark from "@/assets/brand/logo-horizontal-dark.png";
 import HomeHub from "@/components/hub/HomeHub";
 import AssistantsView from "@/components/hub/AssistantsView";
 import { HistoryTabsNav } from "@/components/hub/HistoryTabsNav";
@@ -362,7 +363,14 @@ export default function HubView() {
           <img
             src={logoHorizontal}
             alt="MyCowork"
-            className="h-20 w-auto max-w-[min(480px,70vw)] shrink-0 select-none dark:rounded-xl dark:bg-[#f7f4f1] dark:px-3 dark:py-1.5"
+            className="h-20 w-auto max-w-[min(480px,70vw)] shrink-0 select-none dark:hidden"
+            draggable={false}
+          />
+          {/* Dark variant recolors the navy wordmark so no light backing plate is needed. */}
+          <img
+            src={logoHorizontalDark}
+            alt="MyCowork"
+            className="hidden h-20 w-auto max-w-[min(480px,70vw)] shrink-0 select-none dark:block"
             draggable={false}
           />
         </div>

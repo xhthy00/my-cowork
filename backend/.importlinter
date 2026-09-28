@@ -4,6 +4,8 @@ root_package = app
 [importlinter:contract:harness-layers]
 name = Harness layered dependency direction
 type = layers
+# Guardrails emit audit events; observability only reads leaf task/budget context.
+# Shared task data and pure policies cannot depend on execution or tool layers.
 layers =
     app.server
     app.orchestrator
@@ -11,11 +13,12 @@ layers =
     app.runtime
     app.agents
     app.memory
-    app.observability
     app.tools
     app.guardrails
+    app.observability
     app.llm
     app.sandbox
+    app.task_support
 
 [importlinter:contract:cross-cut-forbidden]
 name = Cross-cutting layers must not import business layers

@@ -276,13 +276,13 @@ def _tool_names(messages: list[Any]) -> set[str]:
 
 
 def _wants_file(user_text: str) -> bool:
-    from app.graphs.routing import wants_file_document
+    from app.task_support.documents import wants_file_document
 
     return wants_file_document(user_text)
 
 
 def _file_written(messages: list[Any], user_text: str = "") -> bool:
-    from app.graphs.routing import (
+    from app.task_support.documents import (
         wants_document,
         wants_html_file,
         wants_markdown_file,
@@ -367,7 +367,7 @@ def heuristic_critic(
     if plan_only:
         missing.append("Write the complete user-facing answer, not a plan.")
     if need_doc and not doc_ok:
-        from app.graphs.routing import wants_document, wants_markdown_file
+        from app.task_support.documents import wants_document, wants_markdown_file
 
         if wants_markdown_file(user_text) and not wants_document(user_text):
             missing.append("Write a .md file with fs_write.")

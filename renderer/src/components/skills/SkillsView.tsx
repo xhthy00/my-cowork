@@ -1,3 +1,4 @@
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 /**
  * Adapted from eigent: pages/Agents/Skills.tsx
  * Data: GET/PATCH/DELETE/import via /api/skills (not Eigent skillsStore).
@@ -14,6 +15,7 @@ import SkillListItem, {
 import AlertDialog from "@/components/ui/alertDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 
 function isExampleSkill(skill: SkillItem): boolean {
   return Boolean(skill.isExample);
@@ -29,7 +31,7 @@ export default function SkillsView() {
   const load = useCallback(async () => {
     const backendUrl = await window.api.getBackendUrl();
     if (!backendUrl) {
-      setStatus("后端未连接");
+      setStatus(await backendUnavailableMessage());
       return;
     }
     const res = await fetch(`${backendUrl}/api/skills`);
@@ -37,14 +39,15 @@ export default function SkillsView() {
       setStatus(`加载失败 ${res.status}`);
       return;
     }
-    const data = (await res.json()) as { skills: SkillItem[] };
+    const data = (await res.json()) as { skills: SkillItem[]; warnings?: string[] };
     setSkills(data.skills || []);
-    setStatus("");
+    setStatus((data.warnings || []).join("；"));
   }, []);
 
+  const backendEpoch = useBackendEpoch();
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, backendEpoch]);
 
   async function patch(id: string, body: Record<string, unknown>) {
     const backendUrl = await window.api.getBackendUrl();

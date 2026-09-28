@@ -13,6 +13,7 @@ import SearchPanel from "./SearchPanel";
 import AuditPanel from "./AuditPanel";
 import ScheduleView from "@/components/schedule/ScheduleView";
 import { openKeepAwakeSettings, takeSettingsTabPending } from "./KeepAwakeBanner";
+import { useBackendEpoch } from "../../hooks/useBackendEpoch";
 
 type TabId = "general" | "schedule" | "model" | "paths" | "channels" | "search" | "audit";
 
@@ -114,6 +115,12 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
 
   const [draftPaths, setDraftPaths] = useState<string[]>(whitelist);
   const [newPath, setNewPath] = useState("");
+  const [workspacePaths, setWorkspacePaths] = useState<string[]>([]);
+  const [pathsError, setPathsError] = useState("");
+  const [pathsBusy, setPathsBusy] = useState(false);
+  const [pathsLoaded, setPathsLoaded] = useState(false);
+  const [pathsSaved, setPathsSaved] = useState(false);
+  const backendEpoch = useBackendEpoch();
   const [updater, setUpdater] = useState<UpdaterStatus>(IDLE_UPDATER);
   const [keepAwake, setKeepAwake] = useState(false);
   const [keepAwakeSupported, setKeepAwakeSupported] = useState(true);
@@ -153,16 +160,52 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
     return () => window.removeEventListener("my-cowork:navigate", onNav);
   }, []);
 
-  async function saveWhitelist() {
+  async function requestWhitelist(paths?: string[]) {
     const backendUrl = await window.api.getBackendUrl();
-    if (backendUrl) {
-      await fetch(`${backendUrl}/api/admin/whitelist`, {
+    if (!backendUrl) throw new Error("请先配置模型并等待本地服务启动，再设置目录权限");
+    const response = await fetch(`${backendUrl}/api/admin/whitelist`, paths === undefined ? undefined : {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paths: draftPaths }),
+        body: JSON.stringify({ paths }),
       });
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "目录权限请求失败");
+    return data as { paths: string[]; workspace_paths: string[] };
+  }
+
+  useEffect(() => {
+    if (tab !== "paths" || embedded) return;
+    let cancelled = false;
+    setPathsLoaded(false);
+    setPathsError("");
+    setPathsSaved(false);
+    void requestWhitelist().then((data) => {
+      if (cancelled) return;
+      setDraftPaths(data.paths);
+      setWhitelist(data.paths);
+      setWorkspacePaths(data.workspace_paths || []);
+      setPathsLoaded(true);
+    }).catch((error) => {
+      if (!cancelled) setPathsError(error instanceof Error ? error.message : "读取目录权限失败");
+    });
+    return () => { cancelled = true; };
+  }, [tab, embedded, backendEpoch, setWhitelist]);
+
+  async function saveWhitelist() {
+    setPathsBusy(true);
+    setPathsError("");
+    setPathsSaved(false);
+    try {
+      const data = await requestWhitelist(draftPaths);
+      setWhitelist(data.paths);
+      setDraftPaths(data.paths);
+      setWorkspacePaths(data.workspace_paths || []);
+      setPathsSaved(true);
+    } catch (error) {
+      setPathsError(error instanceof Error ? error.message : "保存目录权限失败");
+    } finally {
+      setPathsBusy(false);
     }
-    setWhitelist(draftPaths);
   }
 
   function addPath() {
@@ -370,8 +413,11 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
                 <SettingsCard>
                   <div className="px-6 py-5">
                     <p className="text-body-sm text-ds-text-neutral-muted-default">
-                      fs / exec 工具的 path 必须 resolve 后落在白名单内，越界直接 ToolError。
+                      文件工具可访问已绑定的工作目录，以及你在这里额外允许的目录。移除工作目录会收回绑定授予的权限；这里单独添加的授权会保留。此设置不限制命令内部的所有文件操作。
                     </p>
+                    {workspacePaths.length > 0 && <div className="mt-3 text-body-sm"><p>已绑定的工作目录（在工作区中管理）</p>{workspacePaths.map((p) => <div key={p}>{p}</div>)}</div>}
+                    {pathsError && <p role="alert" className="mt-3 text-red-600">{pathsError}</p>}
+                    {pathsSaved && <p role="status" className="mt-3">目录权限已保存</p>}
                     <div className="mt-4 overflow-hidden rounded-xl bg-ds-bg-neutral-default-default">
                       {draftPaths.map((path) => (
                         <div
@@ -410,7 +456,7 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
                       <Button type="button" variant="outline" size="sm" onClick={addPath}>
                         + 添加目录…
                       </Button>
-                      <Button type="button" onClick={saveWhitelist}>
+                      <Button type="button" onClick={saveWhitelist} disabled={!pathsLoaded || pathsBusy}>
                         保存白名单
                       </Button>
                     </div>

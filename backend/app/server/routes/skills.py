@@ -74,7 +74,8 @@ async def install_hub(body: HubInstallBody, request: Request) -> dict[str, Any]:
 async def list_skills(request: Request) -> dict[str, Any]:
     root = getattr(request.app.state, "skills_root", None)
     cfg_path = getattr(request.app.state, "skills_config_path", None)
-    return {"skills": skills_config.list_skills_api(root=root, config_path=cfg_path)}
+    return {"skills": skills_config.list_skills_api(root=root, config_path=cfg_path),
+            "warnings": getattr(request.app.state, "skills_migration_warnings", [])}
 
 
 @router.patch("/api/skills/{skill_id}")

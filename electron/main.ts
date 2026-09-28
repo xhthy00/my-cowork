@@ -86,23 +86,48 @@ if (isE2E) {
 // ── backend lifecycle ────────────────────────────────────────────────────────
 
 let startInFlight: Promise<string> | null = null;
+let backendStartController: AbortController | null = null;
+// "needs-model" is a normal first-run state, not a failure: the renderer must
+// stay usable so the user can reach Settings and save an API key.
+type BackendState = "starting" | "ready" | "needs-model" | "failed";
+let backendState: BackendState = "starting";
+let backendError = "";
 
 async function startBackend(): Promise<string> {
   if (startInFlight) return startInFlight;
-  startInFlight = startBackendOnce().finally(() => {
+  const controller = new AbortController();
+  backendStartController = controller;
+  startInFlight = startBackendOnce(controller.signal).catch((err) => {
+    if (!controller.signal.aborted) {
+      backendUrl = "";
+      backendState = "failed";
+      backendError = err instanceof Error ? err.message : String(err);
+      notifyBackendFailed(backendError);
+    }
+    throw err;
+  }).finally(() => {
     startInFlight = null;
+    if (backendStartController === controller) backendStartController = null;
   });
   return startInFlight;
 }
 
-async function startBackendOnce(): Promise<string> {
+async function startBackendOnce(signal: AbortSignal): Promise<string> {
+  const startedAt = Date.now();
   if (backendProc) {
     stopPythonBackend(backendProc);
     backendProc = null;
   }
   backendUrl = "";
+  backendState = "starting";
+  backendError = "";
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("backend:starting");
+  }
 
   const env = await buildPythonEnv();
+  signal.throwIfAborted();
+  console.info(`[backend] configuration ready after ${Date.now() - startedAt} ms`);
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("MY_COWORK_") && value) {
       env[key] = value;
@@ -145,29 +170,51 @@ async function startBackendOnce(): Promise<string> {
 
   const appVersion = getPackageVersion();
   env.MY_COWORK_APP_VERSION = appVersion;
-  // Do not wait for the (first-launch) venv copy — it can take minutes and
-  // used to block the window. Backend falls back if python.exe is not ready yet.
+  // A prepared terminal environment is reused; log first-run preparation cost.
   const terminalBase = prepareTerminalPython(appVersion);
+  console.info(`[backend] terminal environment checked after ${Date.now() - startedAt} ms`);
   if (terminalBase) {
     env.MY_COWORK_TERMINAL_BASE = terminalBase;
   }
 
   if (!env.MY_COWORK_API_KEY && !isE2E) {
-    throw new Error("MY_COWORK_API_KEY is not set; add a model with API Key in Settings first.");
+    // Saving a model (models:upsert) restarts the backend, so no retry is needed here.
+    backendState = "needs-model";
+    backendError = "";
+    notifyBackendNeedsModel();
+    return "";
   }
 
+  backendState = "starting";
   const info = await start({
     cwd: isDev
       ? path.join(__dirname, "..", "backend")
       : process.resourcesPath,
     dev: isDev,
     env,
-    healthTimeoutMs: isE2E ? 60_000 : isDev ? undefined : 90_000,
+    signal,
+    healthTimeoutMs: isE2E ? 60_000 : 90_000,
   });
   backendUrl = info.url;
   backendProc = info.process;
+  info.process.once("exit", () => {
+    if (backendProc !== info.process) return;
+    backendProc = null;
+    backendUrl = "";
+    backendState = "failed";
+    backendError = "本地服务意外退出，请重试启动";
+    notifyBackendFailed(backendError);
+  });
+  backendState = "ready";
+  backendError = "";
   notifyBackendReady();
   return backendUrl;
+}
+
+function notifyBackendNeedsModel(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("backend:needs-model");
+  }
 }
 
 function notifyBackendReady(): void {
@@ -184,6 +231,8 @@ function notifyBackendFailed(message: string): void {
 
 async function applyModelAndRestart(): Promise<string> {
   try {
+    // A model saved during startup must take effect after that startup settles.
+    if (startInFlight) await startInFlight.catch(() => {});
     return await startBackend();
   } catch (err) {
     console.error("Failed to restart backend after model change:", err);
@@ -234,10 +283,10 @@ ipcMain.handle(
       category: input.category ?? existing?.category,
       presetId: input.presetId ?? existing?.presetId,
     };
-    let state = upsertProfile(profile);
     if (input.apiKey?.trim()) {
       await setKey("my-cowork", `model:${id}`, input.apiKey.trim());
     }
+    let state = upsertProfile(profile);
     if (input.activate !== false) {
       state = setActiveId(id);
       // Don't block the renderer on backend restart — it can take seconds to
@@ -261,11 +310,15 @@ ipcMain.handle("models:remove", async (_event, id: string) => {
       // Active profile may lack a key; leave URL empty.
     }
   } else {
+    backendStartController?.abort();
     if (backendProc) {
       stopPythonBackend(backendProc);
       backendProc = null;
     }
     backendUrl = "";
+    backendState = "needs-model";
+    backendError = "";
+    notifyBackendNeedsModel();
   }
   return state;
 });
@@ -324,6 +377,8 @@ ipcMain.handle(
 );
 
 ipcMain.handle("backend-url", () => backendUrl);
+
+ipcMain.handle("backend:status", () => ({ state: backendState, error: backendError }));
 
 ipcMain.handle("backend:restart", async () => {
   await startBackend();
@@ -483,6 +538,7 @@ ipcMain.handle("updater:install", async () => {
   if (getUpdaterStatus().state !== "downloaded") {
     return { ok: false, message: "no update downloaded" };
   }
+  backendStartController?.abort();
   if (backendProc) {
     stopPythonBackend(backendProc);
     backendProc = null;
@@ -625,8 +681,6 @@ app.whenReady().then(async () => {
   const bootBackend = () =>
     startBackend().catch((err) => {
       console.error("Failed to start backend:", err);
-      backendUrl = "";
-      notifyBackendFailed(err instanceof Error ? err.message : String(err));
     });
   // Packaged Python can take tens of seconds (PyInstaller + health). Show UI first.
   if (isE2E) {
@@ -644,6 +698,11 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
+  backendStartController?.abort();
+  if (backendProc) {
+    stopPythonBackend(backendProc);
+    backendProc = null;
+  }
   if (keepAwakeReleased) return;
   event.preventDefault();
   void releaseKeepAwake()
@@ -656,7 +715,12 @@ app.on("before-quit", (event) => {
     });
 });
 
+// The dev supervisor sends SIGTERM on POSIX; route it through owned cleanup.
+process.on("SIGINT", () => app.quit());
+process.on("SIGTERM", () => app.quit());
+
 app.on("window-all-closed", () => {
+  backendStartController?.abort();
   tunnel?.stop();
   tunnel = null;
   if (backendProc) {

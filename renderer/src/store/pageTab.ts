@@ -13,7 +13,7 @@ export type AgentsSection = "skills" | "sub-agents" | "memory";
 export type BrowserSection = "agent" | "cdp" | "extension" | "cookies";
 
 export function migratePageTabState(persisted: unknown): unknown {
-  const state = persisted as Partial<PageTabState> & { agentsSection?: string };
+  const state = persisted as Omit<Partial<PageTabState>, "agentsSection"> & { agentsSection?: string };
   if (state?.agentsSection === "models") {
     return { ...state, agentsSection: "skills" };
   }

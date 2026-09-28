@@ -121,7 +121,13 @@ export interface ElectronAPI {
   removeCdpBrowser?(id: string): Promise<{ success: boolean; error?: string }>;
   onCdpPoolChanged?(cb: (browsers: CdpBrowserInfo[]) => void): () => void;
   onBackendReady?(cb: (url: string) => void): () => void;
+  onBackendStarting?(cb: () => void): () => void;
   onBackendFailed?(cb: (message: string) => void): () => void;
+  onBackendNeedsModel?(cb: () => void): () => void;
+  getBackendStatus?(): Promise<{
+    state: "starting" | "ready" | "needs-model" | "failed";
+    error: string;
+  }>;
   getUpdaterStatus?(): Promise<UpdaterStatus>;
   checkForUpdates?(): Promise<UpdaterStatus>;
   downloadUpdate?(): Promise<UpdaterStatus>;
