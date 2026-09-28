@@ -6,7 +6,8 @@
 - Keep todos short and actionable (imperative titles).
 - Mark exactly one todo as in_progress while actively working on it.
 - Mark a todo completed immediately after it is done.
-- Update todos when the plan changes.
+- Keep global titles stable on status updates. Supply a reason for genuine revisions.
+- Include 2–4 actionable `substeps` per global step when known; update their status.
 - For simple conversational answers, a todo list is optional (return []).
 </todo_workflow>
 

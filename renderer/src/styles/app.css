@@ -492,6 +492,9 @@ html.electron .titlebar {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
+@media (prefers-reduced-motion: reduce) {
+  .msg { animation: none; }
+}
 .msg.user { align-self: stretch; flex-direction: row; justify-content: flex-end; }
 .msg .avatar { display: none; }
 .msg .bubble {

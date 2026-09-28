@@ -145,7 +145,7 @@ export default function HumanQuestionCard({ question, text }: { question: Questi
   }
 
   return (
-    <section className="human-question-card" aria-label="代理提问">
+    <section className="human-question-card" data-status={question.status} aria-label="代理提问">
       <header className="human-question-card__header">
         <span className="human-question-card__icon"><CircleHelp size={19} strokeWidth={2} aria-hidden="true" /></span>
         <div className="human-question-card__heading">

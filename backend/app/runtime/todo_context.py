@@ -14,6 +14,8 @@ class TodoRuntime:
     bus: Any
     agent_id: str = "single_agent"
     todos: list[dict[str, Any]] = field(default_factory=list)
+    plan_revision: int = 0
+    substep_status: dict[str, dict[str, str]] = field(default_factory=dict)
     user_text: str = ""
     human_input_hub: Any = None
     source: str = "user"
@@ -32,6 +34,7 @@ class TodoRuntime:
 
 _todo_runtime: ContextVar[TodoRuntime | None] = ContextVar("todo_runtime", default=None)
 _current_agent: ContextVar[str | None] = ContextVar("todo_current_agent", default=None)
+_current_subtask: ContextVar[str | None] = ContextVar("todo_current_subtask", default=None)
 _checkpoint_key: ContextVar[str | None] = ContextVar("automation_checkpoint_key", default=None)
 
 
@@ -50,6 +53,19 @@ def get_todo_runtime() -> TodoRuntime | None:
 def get_current_agent_id() -> str | None:
     """Agent for this async branch, including parallel workforce workers."""
     return _current_agent.get()
+
+
+def get_current_subtask_id() -> str | None:
+    return _current_subtask.get()
+
+
+@contextmanager
+def todo_subtask_scope(subtask_id: str) -> Iterator[None]:
+    token = _current_subtask.set(subtask_id)
+    try:
+        yield
+    finally:
+        _current_subtask.reset(token)
 
 
 def get_automation_checkpoint_key() -> str | None:

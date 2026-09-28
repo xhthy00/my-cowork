@@ -3,7 +3,7 @@
  * Empty: welcome hero · title · composer · Recent runs
  * Active: message list + follow-up composer
  */
-import { ArrowRight, CheckCircle2, ChevronDown, Copy, Eye, Loader2, Sparkles, Square, SquareArrowOutUpRight } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, CircleHelp, Copy, Eye, Loader2, ShieldCheck, Sparkles, Square, SquareArrowOutUpRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import welcomeHero from "@/assets/welcome/chat-welcome-hero.webp";
@@ -30,6 +30,7 @@ import { getProjectRuntime } from "../store/projectRuntime";
 import { isVisibleAgentPath } from "@/lib/outputFiles";
 import { artifactIdentity, fileBasename, isCorruptBasename, normalizeFsPath } from "@/lib/fsPath";
 import { cn } from "@/lib/utils";
+import { announceMemoryChanged } from "@/lib/memoryEvents";
 import { usePreviewStore } from "../store/preview";
 import { usePageTabStore } from "../store/pageTab";
 import { useSessionsStore } from "../store/sessions";
@@ -177,7 +178,7 @@ function MessageCopyRow({
       <button
         type="button"
         title={copied ? "已复制" : "复制"}
-        className="cursor-pointer rounded p-1 opacity-0 transition-opacity hover:bg-ds-bg-neutral-default-default group-hover:opacity-100"
+        className="cursor-pointer rounded p-1 opacity-0 transition-opacity hover:bg-ds-bg-neutral-default-default group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
         style={{ lineHeight: 0 }}
         onClick={() => {
           void navigator.clipboard.writeText(text).then(() => {
@@ -316,6 +317,7 @@ function MemoryNoticeCard({ message }: { message: Message }) {
             body: JSON.stringify({ content: notice.previous }) }
         : { method: "DELETE" });
       if (!response.ok) throw new Error(`撤销失败 (${response.status})`);
+      announceMemoryChanged();
       const activeId = useSessionsStore.getState().activeId;
       const store = activeId ? getProjectRuntime(activeId).session : useSessionStore;
       store.setState((state) => ({ messages: state.messages.map((item) =>
@@ -444,6 +446,7 @@ export default function ChatView() {
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const messages = useSessionStore((s) => s.messages);
   const pendingQuestion = [...messages].reverse().find((m) => m.humanQuestion?.status === "pending")?.humanQuestion;
+  const pendingConfirm = [...messages].reverse().find((m) => m.confirm?.status === "pending")?.confirm;
   const pendingQuestionKey = messages
     .filter((m) => m.humanQuestion?.status === "pending")
     .map((m) => m.humanQuestion?.question_id)
@@ -829,6 +832,32 @@ export default function ChatView() {
 
       <div className="composer-wrap chat-surface-container">
         <div className="chat-surface-fluid w-full min-w-0">
+          {(pendingQuestion || pendingConfirm) && (
+            <div className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default px-3 py-2 shadow-sm" role="status" aria-live="polite">
+              {pendingQuestion
+                ? <CircleHelp className="h-4 w-4 shrink-0 text-ds-text-brand-default-default" aria-hidden="true" />
+                : <ShieldCheck className="h-4 w-4 shrink-0 text-ds-text-brand-default-default" aria-hidden="true" />}
+              <span className="min-w-0 flex-1 truncate text-body-sm font-medium text-ds-text-neutral-default-default">
+                {pendingQuestion ? "需要你的决定，回复后任务将继续" : "需要你授权一项操作"}
+              </span>
+              <button
+                type="button"
+                className="min-h-7 shrink-0 rounded-lg px-2 py-1 text-body-sm font-semibold text-ds-text-brand-default-default hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
+                onClick={() => {
+                  const selector = pendingQuestion
+                    ? '.human-question-card[data-status="pending"]'
+                    : '.chat-confirm-card';
+                  const cards = messagesScrollRef.current?.querySelectorAll<HTMLElement>(selector);
+                  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                    ? "auto"
+                    : "smooth";
+                  cards?.[cards.length - 1]?.scrollIntoView({ behavior, block: "center" });
+                }}
+              >
+                {pendingQuestion ? "查看问题" : "查看授权"}
+              </button>
+            </div>
+          )}
           <WorkspaceOverlaysBar />
           <ComposerLiveStatus />
           <ChatBar

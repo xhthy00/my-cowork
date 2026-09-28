@@ -3,6 +3,20 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("api", {
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("backend-url"),
   restartBackend: (): Promise<string> => ipcRenderer.invoke("backend:restart"),
+  industryList: (): Promise<unknown> => ipcRenderer.invoke("industry:list"),
+  industryInspect: (filePath: string): Promise<unknown> =>
+    ipcRenderer.invoke("industry:inspect", filePath),
+  industryInstall: (filePath: string, expectedSha256: string): Promise<unknown> =>
+    ipcRenderer.invoke("industry:install", filePath, expectedSha256),
+  industryRequest: (
+    appId: string,
+    method: string,
+    requestPath: string,
+    body?: unknown,
+  ): Promise<unknown> =>
+    ipcRenderer.invoke("industry:request", appId, method, requestPath, body),
+  industryManage: (appId: string, action: "disable" | "enable" | "rollback"): Promise<unknown> =>
+    ipcRenderer.invoke("industry:manage", appId, action),
   getKey: (account: string): Promise<string | null> =>
     ipcRenderer.invoke("keychain:get", account),
   setKey: (account: string, value: string): Promise<void> =>

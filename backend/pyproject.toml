@@ -51,6 +51,7 @@ packages = [
     "app.automation",
     "app.assistants",
     "app.graphs",
+    "app.industry_apps",
     "app.guardrails",
     "app.llm",
     "app.llm.providers",

@@ -55,6 +55,7 @@ from app.runtime.v2.context_tools import make_context_tools
 from app.sandbox.path_guard import PathGuard
 from app.workspace.paths import data_root
 from app.server.localhost_only import LocalhostOnlyMiddleware
+from app.server.industry_auth import IndustryAppAuthMiddleware
 from app.server.channels.manager import ChannelManager
 from app.server.channels.store import ChannelStore
 from app.server.desktop_sessions import DesktopSessionStore
@@ -68,6 +69,7 @@ from app.server.routes import (
     desktop_sessions as desktop_sessions_routes,
     confirm,
     ima as ima_routes,
+    industry_apps as industry_apps_routes,
     mcp as mcp_routes,
     memory as memory_routes,
     model as model_routes,
@@ -78,6 +80,7 @@ from app.server.routes import (
     webhook_lark,
     workspace as workspace_routes,
 )
+from app.industry_apps.loader import load_enabled_apps
 from app.tools.builtin import exec as exec_tool
 from app.tools.builtin.docgen import pptx_gen
 from app.tools.builtin.docgen.tools import (
@@ -92,7 +95,7 @@ from app.tools.builtin.lark.tools import make_lark_send_tool
 from app.tools.builtin.notes import make_note_tools
 from app.tools.builtin.human import make_ask_human_tool
 from app.tools.builtin.skills import make_skill_tools
-from app.tools.builtin.todo import make_todo_write_tool
+from app.tools.builtin.todo import make_substep_update_tool, make_todo_write_tool
 from app.tools.builtin.web_search import make_web_search_tool
 from app.tools.builtin.web_fetch import make_web_fetch_tool
 from app.tools.builtin.browser import make_browser_tools
@@ -400,6 +403,7 @@ def build_stack(
 
     mcp_tools = registry.list_by_prefix("mcp.")
     todo_tool = make_todo_write_tool()
+    substep_tool = make_substep_update_tool()
     skills_root = Path(
         os.environ.get("MY_COWORK_SKILLS_ROOT") or str(default_skills_root())
     )
@@ -453,6 +457,7 @@ def build_stack(
             "developer_agent": {
                 "model": developer_llm,
                 "tools": [
+                    substep_tool,
                     ask_human_tool,
                     *automation_tools,
                     *memory_tools,
@@ -469,6 +474,7 @@ def build_stack(
             "document_agent": {
                 "model": document_llm,
                 "tools": [
+                    substep_tool,
                     ask_human_tool,
                     *automation_tools,
                     *memory_tools,
@@ -490,6 +496,7 @@ def build_stack(
             "browser_agent": {
                 "model": browser_llm,
                 "tools": [
+                    substep_tool,
                     ask_human_tool,
                     *automation_tools,
                     *memory_tools,
@@ -509,6 +516,7 @@ def build_stack(
             "multi_modal_agent": {
                 "model": multi_modal_llm,
                 "tools": [
+                    substep_tool,
                     ask_human_tool,
                     *automation_tools,
                     *memory_tools,
@@ -623,6 +631,7 @@ def create_app(
         allow_headers=["*"],
     )
     app.add_middleware(LocalhostOnlyMiddleware)
+    app.add_middleware(IndustryAppAuthMiddleware)
     app.include_router(chat.router)
     app.include_router(audit_routes.router)
     app.include_router(browser_routes.router)
@@ -632,6 +641,7 @@ def create_app(
     app.include_router(channels_routes.router)
     app.include_router(mcp_routes.router)
     app.include_router(ima_routes.router)
+    app.include_router(industry_apps_routes.router)
     app.include_router(skills_routes.router)
     app.include_router(assistants_routes.router)
     app.include_router(officecli_routes.router)
@@ -697,6 +707,8 @@ def create_app(
             app.state.automations,
             AutomationRunner(app.state.automations, task_manager, bus),
         )
+
+    app.state.industry_apps = load_enabled_apps(app)
 
     return app
 

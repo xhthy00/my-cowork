@@ -18,8 +18,11 @@ import {
 import {
   setActiveProjectRuntime,
   setProjectMessagePersist,
+  setProjectProgressPersistence,
+  peekProjectRuntime,
 } from "./projectRuntime";
 import type { Message } from "./session";
+import type { ProgressSnapshot } from "./workforce";
 import { displayTitleFromUserContent } from "@/lib/userAttachments";
 
 import "./session";
@@ -75,6 +78,7 @@ interface SessionsState {
   sessions: Project[];
   activeId: string | null;
   messagesById: Record<string, Message[]>;
+  progressById: Record<string, ProgressSnapshot>;
   createSession: (title?: string, opts?: CreateProjectOpts) => string;
   createProject: (title?: string, opts?: CreateProjectOpts) => string;
   setActive: (id: string) => void;
@@ -84,6 +88,7 @@ interface SessionsState {
   touchSession: (id: string, patch?: Partial<Project>) => void;
   setProjectWorkdirMode: (id: string, workdirMode: WorkdirMode) => void;
   saveMessages: (id: string, messages: Message[]) => void;
+  saveProgress: (id: string, progress: ProgressSnapshot) => void;
   getMessages: (id: string) => Message[];
   projectsForSpace: (spaceId: string) => Project[];
   deleteProjectsInSpace: (spaceId: string) => void;
@@ -219,6 +224,7 @@ export const useSessionsStore = create<SessionsState>()(
         sessions: [],
         activeId: null,
         messagesById: {},
+        progressById: {},
         createSession: createProject,
         createProject,
         setActive: (id) => {
@@ -251,6 +257,7 @@ export const useSessionsStore = create<SessionsState>()(
           const removed = s.sessions.find((x) => x.id === id);
           const sessions = s.sessions.filter((x) => x.id !== id);
           const { [id]: _removed, ...messagesById } = s.messagesById;
+          const { [id]: _removedProgress, ...progressById } = s.progressById;
           const nextActive =
             s.activeId === id
               ? sessions.find((x) => x.spaceId === removed?.spaceId)?.id ??
@@ -270,7 +277,7 @@ export const useSessionsStore = create<SessionsState>()(
               useSpacesStore.getState().setActiveSpace(nextProject.spaceId);
             }
           }
-          set({ sessions, activeId: nextActive, messagesById });
+          set({ sessions, activeId: nextActive, messagesById, progressById });
         },
         deleteProject: (id) => get().deleteSession(id),
         touchSession: (id, patch) =>
@@ -289,6 +296,8 @@ export const useSessionsStore = create<SessionsState>()(
           set((s) => ({
             messagesById: { ...s.messagesById, [id]: messages },
           })),
+        saveProgress: (id, progress) =>
+          set((s) => ({ progressById: { ...s.progressById, [id]: progress } })),
         getMessages: (id) => get().messagesById[id] ?? [],
         projectsForSpace: (spaceId) =>
           get().sessions.filter((x) => x.spaceId === spaceId),
@@ -300,8 +309,10 @@ export const useSessionsStore = create<SessionsState>()(
           if (removedIds.size === 0) return;
           const sessions = s.sessions.filter((x) => x.spaceId !== spaceId);
           const messagesById = { ...s.messagesById };
+          const progressById = { ...s.progressById };
           for (const id of removedIds) {
             delete messagesById[id];
+            delete progressById[id];
           }
           const nextActive =
             s.activeId && removedIds.has(s.activeId)
@@ -316,7 +327,7 @@ export const useSessionsStore = create<SessionsState>()(
             }
             setLiveBoundId(nextActive);
           }
-          set({ sessions, messagesById, activeId: nextActive });
+          set({ sessions, messagesById, progressById, activeId: nextActive });
         },
         replaceSnapshot: (snapshot) => {
           // Rehydration may already have created a runtime from localStorage.
@@ -328,7 +339,10 @@ export const useSessionsStore = create<SessionsState>()(
           });
           const activeId = sessions.some((session) => session.id === snapshot.activeId)
             ? snapshot.activeId : sessions[0]?.id ?? null;
-          set({ sessions, messagesById: snapshot.messagesById, activeId });
+          const progressById = Object.fromEntries(
+            Object.entries(get().progressById).filter(([id]) => sessions.some((session) => session.id === id)),
+          );
+          set({ sessions, messagesById: snapshot.messagesById, progressById, activeId });
           if (activeId) restoreProject(activeId, snapshot.messagesById[activeId] ?? []);
           else setActiveProjectRuntime(null);
           setLiveBoundId(activeId);
@@ -337,12 +351,13 @@ export const useSessionsStore = create<SessionsState>()(
     },
     {
       name: "my-cowork-sessions",
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         const state = (persisted || {}) as {
           sessions?: Record<string, unknown>[];
           activeId?: string | null;
           messagesById?: Record<string, Message[]>;
+          progressById?: Record<string, ProgressSnapshot>;
         };
         const messagesById = state.messagesById || {};
         const sessions = (state.sessions || []).map((raw) =>
@@ -352,6 +367,7 @@ export const useSessionsStore = create<SessionsState>()(
           sessions,
           activeId: state.activeId ?? null,
           messagesById,
+          progressById: state.progressById || {},
         };
       },
       onRehydrateStorage: () => (state) => {
@@ -367,6 +383,18 @@ export const useSessionsStore = create<SessionsState>()(
 setProjectMessagePersist((id, messages) => {
   useSessionsStore.getState().saveMessages(id, messages);
 });
+
+setProjectProgressPersistence(
+  (id) => useSessionsStore.getState().progressById[id],
+  (id, progress) => useSessionsStore.getState().saveProgress(id, progress),
+);
+// Zustand may rehydrate before the persistence callbacks above are installed.
+const restoredId = useSessionsStore.getState().activeId;
+if (restoredId) {
+  const snapshot = useSessionsStore.getState().progressById[restoredId];
+  const runtime = peekProjectRuntime(restoredId);
+  if (snapshot && runtime) runtime.workforce.getState().restoreProgress(snapshot);
+}
 
 export function ensureActiveSession(): string {
   const s = useSessionsStore.getState();

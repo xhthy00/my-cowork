@@ -12,6 +12,7 @@ import {
   isVisibleAgentPath,
 } from "@/lib/outputFiles";
 import { estimateTokensFromText } from "@/lib/formatTokens";
+import { announceMemoryChanged } from "@/lib/memoryEvents";
 import { isProcessNarration, stripProcessNarration } from "@/lib/processNarration";
 
 import "./preview";
@@ -895,18 +896,14 @@ export function createSessionStore(
     }
 
     if (event.type === "graph.start") {
-      // Keep seeded Progress plan; only clear agent roster / running slots.
-      const workforce = deps.getWorkforce();
-      const plan = workforce.taskInfo.filter(
-        (t) => t.id.startsWith("todo_") && t.id !== "todo_planning",
-      );
-      workforce.reset();
-      if (plan.length) workforce.seedPlan(plan);
+      // Every run owns its own plan. Never flash the previous run's steps.
+      deps.getWorkforce().startRun(String(payload.task_id ?? ""));
       deps.getPreview().reset();
     }
     if (
       event.type.startsWith("agent.") ||
       event.type === "todo_state" ||
+      event.type === "substep_state" ||
       event.type === "to_sub_tasks" ||
       event.type === "assign_task" ||
       event.type === "task_state" ||
@@ -1020,6 +1017,7 @@ export function createSessionStore(
       } else if (event.type === "memory.saved") {
         const memoryId = Number(payload.id ?? 0);
         if (memoryId > 0) {
+          if (typeof window !== "undefined") announceMemoryChanged();
           updates.messages = [...state.messages, {
             id: nextId(), role: "assistant" as const, content: "", createdAt: Date.now(),
             memoryNotice: {

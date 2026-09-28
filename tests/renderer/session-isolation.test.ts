@@ -15,7 +15,7 @@ import {
   dropProjectPark,
   rememberProjectTaskId,
 } from "../../renderer/src/store/livePark";
-import { dropAllProjectRuntimes } from "../../renderer/src/store/projectRuntime";
+import { dropAllProjectRuntimes, dropProjectRuntime, getProjectRuntime } from "../../renderer/src/store/projectRuntime";
 import { useSessionStore } from "../../renderer/src/store/session";
 import { useSessionsStore } from "../../renderer/src/store/sessions";
 import { useWorkforceStore } from "../../renderer/src/store/workforce";
@@ -28,6 +28,7 @@ describe("session isolation", () => {
       sessions: [],
       activeId: null,
       messagesById: {},
+      progressById: {},
     });
     useSessionStore.setState({
       messages: [],
@@ -206,6 +207,28 @@ describe("session isolation", () => {
       .taskAssigning.find((x) => x.agent_id === "developer_agent");
     expect(restored?.status).toBe("running");
     expect(restored?.tasks.some((t) => t.content === "后台任务")).toBe(true);
+  });
+
+  it("restores the last run's hierarchy and clears it at the next graph.start", () => {
+    const id = useSessionsStore.getState().createSession("进度恢复");
+    dispatchProjectEvent(id, { type: "graph.start", payload: { task_id: "run-1" } });
+    dispatchProjectEvent(id, {
+      type: "todo_state",
+      payload: {
+        task_id: "run-1",
+        revision: 1,
+        todos: [{
+          id: "todo_1", content: "检索资料", status: "in_progress",
+          substeps: [{ id: "todo_1_step_1", content: "查找官网", status: "completed" }],
+        }],
+      },
+    });
+    expect(useSessionsStore.getState().progressById[id].taskInfo[0].substeps?.[0].content).toBe("查找官网");
+    dropProjectRuntime(id);
+    expect(getProjectRuntime(id).workforce.getState().taskInfo[0].content).toBe("检索资料");
+    getProjectRuntime(id).session.getState().handleEvent({ type: "graph.start", payload: { task_id: "run-2" } });
+    expect(getProjectRuntime(id).workforce.getState().taskInfo).toEqual([]);
+    expect(getProjectRuntime(id).workforce.getState().runId).toBe("run-2");
   });
 
   it("deleteSession aborts that project stream only", () => {

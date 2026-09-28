@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>任务管理样例</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <p class="eyebrow">MYCOWORK · 行业应用样例</p>
+        <h1>任务管理</h1>
+        <p>任务保存在此应用的独立 SQLite 数据目录中。</p>
+      </header>
+      <form id="new-task">
+        <label for="title">新任务</label>
+        <div class="row">
+          <input id="title" name="title" maxlength="200" required placeholder="输入要完成的工作" />
+          <button type="submit">添加任务</button>
+        </div>
+      </form>
+      <p id="status" role="status"></p>
+      <ul id="tasks" aria-label="任务列表"></ul>
+    </main>
+  </body>
+</html>

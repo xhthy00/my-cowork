@@ -457,9 +457,14 @@ def _deliverable_constraint(plan_ask: str) -> str:
     )
 
 
-def _subtasks_to_todos(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _subtasks_to_todos(
+    subtasks: list[dict[str, Any]],
+    substep_status: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
     todos: list[dict[str, Any]] = []
+    substep_status = substep_status or {}
     for i, t in enumerate(subtasks, start=1):
+        parent_id = str(t.get("id") or f"todo_{i}")
         status = str(t.get("status") or "waiting")
         if status == "completed":
             mapped = "completed"
@@ -472,11 +477,26 @@ def _subtasks_to_todos(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         content = str(t.get("content") or "")
         todos.append(
             {
-                "id": str(t.get("id") or f"todo_{i}"),
+                "id": parent_id,
                 "content": content,
                 "active_form": f"正在执行：{content[:40]}",
                 "status": mapped,
                 "agent": str(t.get("assignee") or ""),
+                "substeps": [
+                    {
+                        "id": f"{parent_id}_step_{index}",
+                        "content": str(step.get("content") or ""),
+                        "status": (
+                            "completed" if mapped == "completed"
+                            else substep_status.get(parent_id, {}).get(
+                                f"{parent_id}_step_{index}",
+                                str(step.get("status") or "pending"),
+                            )
+                        ),
+                    }
+                    for index, step in enumerate(t.get("substeps") or [], start=1)
+                    if isinstance(step, dict) and str(step.get("content") or "").strip()
+                ],
             }
         )
     in_prog = [t for t in todos if t["status"] == "in_progress"]
@@ -659,7 +679,7 @@ async def run_graph(
         if session_mode == "workforce" and resume_snapshot is not None:
             confirmed = list(resume_snapshot.values.get("subtasks") or [])
             live_subtasks = list(confirmed)
-            todos = _subtasks_to_todos(confirmed)
+            todos = _subtasks_to_todos(confirmed, todo_rt.substep_status)
             todo_rt.todos = todos
             workers_ran = sum(1 for item in confirmed if item.get("status") in {"completed", "failed"})
         elif session_mode == "workforce":
@@ -687,7 +707,7 @@ async def run_graph(
                     confirmed = subtasks
                 confirmed = align_subtasks_to_user_format(plan_ask, confirmed)
                 live_subtasks = list(confirmed)
-                todos = _subtasks_to_todos(confirmed)
+                todos = _subtasks_to_todos(confirmed, todo_rt.substep_status)
                 todo_rt.todos = todos
                 plan_ev = _event(task_id, "todo_state", agent_id=agent_id, todos=todos)
                 bus.emit(plan_ev)
@@ -768,7 +788,7 @@ async def run_graph(
                         live_subtasks = merge_subtasks(
                             live_subtasks, list(update["subtasks"])
                         )
-                        todos = _subtasks_to_todos(live_subtasks)
+                        todos = _subtasks_to_todos(live_subtasks, todo_rt.substep_status)
                         todo_rt.todos = todos
                         todo_ev = _event(
                             task_id, "todo_state", agent_id=node, todos=todos

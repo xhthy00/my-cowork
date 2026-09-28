@@ -7,6 +7,7 @@ import { Globe, Link2, Plus, Trash2 } from "lucide-react";
 
 import logoHorizontal from "@/assets/brand/logo-horizontal.png";
 import HomeHub from "@/components/hub/HomeHub";
+import IndustryWorkbench from "@/components/hub/IndustryWorkbench";
 import AssistantsView from "@/components/hub/AssistantsView";
 import { HistoryTabsNav } from "@/components/hub/HistoryTabsNav";
 import SkillsView from "@/components/skills/SkillsView";
@@ -350,7 +351,7 @@ export default function HubView() {
     <div className="hub-view flex h-full w-full flex-1 flex-col px-1 pb-1">
       {/* Grey scroll page — white welcome/nav sit on top */}
       <div className="scrollbar-hide h-full overflow-y-auto rounded-2xl bg-ds-bg-neutral-subtle-default">
-        <div className="flex w-full flex-row flex-wrap items-center justify-between gap-x-5 gap-y-3 bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] py-8">
+        <div className={cn("flex w-full flex-row flex-wrap items-center justify-between gap-x-5 gap-y-3 bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] py-8", hubTab === "workbench" && "hidden")}>
           <p className="m-0 inline-flex flex-wrap items-baseline gap-2">
             <span className="history-welcome-headline text-[32px] font-bold not-italic text-ds-text-brand-muted-default">
               {timeGreeting()}
@@ -387,6 +388,15 @@ export default function HubView() {
             aria-hidden={hubTab !== "home"}
           >
             <HomeHub />
+          </div>
+        )}
+
+        {visited.includes("workbench") && (
+          <div
+            className={hubTab === "workbench" ? "flex w-full" : "hidden"}
+            aria-hidden={hubTab !== "workbench"}
+          >
+            <IndustryWorkbench />
           </div>
         )}
 

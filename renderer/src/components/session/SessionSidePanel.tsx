@@ -3,13 +3,15 @@
  * + ProgressSection / ExecutionContextSection / AgentFolderSection
  */
 import {
+  AlertCircle,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
   Workflow,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +21,6 @@ import {
 import {
   CategoryLabel,
   CountPill,
-  ProgressCircle,
   SidePanelListRow,
 } from "@/components/session/sidePanelPrimitives";
 import { AgentPoolBody } from "@/components/session/AgentPoolSection";
@@ -29,6 +30,7 @@ import { SessionModeToggle } from "@/components/workforce/WorkforceSidePanel";
 import {
   buildContextItems,
   buildProgressItems,
+  buildStepExecutionDetails,
 } from "@/lib/progressFromTrace";
 import { isVisibleAgentPath } from "@/lib/outputFiles";
 import {
@@ -101,6 +103,8 @@ export default function SessionSidePanel() {
   const mode = useWorkforceStore((s) => s.sessionMode);
   const agents = useWorkforceStore((s) => s.taskAssigning);
   const taskInfo = useWorkforceStore((s) => s.taskInfo);
+  const planRevision = useWorkforceStore((s) => s.planRevision);
+  const revisionReason = useWorkforceStore((s) => s.revisionReason);
 
   const trace = useSessionStore((s) => s.trace);
   const messages = useSessionStore((s) => s.messages);
@@ -145,9 +149,19 @@ export default function SessionSidePanel() {
   }, [messages, pendingArtifacts]);
 
   const progressItems = useMemo(
-    () => buildProgressItems(taskInfo, trace, runDone),
-    [taskInfo, trace, runDone],
+    () => buildProgressItems(taskInfo),
+    [taskInfo],
   );
+  const executionDetails = useMemo(
+    () => buildStepExecutionDetails(trace, taskInfo),
+    [trace, taskInfo],
+  );
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const activeStepId = progressItems.find((item) => item.status === "running")?.id ?? null;
+  useEffect(() => {
+    if (activeStepId) setExpandedStepId(activeStepId);
+  }, [activeStepId]);
+  const completedGlobal = progressItems.filter((item) => item.status === "completed").length;
 
   const contextItems = useMemo(
     () => buildContextItems(
@@ -156,6 +170,11 @@ export default function SessionSidePanel() {
     ),
     [trace, files],
   );
+  const hasProgress = progressItems.length > 0;
+  const hasContext = contextItems.length > 0;
+  const hasTrace = trace.length > 0;
+  const hasFiles = files.length > 0;
+  const hasDetails = hasProgress || hasContext || hasTrace || hasFiles;
 
   const headerTitle = mode === SessionMode.SINGLE_AGENT ? "单智能体" : "多智能体";
 
@@ -163,7 +182,11 @@ export default function SessionSidePanel() {
     <aside
       className={cn(
         "relative flex h-full shrink-0 flex-col overflow-hidden bg-transparent transition-[width] duration-200",
-        visible ? SESSION_SIDE_PANEL_EXPANDED_OUTER_CLASS : SESSION_SIDE_PANEL_FOLDED_OUTER_CLASS,
+        visible
+          ? !hasDetails && mode === SessionMode.SINGLE_AGENT
+            ? "w-[min(280px,32vw)]"
+            : SESSION_SIDE_PANEL_EXPANDED_OUTER_CLASS
+          : SESSION_SIDE_PANEL_FOLDED_OUTER_CLASS,
         !visible && "rounded-l-xl",
       )}
     >
@@ -191,60 +214,116 @@ export default function SessionSidePanel() {
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto px-1 pb-2">
+            {!hasDetails && (
+              <div className="rounded-xl border border-ds-border-neutral-subtle-disabled bg-ds-bg-neutral-default-default px-3 py-3">
+                <p className="m-0 text-body-sm font-semibold text-ds-text-neutral-default-default">
+                  {runStatus === "running" ? "正在整理任务信息" : "暂无运行详情"}
+                </p>
+                <p className="mb-0 mt-1 text-body-sm text-ds-text-neutral-muted-default">
+                  {runStatus === "running"
+                    ? "计划步骤和执行记录生成后会显示在这里。"
+                    : runDone || messages.length > 0
+                      ? "本次任务没有可展示的进度、执行记录或交付文件。"
+                      : "开始任务后，可在这里查看进度、执行记录与交付文件。"}
+                </p>
+              </div>
+            )}
             {mode === SessionMode.WORKFORCE && (
               <AccordionBox title="智能体池" defaultOpen={false}>
                 {({ open }) => <AgentPoolBody agents={agents} open={open} />}
               </AccordionBox>
             )}
 
-            <AccordionBox
+            {(hasProgress || runStatus === "running") && <AccordionBox
               title="进度"
-              titleSuffix={
-                progressItems.length > 0 ? <CountPill count={progressItems.length} /> : null
-              }
+              titleSuffix={hasProgress
+                ? <span className="progress-header-count">{completedGlobal} / {progressItems.length}</span>
+                : undefined}
             >
-              {progressItems.length === 0 ? (
-                <div className="px-1 py-1 text-body-sm text-ds-text-neutral-subtle-default opacity-60">
-                  {runStatus === "running"
-                    ? "正在规划步骤…"
-                    : "任务运行时，在此跟踪计划步骤与状态。"}
+              {planRevision > 1 && revisionReason && (
+                <div className="progress-revision" role="status">
+                  计划已更新<span aria-hidden="true"> · </span>{revisionReason}
                 </div>
-              ) : (
-                <ul className="m-0 list-none space-y-0.5 p-0">
-                  {progressItems.map((task) => {
+              )}
+              {hasProgress && (
+                <div className="progress-overview">
+                  <div className="progress-overview-label">
+                    <span>全局步骤</span>
+                    <strong>{Math.round((completedGlobal / progressItems.length) * 100)}%</strong>
+                  </div>
+                  <div
+                    className="progress-overview-track"
+                    role="progressbar"
+                    aria-label="全局步骤完成进度"
+                    aria-valuemin={0}
+                    aria-valuemax={progressItems.length}
+                    aria-valuenow={completedGlobal}
+                  >
+                    <span style={{ width: `${(completedGlobal / progressItems.length) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+              {!hasProgress && (
+                <p className="progress-empty">正在规划全局步骤…</p>
+              )}
+              <ol className="progress-step-list">
+                  {progressItems.map((task, index) => {
                     const done = task.status === "completed";
                     const running = !done && task.status === "running";
+                    const details = executionDetails[task.id] || [];
+                    const hasChildren = task.substeps.length > 0 || details.length > 0;
+                    const expanded = expandedStepId === task.id;
+                    const completedChildren = task.substeps.filter((child) => child.status === "completed").length;
+                    const statusLabel = done ? "已完成" : running ? "进行中" : task.status === "failed" ? "失败" : "待执行";
                     return (
-                      <li key={task.id}>
-                        <SidePanelListRow
-                          className="hover:bg-ds-bg-neutral-subtle-default"
-                          leading={<ProgressCircle done={done} running={running} />}
+                      <li key={task.id} className="progress-step" data-status={task.status} data-expanded={expanded}>
+                        <button
+                          type="button"
+                          className="progress-step-trigger"
+                          onClick={() => hasChildren && setExpandedStepId(expanded ? null : task.id)}
+                          disabled={!hasChildren}
+                          aria-expanded={hasChildren ? expanded : undefined}
+                          aria-label={`步骤 ${index + 1}：${task.content}，${statusLabel}${task.substeps.length > 0 ? `，分步 ${completedChildren} / ${task.substeps.length}` : ""}`}
                         >
-                          <span
-                            className={cn(
-                              done && "opacity-60 text-ds-text-neutral-subtle-default",
-                              running && "font-medium text-ds-text-neutral-default-default",
-                            )}
-                          >
-                            {task.content}
+                          <span className="progress-step-index" aria-hidden="true">
+                            {done ? <Check size={13} strokeWidth={2.7} /> : task.status === "failed" ? <AlertCircle size={15} /> : String(index + 1).padStart(2, "0")}
                           </span>
-                        </SidePanelListRow>
+                          <span className="progress-step-copy">
+                            <span className="progress-step-title">{task.content}</span>
+                            {task.substeps.length > 0 && <span className="progress-step-meta">分步 {completedChildren}/{task.substeps.length}</span>}
+                          </span>
+                          <span className="progress-step-state" aria-hidden="true">{statusLabel}</span>
+                          {hasChildren && <ChevronDown className={cn("progress-step-chevron", expanded && "is-expanded")} size={14} aria-hidden="true" />}
+                        </button>
+                        {expanded && hasChildren && (
+                          <div className="progress-step-body">
+                            {task.substeps.length > 0 && <ol className="progress-substep-list">
+                              {task.substeps.map((child) => <li key={child.id} className="progress-substep" data-status={child.status}>
+                                <span className="progress-substep-marker" aria-hidden="true">
+                                  {child.status === "completed" ? <Check size={10} strokeWidth={3} /> : child.status === "failed" ? <AlertCircle size={13} /> : null}
+                                </span>
+                                <span className="progress-substep-title">{child.content}</span>
+                                <span className="sr-only">{child.status === "completed" ? "已完成" : child.status === "running" ? "进行中" : child.status === "failed" ? "失败" : "待执行"}</span>
+                              </li>)}
+                            </ol>}
+                            {details.length > 0 && (
+                              <div className="progress-execution">
+                                <p className="progress-execution-heading">执行明细 <span>{details.length}</span></p>
+                                {details.slice(-4).map((detail) => <p key={detail.id} className="progress-execution-row"><span aria-hidden="true">{detail.done ? "✓" : "◌"}</span><span className="truncate">{detail.label}</span></p>)}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </li>
                     );
                   })}
-                </ul>
-              )}
-            </AccordionBox>
+              </ol>
+            </AccordionBox>}
 
-            <AccordionBox
+            {hasContext && <AccordionBox
               title="执行上下文"
             >
-              {contextItems.length === 0 ? (
-                <div className="px-1 py-1 text-body-sm text-ds-text-neutral-subtle-default opacity-60">
-                  跟踪本任务使用的技能、MCP 与引用文件。
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
                   {(["skill", "connector", "file"] as const).map((cat) => {
                     const group = contextItems.filter((i) => i.category === cat);
                     if (!group.length) return null;
@@ -283,27 +362,19 @@ export default function SessionSidePanel() {
                       </div>
                     );
                   })}
-                </div>
-              )}
-            </AccordionBox>
+              </div>
+            </AccordionBox>}
 
-            <AccordionBox
+            {hasTrace && <AccordionBox
               title="Trace"
               defaultOpen={false}
-              titleSuffix={
-                trace.length > 0 ? <CountPill count={trace.length} /> : null
-              }
+              titleSuffix={<CountPill count={trace.length} />}
             >
               <TracePanel embedded />
-            </AccordionBox>
+            </AccordionBox>}
 
-            <AccordionBox title="输出文件夹">
-              {files.length === 0 ? (
-                <div className="px-1 py-1 text-body-sm text-ds-text-neutral-subtle-default opacity-60">
-                  最终交付文件会显示在这里。
-                </div>
-              ) : (
-                <ul className="m-0 list-none space-y-0.5 p-0">
+            {hasFiles && <AccordionBox title="输出文件夹">
+              <ul className="m-0 list-none space-y-0.5 p-0">
                   {files.map((f) => (
                     <li key={f.path}>
                       <SidePanelListRow
@@ -317,9 +388,8 @@ export default function SessionSidePanel() {
                       </SidePanelListRow>
                     </li>
                   ))}
-                </ul>
-              )}
-            </AccordionBox>
+              </ul>
+            </AccordionBox>}
           </div>
         </>
       )}

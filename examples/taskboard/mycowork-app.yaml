@@ -1,0 +1,21 @@
+schema_version: 1
+id: cn.example.taskboard
+name: 任务管理样例
+version: 1.0.0
+description: 带独立页面与 SQLite 数据的本地任务管理应用
+min_host_version: 0.0.9
+sdk_version: 1
+kind: python-web
+platforms: [darwin-arm64, darwin-x64, win-x64]
+backend:
+  entry: mcapp_cn_example_taskboard.plugin:register
+  requires_python: ">=3.11,<3.13"
+ui:
+  entry: frontend/dist/index.html
+  route_mode: hash
+  bridge_version: 1
+data:
+  scope: workspace
+capabilities:
+  host_api: []
+  network_domains: []

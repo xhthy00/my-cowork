@@ -228,7 +228,7 @@ def _emit_tool_event(
 ) -> None:
     from datetime import datetime, timezone
 
-    from app.runtime.todo_context import get_todo_runtime
+    from app.runtime.todo_context import get_current_subtask_id, get_todo_runtime
 
     rt = get_todo_runtime()
     if rt is None or rt.bus is None or not name:
@@ -241,6 +241,9 @@ def _emit_tool_event(
         "preview": preview,
         "timestamp": stamp,
     }
+    subtask_id = get_current_subtask_id()
+    if subtask_id:
+        nested["sub_task_id"] = subtask_id
     if result is not None:
         nested["result"] = result if len(result) <= 4000 else result[:4000] + "…"
     rt.bus.emit(
@@ -252,6 +255,7 @@ def _emit_tool_event(
             "call_id": call_id,
             "tool": name,
             "preview": preview,
+            "sub_task_id": subtask_id,
             "payload": nested,
         }
     )

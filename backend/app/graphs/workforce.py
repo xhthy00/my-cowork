@@ -14,7 +14,7 @@ from app.graphs.coordinator import coordinate
 from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks, wants_document
 from app.graphs.single_agent import run_with_floor_retries
 from app.graphs.state import WorkforceState
-from app.runtime.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope
+from app.runtime.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope, todo_subtask_scope
 from app.runtime.v2.assemble import format_bound_knowledge_block, render_agent_prompt
 from app.runtime.v2.critic import (
     analyze_task,
@@ -202,6 +202,22 @@ def compile_workforce_graph(
             bound = format_bound_knowledge_block(state.get("knowledge_bases"))
             if bound:
                 system = f"{system.rstrip()}\n\n{bound}\n"
+            planned_substeps = [
+                str(step.get("content") or "").strip()
+                for step in task.get("substeps") or []
+                if isinstance(step, dict) and str(step.get("content") or "").strip()
+            ]
+            if planned_substeps and any(getattr(tool, "name", "") == "substep_update" for tool in tools):
+                numbered = "\n".join(
+                    f"{index}. {content}" for index, content in enumerate(planned_substeps, start=1)
+                )
+                system += (
+                    "\n本子任务的分步计划：\n"
+                    f"{numbered}\n"
+                    "执行每项前调用 substep_update，传入从 1 开始的 index 和 in_progress；"
+                    "完成后再调用 substep_update，传入同一 index 和 completed。"
+                    "若该分步失败，传入 failed。不要改写全局计划。\n"
+                )
             from app.runtime.memory_context import get_long_term_runtime
             from app.memory.scoped import project_memory_key
 
@@ -237,25 +253,26 @@ def compile_workforce_graph(
             # invented「再生成 Word」after the user only wanted Markdown.
             format_text = user_text or brief
             with todo_agent_scope(name):
-                with automation_checkpoint_scope(checkpoint_key):
-                    with office_skills_scope(wants_document(format_text)):
-                        result_messages = await run_with_floor_retries(
-                            model,
-                            tools,
-                            invoke,
-                            format_text,
-                            max_retries=1,
-                            act_max_steps=18,
-                            skip_file_gate=name == "browser_agent",
-                            apply_research=(
-                                name == "browser_agent"
-                                and needs_research(f"{user_text} {brief}")
-                            ),
-                            require_findings=(
-                                name == "browser_agent"
-                                and needs_research(f"{user_text} {brief}")
-                            ),
-                        )
+                with todo_subtask_scope(str(task.get("id") or "")):
+                    with automation_checkpoint_scope(checkpoint_key):
+                        with office_skills_scope(wants_document(format_text)):
+                            result_messages = await run_with_floor_retries(
+                                model,
+                                tools,
+                                invoke,
+                                format_text,
+                                max_retries=1,
+                                act_max_steps=18,
+                                skip_file_gate=name == "browser_agent",
+                                apply_research=(
+                                    name == "browser_agent"
+                                    and needs_research(f"{user_text} {brief}")
+                                ),
+                                require_findings=(
+                                    name == "browser_agent"
+                                    and needs_research(f"{user_text} {brief}")
+                                ),
+                            )
             summary = _last_text(result_messages)
             digest = evidence_digest(result_messages)
             if digest:
@@ -281,6 +298,19 @@ def compile_workforce_graph(
                 analysis=analysis,
                 max_retries=MAX_RETRIES,
             )
+            if runtime is not None and task.get("substeps"):
+                statuses = runtime.substep_status.get(str(task.get("id") or ""), {})
+                patch["substeps"] = [
+                    {
+                        "content": str(step.get("content") or ""),
+                        "status": statuses.get(
+                            f"{task.get('id')}_step_{index}",
+                            str(step.get("status") or "pending"),
+                        ),
+                    }
+                    for index, step in enumerate(task["substeps"], start=1)
+                    if isinstance(step, dict)
+                ]
             patch["assignee"] = name
             return {
                 "messages": result_messages,

@@ -68,6 +68,14 @@ def test_normalize_maps_legacy_assignee():
     assert tasks[0]["assignee"] == "document_agent"
 
 
+def test_normalize_keeps_worker_substeps():
+    tasks = normalize_subtasks([{
+        "id": "task_1", "content": "检索资料", "assignee": "browser_agent",
+        "substeps": [{"content": "查找官方来源"}, {"content": "核对日期"}],
+    }])
+    assert [step["content"] for step in tasks[0]["substeps"]] == ["查找官方来源", "核对日期"]
+
+
 def test_retry_resets_failed_under_budget():
     subtasks = [
         {

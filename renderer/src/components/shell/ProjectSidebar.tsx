@@ -28,6 +28,27 @@ import {
 } from "@/store/sessions";
 import { useSpacesStore } from "@/store/spaces";
 
+function historyGroup(timestamp: number, today: Date): string {
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  if (timestamp >= start) return "今天";
+  if (timestamp >= start - 86_400_000) return "昨天";
+  if (timestamp >= start - 7 * 86_400_000) return "近 7 天";
+  return "更早";
+}
+
+function historyTime(timestamp: number, today: Date): string {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return "";
+  return ["今天", "昨天"].includes(historyGroup(timestamp, today))
+    ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(date)
+    : new Intl.DateTimeFormat("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
+}
+
 function navTabClass(active: boolean) {
   return cn(
     "h-8 w-full min-w-0 shrink-0 rounded-xl flex items-center justify-start gap-3 px-3 text-left outline-none overflow-hidden transition-colors duration-200",
@@ -77,6 +98,17 @@ export default function ProjectSidebar({
     () => sessions.filter((s) => s.spaceId === (activeSpaceId || activeSpace?.id)),
     [sessions, activeSpaceId, activeSpace?.id],
   );
+  const historyGroups = useMemo(() => {
+    const today = new Date();
+    const groups: Array<{ label: string; projects: typeof projects }> = [];
+    for (const project of [...projects].sort((a, b) => b.updatedAt - a.updatedAt)) {
+      const label = historyGroup(project.updatedAt, today);
+      const group = groups.find((item) => item.label === label);
+      if (group) group.projects.push(project);
+      else groups.push({ label, projects: [project] });
+    }
+    return { groups, today };
+  }, [projects]);
 
   function selectSpace(spaceId: string) {
     setActiveSpace(spaceId);
@@ -142,7 +174,7 @@ export default function ProjectSidebar({
             {!folded && (
               <>
                 <span className="min-w-0 flex-1 truncate">上下文</span>
-                <span className="rounded-md bg-ds-bg-neutral-subtle-default px-1.5 py-0.5 text-[10px] font-semibold text-ds-text-neutral-muted-default">
+                <span className="rounded-md bg-ds-bg-neutral-subtle-default px-1.5 py-0.5 text-[11px] font-semibold text-ds-text-neutral-muted-default">
                   本地
                 </span>
               </>
@@ -210,7 +242,7 @@ export default function ProjectSidebar({
               aria-label={historyCollapsed ? "展开历史会话" : "收起历史会话"}
               aria-expanded={!historyCollapsed}
               aria-controls="project-history-list"
-              className="mb-1 flex h-9 w-full shrink-0 items-center justify-between rounded-lg px-3 text-left text-[11px] font-semibold tracking-wide text-ds-text-neutral-subtle-default transition-colors hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
+              className="mb-1 flex h-9 w-full shrink-0 items-center justify-between rounded-lg px-3 text-left text-xs font-semibold tracking-wide text-ds-text-neutral-muted-default transition-colors hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
               onClick={() => setHistoryCollapsed(!historyCollapsed)}
             >
               <span>项目</span>
@@ -230,7 +262,11 @@ export default function ProjectSidebar({
                 historyCollapsed && "hidden",
               )}
             >
-              {projects.map((s) => (
+              {historyGroups.groups.flatMap((group) => [
+                <div key={`group-${group.label}`} className="px-3 pb-1 pt-3 text-xs font-semibold text-ds-text-neutral-muted-default first:pt-1">
+                  {group.label}
+                </div>,
+                ...group.projects.map((s) => (
                 <div
                   key={s.id}
                   data-active={activeId === s.id}
@@ -243,7 +279,8 @@ export default function ProjectSidebar({
                 >
                   <button
                     type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-body-sm"
+                    title={`${s.title} · ${new Date(s.updatedAt).toLocaleString("zh-CN")}`}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-body-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
                     onClick={() => {
                       setActive(s.id);
                       setWorkspaceView("workspace");
@@ -256,8 +293,12 @@ export default function ProjectSidebar({
                     ) : (
                       <span className="h-4 w-4 shrink-0 rounded-full border border-ds-border-neutral-default-default" />
                     )}
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {s.title}
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate font-medium">{s.title}</span>
+                      <span className="text-xs leading-4 text-ds-text-neutral-muted-default">
+                        {historyTime(s.updatedAt, historyGroups.today)}
+                        {s.status === "running" ? " · 进行中" : s.status === "error" ? " · 未完成" : ""}
+                      </span>
                     </span>
                   </button>
                   <button
@@ -273,7 +314,7 @@ export default function ProjectSidebar({
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
-              ))}
+              ))])}
               {projects.length === 0 && (
                 <p className="px-3 py-2 text-xs text-ds-text-neutral-subtle-default">
                   暂无项目

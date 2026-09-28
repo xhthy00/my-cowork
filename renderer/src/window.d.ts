@@ -60,6 +60,31 @@ export interface UpdaterStatus {
 export interface ElectronAPI {
   getBackendUrl(): Promise<string>;
   restartBackend(): Promise<string>;
+  industryList(): Promise<{
+    apps: Array<{
+      id: string;
+      version: string;
+      previous_version?: string | null;
+      enabled: boolean;
+      status: string;
+      error?: string;
+      manifest: { name: string; description: string; ui: { entry: string } };
+    }>;
+  }>;
+  industryInspect(filePath: string): Promise<{
+    sha256: string;
+    file_count: number;
+    expanded_bytes: number;
+    trusted_code: boolean;
+    manifest: { id: string; name: string; version: string; description: string; capabilities: { host_api: string[] } };
+  }>;
+  industryInstall(filePath: string, expectedSha256: string): Promise<{
+    id: string;
+    version: string;
+    requires_restart: boolean;
+  }>;
+  industryRequest(appId: string, method: string, requestPath: string, body?: unknown): Promise<unknown>;
+  industryManage(appId: string, action: "disable" | "enable" | "rollback"): Promise<unknown>;
   getKey(account: string): Promise<string | null>;
   setKey(account: string, value: string): Promise<void>;
   getModels(): Promise<ModelsState>;

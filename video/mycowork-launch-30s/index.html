@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN" data-resolution="landscape">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <style>
+    @font-face { font-family: "PingFang SC"; src: local("PingFang SC"); }
+    * { box-sizing: border-box; }
+    html, body { width: 1920px; height: 1080px; margin: 0; overflow: hidden; }
+    body { background: #faf7f6; color: #1d1d1d; font-family: Inter, "PingFang SC", sans-serif; }
+    #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+    .scene { position: absolute; inset: 0; overflow: hidden; background: #faf7f6; }
+    #scene2, #scene3, #scene4, #scene5, #scene6, #scene7 { opacity: 0; }
+    .scene::before { content: ""; position: absolute; width: 730px; height: 730px; top: -250px; right: -120px; border-radius: 50%; background: radial-gradient(circle, rgba(125,61,243,.12) 0%, rgba(125,61,243,0) 70%); }
+    .scene::after { content: ""; position: absolute; width: 600px; height: 600px; bottom: -310px; left: -180px; border-radius: 50%; background: radial-gradient(circle, rgba(236,141,117,.1) 0%, rgba(236,141,117,0) 72%); }
+    .scene-content { position: relative; display: flex; flex-direction: column; gap: 25px; width: 100%; height: 100%; padding: 105px 125px 100px; }
+    .meta { color: #6d2ccf; font-size: 25px; font-weight: 700; letter-spacing: .11em; }
+    .split { flex: 1; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 66px; min-height: 0; }
+    .copy { width: 520px; flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 29px; }
+    .rule { width: 96px; height: 6px; border-radius: 6px; background: #7d3df3; }
+    h1, h2, p { margin: 0; }
+    .headline { max-width: 530px; font-size: 82px; line-height: 1.17; font-weight: 760; letter-spacing: -.045em; }
+    .detail { max-width: 515px; color: #535352; font-size: 32px; line-height: 1.5; }
+    .accent { color: #6d2ccf; }
+    .screen { width: 1090px; flex: none; padding: 9px; overflow: hidden; border: 1px solid #e3d5ec; border-radius: 30px; background: #fff; box-shadow: 0 31px 85px rgba(69,43,95,.14), 0 5px 18px rgba(69,43,95,.06); }
+    .screen img { display: block; width: 100%; height: auto; border-radius: 22px; }
+    .footline { position: absolute; left: 125px; right: 125px; bottom: 62px; display: flex; justify-content: space-between; align-items: center; color: #6b5878; font-size: 22px; letter-spacing: .08em; }
+    .footline .bar { width: 460px; height: 3px; background: #e3d5ed; }
+    .footline .bar i { display: block; width: var(--p); height: 100%; background: #7d3df3; }
+    #scene1 .scene-content { align-items: center; justify-content: center; text-align: center; gap: 35px; }
+    #scene1 .badge { padding: 13px 30px; border: 1px solid #dac7f4; border-radius: 99px; background: #f3ebfb; color: #6d2ccf; font-size: 24px; font-weight: 700; letter-spacing: .11em; }
+    #scene1 .logo { width: 820px; height: auto; }
+    #scene1 h1 { max-width: 1250px; font-size: 88px; line-height: 1.2; letter-spacing: -.04em; }
+    #scene1 p { color: #535352; font-size: 34px; }
+    #scene7 .headline { font-size: 90px; }
+    #scene7 .headline .accent { display: block; }
+    #scene7 .mini-logo { width: 340px; height: auto; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="30" data-width="1920" data-height="1080">
+    <div id="scene1" class="scene"><div class="scene-content">
+      <div class="badge">MYCOWORK · 首发短片</div>
+      <img class="logo" src="assets/logo-horizontal.png" alt="MyCowork">
+      <div class="rule"></div>
+      <h1>你的本机办公数字员工</h1>
+      <p>从想法，到真正完成。</p>
+    </div></div>
+    <div id="scene2" class="scene"><div class="scene-content">
+      <div class="meta">01 / 当前主页</div>
+      <div class="split"><div class="copy">
+        <div class="rule"></div>
+        <h2 class="headline">一个<span class="accent">工作台</span></h2>
+        <p class="detail">空间、项目与自动化，集中管理。</p>
+      </div><div class="screen"><img src="assets/current-workbench.png" alt="当前 MyCowork 主页，包含空间、项目和触发器"></div></div>
+      <div class="footline"><span>MYCOWORK / CURRENT UI</span><div class="bar" style="--p:17%"><i></i></div><span>01 / 06</span></div>
+    </div></div>
+    <div id="scene3" class="scene"><div class="scene-content">
+      <div class="meta">02 / 当前工作区</div>
+      <div class="split"><div class="copy">
+        <div class="rule"></div>
+        <h2 class="headline">一句话，<span class="accent">启动任务</span></h2>
+        <p class="detail">在工作区直接交代目标。</p>
+      </div><div class="screen"><img src="assets/current-task.png" alt="当前工作区中输入产品上线清单任务"></div></div>
+      <div class="footline"><span>MYCOWORK / CURRENT UI</span><div class="bar" style="--p:34%"><i></i></div><span>02 / 06</span></div>
+    </div></div>
+    <div id="scene4" class="scene"><div class="scene-content">
+      <div class="meta">03 / 当前智能体</div>
+      <div class="split"><div class="copy">
+        <div class="rule"></div>
+        <h2 class="headline">按场景，<span class="accent">选对助手</span></h2>
+        <p class="detail">PPT、Word、Excel，各有清晰入口。</p>
+      </div><div class="screen"><img src="assets/current-assistants.png" alt="当前智能体页的办公助手"></div></div>
+      <div class="footline"><span>MYCOWORK / CURRENT UI</span><div class="bar" style="--p:51%"><i></i></div><span>03 / 06</span></div>
+    </div></div>
+    <div id="scene5" class="scene"><div class="scene-content">
+      <div class="meta">04 / 当前任务进度</div>
+      <div class="split"><div class="copy">
+        <div class="rule"></div>
+        <h2 class="headline">步骤清楚，<span class="accent">进度可见</span></h2>
+        <p class="detail">拆解任务，追踪每一步执行状态。</p>
+      </div><div class="screen"><img src="assets/current-progress.png" alt="当前工作区显示任务进度和分步状态"></div></div>
+      <div class="footline"><span>MYCOWORK / CURRENT UI</span><div class="bar" style="--p:68%"><i></i></div><span>04 / 06</span></div>
+    </div></div>
+    <div id="scene6" class="scene"><div class="scene-content">
+      <div class="meta">05 / 当前确认流程</div>
+      <div class="split"><div class="copy">
+        <div class="rule"></div>
+        <h2 class="headline">关键选择，<span class="accent">由你决定</span></h2>
+        <p class="detail">需要补充信息时，智能体暂停提问。</p>
+      </div><div class="screen"><img src="assets/current-question.png" alt="当前工作区的关键选择提问表单"></div></div>
+      <div class="footline"><span>MYCOWORK / CURRENT UI</span><div class="bar" style="--p:84%"><i></i></div><span>05 / 06</span></div>
+    </div></div>
+    <div id="scene7" class="scene"><div class="scene-content">
+      <div class="meta">06 / 当前完成状态</div>
+      <div class="split"><div class="copy">
+        <div class="rule"></div>
+        <h2 class="headline">从计划，<span class="accent">到交付</span></h2>
+        <p class="detail">回复后继续执行，直到任务完成。</p>
+        <img class="mini-logo" src="assets/logo-end.png" alt="MyCowork">
+      </div><div class="screen"><img src="assets/current-complete.png" alt="当前任务显示全局步骤百分之百完成"></div></div>
+      <div class="footline"><span>MYCOWORK / 让办公更智能</span><div class="bar" style="--p:100%"><i></i></div><span>06 / 06</span></div>
+    </div></div>
+    <audio id="score" class="clip" data-start="0" data-duration="30" data-track-index="1" data-volume="0.9" src="assets/score.m4a"></audio>
+  </div>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({ paused: true });
+    tl.set(["#scene2","#scene3","#scene4","#scene5","#scene6","#scene7"], { x: 90 }, 0);
+    tl.from("#scene1 .badge", { y: -30, opacity: 0, duration: .6, ease: "power3.out" }, .20);
+    tl.from("#scene1 .logo", { y: 42, scale: .93, opacity: 0, duration: .8, ease: "expo.out" }, .37);
+    tl.from("#scene1 .rule", { scaleX: 0, duration: .5, ease: "power4.out" }, .8);
+    tl.from("#scene1 h1", { y: 38, opacity: 0, duration: .7, ease: "power2.out" }, 1.02);
+    tl.from("#scene1 p", { opacity: 0, duration: .6, ease: "sine.out" }, 1.38);
+    const transition = (oldScene, newScene, time) => {
+      tl.to(oldScene, { x: -90, opacity: 0, duration: .58, ease: "power3.inOut" }, time);
+      tl.to(newScene, { x: 0, opacity: 1, duration: .58, ease: "power3.inOut" }, time);
+    };
+    const enter = (scene, time) => {
+      tl.from(`${scene} .meta`, { y: -22, opacity: 0, duration: .5, ease: "power3.out" }, time + .18);
+      tl.from(`${scene} .rule`, { scaleX: 0, transformOrigin: "left center", duration: .48, ease: "expo.out" }, time + .32);
+      tl.from(`${scene} .headline`, { x: -48, opacity: 0, duration: .7, ease: "power4.out" }, time + .39);
+      tl.from(`${scene} .detail`, { y: 30, opacity: 0, duration: .57, ease: "sine.out" }, time + .68);
+      tl.from(`${scene} .screen`, { x: 92, scale: .96, opacity: 0, duration: .77, ease: "expo.out" }, time + .46);
+      tl.from(`${scene} .footline`, { y: 12, opacity: 0, duration: .47, ease: "power2.out" }, time + .9);
+    };
+    transition("#scene1", "#scene2", 3.7); enter("#scene2", 3.7);
+    transition("#scene2", "#scene3", 8.5); enter("#scene3", 8.5);
+    transition("#scene3", "#scene4", 13.3); enter("#scene4", 13.3);
+    transition("#scene4", "#scene5", 18.1); enter("#scene5", 18.1);
+    transition("#scene5", "#scene6", 22.9); enter("#scene6", 22.9);
+    transition("#scene6", "#scene7", 26.3); enter("#scene7", 26.3);
+    tl.from("#scene7 .mini-logo", { y: 20, opacity: 0, duration: .5, ease: "back.out(1.2)" }, 27.55);
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

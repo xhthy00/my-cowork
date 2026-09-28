@@ -122,6 +122,11 @@ def normalize_subtasks(raw: Any) -> list[dict[str, Any]]:
                 "status": status,
                 "result": str(item.get("result") or ""),
                 "retries": retries,
+                "substeps": [
+                    {"content": title}
+                    for step in (item.get("substeps") or [])
+                    if (title := str(step.get("content") if isinstance(step, dict) else step).strip())
+                ][:5] if isinstance(item.get("substeps"), list) else [],
             }
         )
     return out

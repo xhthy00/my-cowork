@@ -30,6 +30,11 @@
   margin-bottom: 0;
 }
 
+/* Keep prose at a comfortable line length; wide tables and code stay scrollable. */
+.msg.assistant .aion-md > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) {
+  max-width: 72ch;
+}
+
 .aion-md p {
   margin-block-start: 0.7em;
   margin-block-end: 0.7em;

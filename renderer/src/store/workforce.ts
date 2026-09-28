@@ -17,6 +17,9 @@ import {
 
 export interface WorkforceState {
   sessionMode: SessionModeType;
+  runId: string | null;
+  planRevision: number;
+  revisionReason: string;
   taskAssigning: WorkforceAgent[];
   taskInfo: TaskInfo[];
   taskRunning: TaskInfo[];
@@ -24,6 +27,8 @@ export interface WorkforceState {
   pendingPlan: { taskId: string; subtasks: PlanSubTask[] } | NonePlan;
   setSessionMode: (mode: SessionModeType) => void;
   reset: () => void;
+  startRun: (runId: string) => void;
+  restoreProgress: (snapshot: ProgressSnapshot) => void;
   seedPlan: (tasks: TaskInfo[]) => void;
   clearPendingPlan: () => void;
   upsertAgent: (agent: Partial<WorkforceAgent> & { agent_id: string; type: WorkerType }) => void;
@@ -34,6 +39,14 @@ export interface WorkforceState {
   updateTaskStatus: (taskId: string, status: TaskStatus) => void;
   appendTerminal: (agentId: string, taskId: string, output: string) => void;
   handleWorkforceEvent: (type: string, payload: Record<string, unknown>) => void;
+}
+
+export interface ProgressSnapshot {
+  runId: string | null;
+  sessionMode: SessionModeType;
+  planRevision: number;
+  revisionReason: string;
+  taskInfo: TaskInfo[];
 }
 
 type NonePlan = null;
@@ -81,9 +94,23 @@ export function isBaseWorkforceAgent(agentId: string): boolean {
   return BASE_WORKFORCE_AGENT_IDS.has(agentId);
 }
 
+function withCompletedSubsteps(task: TaskInfo): TaskInfo {
+  if (task.status !== "completed" || !task.substeps?.length) return task;
+  return {
+    ...task,
+    substeps: task.substeps.map((step) =>
+      step.status === "waiting" || step.status === "running"
+        ? { ...step, status: "completed" as const }
+        : step),
+  };
+}
+
 export function createWorkforceStore() {
   return createStore<WorkforceState>()((set, get) => ({
   sessionMode: SessionMode.SINGLE_AGENT,
+  runId: null,
+  planRevision: 0,
+  revisionReason: "",
   taskAssigning: BASE_AGENTS.map((a) => ({ ...a, tasks: [] })),
   taskInfo: [],
   taskRunning: [],
@@ -93,17 +120,47 @@ export function createWorkforceStore() {
 
   reset: () =>
     set({
+      runId: null,
+      planRevision: 0,
+      revisionReason: "",
       taskAssigning: BASE_AGENTS.map((a) => ({ ...a, tasks: [], status: "idle", log: [] })),
       taskInfo: [],
       taskRunning: [],
       pendingPlan: null,
     }),
 
-  seedPlan: (tasks) =>
+  startRun: (runId) =>
     set({
-      taskInfo: tasks,
-      taskRunning: tasks.filter((t) => t.status === "running"),
+      runId,
+      planRevision: 0,
+      revisionReason: "",
+      taskInfo: [],
+      taskRunning: [],
+      pendingPlan: null,
+      taskAssigning: BASE_AGENTS.map((a) => ({ ...a, tasks: [], status: "idle", log: [] })),
     }),
+
+  restoreProgress: (snapshot) => {
+    const taskInfo = snapshot.taskInfo.map(withCompletedSubsteps);
+    set({
+      runId: snapshot.runId,
+      sessionMode: snapshot.sessionMode,
+      planRevision: snapshot.planRevision,
+      revisionReason: snapshot.revisionReason,
+      taskInfo,
+      taskRunning: taskInfo.filter((t) => t.status === "running"),
+    });
+  },
+
+  seedPlan: (tasks) => {
+    const taskInfo = tasks.map(withCompletedSubsteps);
+    set({
+      planRevision: tasks.length ? 1 : 0,
+      revisionReason: "",
+      taskInfo,
+      taskRunning: taskInfo.filter((t) => t.status === "running"),
+    });
+  },
 
   clearPendingPlan: () => set({ pendingPlan: null }),
 
@@ -161,16 +218,15 @@ export function createWorkforceStore() {
 
   assignTask: (agentId, task) =>
     set((state) => {
-      const hasPlan = state.taskInfo.some((t) => t.id.startsWith("todo_") || t.id.startsWith("task_"));
+      const hasPlan = state.taskInfo.length > 0;
       const taskRunning = hasPlan
         ? state.taskRunning
         : task.status === "running"
           ? [...state.taskRunning.filter((t) => t.id !== task.id), task]
           : state.taskRunning.filter((t) => t.id !== task.id);
       return {
-        taskInfo: hasPlan
-          ? state.taskInfo
-          : [...state.taskInfo.filter((t) => t.id !== task.id), task],
+        // Assignments belong to the agent activity log. Progress contains
+        // only the plan, so it never jumps from a temporary assignment row.
         taskRunning,
         taskAssigning: state.taskAssigning.map((a) => {
           if (a.agent_id !== agentId) return a;
@@ -195,7 +251,7 @@ export function createWorkforceStore() {
 
   updateTaskStatus: (taskId, status) =>
     set((state) => {
-      const patch = (t: TaskInfo) => (t.id === taskId ? { ...t, status } : t);
+      const patch = (t: TaskInfo) => (t.id === taskId ? withCompletedSubsteps({ ...t, status }) : t);
       const taskAssigning = state.taskAssigning.map((a) => {
         const tasks = a.tasks.map(patch);
         const completed = tasks.filter((t) => t.status === "completed" || t.status === "failed").length;
@@ -276,6 +332,9 @@ export function createWorkforceStore() {
             ? item.dependencies.map(String)
             : [],
           status: String(item.status ?? "waiting"),
+          substeps: Array.isArray(item.substeps)
+            ? item.substeps.map((step) => ({ content: String((step as Record<string, unknown>).content ?? "") })).filter((step) => step.content.trim())
+            : [],
         };
       });
       // Eigent: Progress = confirmed/pending sub_tasks (not worker todo_write).
@@ -287,9 +346,16 @@ export function createWorkforceStore() {
           status: "waiting" as TaskStatus,
           agent: t.assignee,
           terminal: [],
+          substeps: (t.substeps || []).map((step, index) => ({
+            id: `${t.id}_step_${index + 1}`,
+            content: step.content,
+            status: "waiting" as TaskStatus,
+          })),
         }));
       set({
         sessionMode: SessionMode.WORKFORCE,
+        planRevision: taskInfo.length ? 1 : 0,
+        revisionReason: "",
         pendingPlan: {
           taskId: String(payload.task_id ?? ""),
           subtasks,
@@ -313,7 +379,7 @@ export function createWorkforceStore() {
       const existing = s.taskInfo;
       const workforcePlan =
         s.sessionMode === SessionMode.WORKFORCE &&
-        existing.some((t) => t.id.startsWith("task_"));
+        existing.length > 0;
 
       if (workforcePlan) {
         // Keep confirmed plan wording; only sync status by id (Eigent Progress).
@@ -331,13 +397,27 @@ export function createWorkforceStore() {
         const taskInfo = existing.map((t) => {
           const row = incoming.get(t.id);
           if (!row) return t;
-          return {
+          return withCompletedSubsteps({
             ...t,
             status: mapStatus(String(row.status ?? "pending")),
             agent: String(row.agent ?? t.agent ?? payload.agent_id ?? ""),
-          };
+            substeps: Array.isArray(row.substeps)
+              ? row.substeps.map((child, index) => {
+                  const sub = child as Record<string, unknown>;
+                  return {
+                    id: String(sub.id ?? `${t.id}_step_${index + 1}`),
+                    content: String(sub.content ?? ""),
+                    status: mapStatus(String(sub.status ?? "pending")),
+                  };
+                }).filter((child) => child.content.trim())
+              : t.substeps,
+          });
         });
         set({
+          planRevision: Number(payload.revision) || s.planRevision || 1,
+          revisionReason: payload.plan_changed && s.planRevision > 0
+            ? String(payload.revision_reason || "执行中调整计划")
+            : s.revisionReason,
           taskInfo,
           taskRunning: taskInfo.filter((t) => t.status === "running"),
         });
@@ -353,17 +433,32 @@ export function createWorkforceStore() {
           row.active_form != null && String(row.active_form).trim()
             ? String(row.active_form)
             : undefined;
-        return {
+        return withCompletedSubsteps({
           id: String(row.id ?? `todo_${index + 1}`),
-          content: status === "running" && active_form ? active_form : content,
+          content,
           active_form,
+          substeps: Array.isArray(row.substeps)
+            ? row.substeps.map((child, childIndex) => {
+                const sub = child as Record<string, unknown>;
+                return {
+                  id: String(sub.id ?? `todo_${index + 1}_step_${childIndex + 1}`),
+                  content: String(sub.content ?? ""),
+                  active_form: sub.active_form ? String(sub.active_form) : undefined,
+                  status: mapStatus(String(sub.status ?? "pending")),
+                };
+              }).filter((child) => child.content.trim())
+            : [],
           status,
           agent: String(row.agent ?? payload.agent_id ?? "single_agent"),
           terminal: [],
-        };
+        });
       });
       set({
         sessionMode: SessionMode.SINGLE_AGENT,
+        planRevision: Number(payload.revision) || s.planRevision || 1,
+        revisionReason: payload.plan_changed && s.planRevision > 0
+          ? String(payload.revision_reason || "执行中调整计划")
+          : s.revisionReason,
         taskInfo,
         taskRunning: taskInfo.filter((t) => t.status === "running"),
         taskAssigning: s.taskAssigning.map((a) =>
@@ -378,6 +473,28 @@ export function createWorkforceStore() {
               },
         ),
       });
+      return;
+    }
+    if (type === "substep_state") {
+      const parentId = String(payload.parent_id ?? "");
+      const substepId = String(payload.substep_id ?? "");
+      if (!parentId || !substepId) return;
+      const status: TaskStatus = payload.status === "completed"
+        ? "completed"
+        : payload.status === "in_progress"
+          ? "running"
+          : payload.status === "failed"
+            ? "failed"
+            : "waiting";
+      const taskInfo = s.taskInfo.map((task) => task.id === parentId && task.status !== "completed"
+        ? {
+            ...task,
+            substeps: task.substeps?.map((step) => step.id === substepId
+              ? { ...step, status }
+              : step),
+          }
+        : task);
+      set({ taskInfo, taskRunning: taskInfo.filter((task) => task.status === "running") });
       return;
     }
     if (type === "agent.create") {

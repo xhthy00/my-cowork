@@ -3,7 +3,7 @@ import type { ChildProcess } from "child_process";
 import { readFile } from "fs/promises";
 import * as fs from "fs";
 import * as path from "path";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import * as os from "os";
 
 import {
@@ -52,12 +52,14 @@ import {
   writePreviewFileBuffer,
 } from "./fileReader";
 import { isLocalfileAllowed, localfileUrlToFsPath } from "./localfile";
+import { serveAppAsset, validAppRequest } from "./industry_apps";
 
 let backendUrl = "";
 let backendProc: ChildProcess | null = null;
 let pdfServer: PdfServer | null = null;
 let tunnel: TunnelHandle | null = null;
 let keepAwakeReleased = false;
+const industryToken = randomBytes(32).toString("hex");
 
 const isDev = !app.isPackaged;
 const isE2E = process.env.MY_COWORK_E2E === "1";
@@ -72,6 +74,14 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       stream: true,
       bypassCSP: true,
+    },
+  },
+  {
+    scheme: "mycowork-app",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
     },
   },
 ]);
@@ -145,6 +155,7 @@ async function startBackendOnce(): Promise<string> {
 
   const appVersion = getPackageVersion();
   env.MY_COWORK_APP_VERSION = appVersion;
+  env.MY_COWORK_INDUSTRY_TOKEN = industryToken;
   // Do not wait for the (first-launch) venv copy — it can take minutes and
   // used to block the window. Backend falls back if python.exe is not ready yet.
   const terminalBase = prepareTerminalPython(appVersion);
@@ -328,6 +339,92 @@ ipcMain.handle("backend-url", () => backendUrl);
 ipcMain.handle("backend:restart", async () => {
   await startBackend();
   return backendUrl;
+});
+
+function requireHostWindow(sender: Electron.WebContents): void {
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!win || win.webContents !== sender) {
+    throw new Error("industry app operation must come from the host window");
+  }
+}
+
+async function industryBackendRequest(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<unknown> {
+  if (!backendUrl) throw new Error("backend is not ready");
+  const headers = new Headers(options.headers);
+  headers.set("X-MyCowork-Industry-Token", industryToken);
+  const response = await fetch(backendUrl + endpoint, { ...options, headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data && typeof data === "object" && "detail" in data
+      ? String(data.detail)
+      : "request failed";
+    throw new Error(detail);
+  }
+  return data;
+}
+
+ipcMain.handle("industry:list", async (event) => {
+  requireHostWindow(event.sender);
+  return industryBackendRequest("/api/industry-apps");
+});
+
+ipcMain.handle("industry:inspect", async (event, filePath: string) => {
+  requireHostWindow(event.sender);
+  if (path.extname(filePath).toLowerCase() !== ".zip") throw new Error("select a .zip file");
+  const info = await fs.promises.stat(filePath);
+  if (!info.isFile() || info.size > 50 * 1024 * 1024) throw new Error("ZIP exceeds 50 MiB");
+  return industryBackendRequest("/api/industry-apps/inspect", {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: await readFile(filePath),
+  });
+});
+
+ipcMain.handle(
+  "industry:install",
+  async (event, filePath: string, expectedSha256: string) => {
+    requireHostWindow(event.sender);
+    if (path.extname(filePath).toLowerCase() !== ".zip") throw new Error("select a .zip file");
+    if (!/^[0-9a-f]{64}$/.test(expectedSha256)) throw new Error("invalid package hash");
+    const info = await fs.promises.stat(filePath);
+    if (!info.isFile() || info.size > 50 * 1024 * 1024) throw new Error("ZIP exceeds 50 MiB");
+    return industryBackendRequest("/api/industry-apps/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/zip", "X-Package-Sha256": expectedSha256 },
+      body: await readFile(filePath),
+    });
+  },
+);
+
+ipcMain.handle(
+  "industry:request",
+  async (
+    event,
+    appId: string,
+    method: string,
+    requestPath: string,
+    body?: unknown,
+  ) => {
+    requireHostWindow(event.sender);
+    if (!validAppRequest(appId, method, requestPath)) throw new Error("invalid app request");
+    return industryBackendRequest("/api/apps/" + appId + requestPath, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  },
+);
+
+ipcMain.handle("industry:manage", async (event, appId: string, action: string) => {
+  requireHostWindow(event.sender);
+  if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/.test(appId)) throw new Error("invalid app id");
+  if (action !== "disable" && action !== "enable" && action !== "rollback") throw new Error("invalid app action");
+  return industryBackendRequest("/api/industry-apps/" + appId + "/" + action, {
+    method: "POST",
+  });
 });
 
 ipcMain.handle("print-to-pdf", async (_event, html: string) => {
@@ -602,6 +699,7 @@ function registerLocalfileProtocol(): void {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   registerLocalfileProtocol();
+  protocol.handle("mycowork-app", (request) => serveAppAsset(request.url));
   const userData = app.getPath("userData");
   initKeychain(userData);
   initModelsStore(userData);

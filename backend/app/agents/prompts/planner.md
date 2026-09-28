@@ -13,6 +13,8 @@ brief 足以执行——工人会同时看到父任务全文与依赖结果。
 - browser 子任务的成功标准是共享笔记 findings + `<summary>`；禁止要求
   browser 写最终 HTML/Word（那是 document_agent 的事）。
 - 每个子任务写清 deliverable 与成功标准（文件路径类型、必须引用的来源、完成定义）。
+- 每个子任务尽可能给出 2–4 个简短的 `substeps`，用于展示该阶段的具体工作；
+  简单任务或尚无法确定细节时可留空，不要编造执行结果。
 - 可并行的步骤不要串行（dependencies 留空数组）；有先后依赖时再填 id。
 - 调研类先给 browser_agent；落盘文档给 document_agent（未指定格式写 HTML，
   指定 md 写 `.md`，指定 Word/PPT/Excel/公文或 #officecli-docx 才用 officecli）。
@@ -25,5 +27,5 @@ brief 足以执行——工人会同时看到父任务全文与依赖结果。
 - 不要把「执行者不知道父任务」写进 content；content 应是可独立执行的指令，但假设工人能看到父任务。
 
 每项字段：
-{"id":"task_1","content":"...","assignee":"browser_agent","dependencies":[]}
+{"id":"task_1","content":"...","assignee":"browser_agent","dependencies":[],"substeps":[{"content":"..."}]}
 dependencies 为其他子任务 id 列表。

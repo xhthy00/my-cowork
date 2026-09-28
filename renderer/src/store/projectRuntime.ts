@@ -8,7 +8,7 @@ import { useStore, type StoreApi } from "zustand";
 
 import type { Message, SessionState, SessionStoreDeps } from "./session";
 import type { PreviewState } from "./preview";
-import type { WorkforceState } from "./workforce";
+import type { ProgressSnapshot, WorkforceState } from "./workforce";
 
 export const IDLE_PROJECT_ID = "__idle__";
 
@@ -46,6 +46,16 @@ let sessionFactory: SessionFactory | null = null;
 let workforceFactory: WorkforceFactory | null = null;
 let previewFactory: PreviewFactory | null = null;
 let persistMessages: (projectId: string, messages: Message[]) => void = () => {};
+let persistProgress: (projectId: string, progress: ProgressSnapshot) => void = () => {};
+let loadProgress: (projectId: string) => ProgressSnapshot | undefined = () => undefined;
+
+export function setProjectProgressPersistence(
+  load: (projectId: string) => ProgressSnapshot | undefined,
+  save: (projectId: string, progress: ProgressSnapshot) => void,
+): void {
+  loadProgress = load;
+  persistProgress = save;
+}
 
 export function setProjectMessagePersist(
   fn: (projectId: string, messages: Message[]) => void,
@@ -122,6 +132,8 @@ function requireFactories(): {
 function createRuntime(projectId: string): ProjectRuntime {
   const factories = requireFactories();
   const workforce = factories.workforce();
+  const savedProgress = projectId === IDLE_PROJECT_ID ? undefined : loadProgress(projectId);
+  if (savedProgress) workforce.getState().restoreProgress(savedProgress);
   const preview = factories.preview();
   const session = factories.session({
     getWorkforce: () => workforce.getState(),
@@ -134,7 +146,21 @@ function createRuntime(projectId: string): ProjectRuntime {
         persistMessages(projectId, state.messages);
       }
     });
-    persistUnsubs.set(projectId, unsub);
+    const unsubProgress = workforce.subscribe((state, prev) => {
+      if (state.taskInfo === prev.taskInfo && state.runId === prev.runId
+          && state.planRevision === prev.planRevision && state.revisionReason === prev.revisionReason) return;
+      persistProgress(projectId, {
+        runId: state.runId,
+        sessionMode: state.sessionMode,
+        planRevision: state.planRevision,
+        revisionReason: state.revisionReason,
+        taskInfo: state.taskInfo.map((task) => ({ ...task, terminal: [] })),
+      });
+    });
+    persistUnsubs.set(projectId, () => {
+      unsub();
+      unsubProgress();
+    });
   }
   return { projectId, session, workforce, preview };
 }

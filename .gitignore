@@ -16,6 +16,8 @@ electron-builder.env
 
 # Electron / Vite / TypeScript build output
 dist/
+!examples/taskboard/frontend/dist/
+!examples/taskboard/frontend/dist/**
 dist-electron/
 dist-renderer/
 release/

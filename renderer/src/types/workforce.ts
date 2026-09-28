@@ -34,6 +34,12 @@ export interface TaskInfo {
   content: string;
   /** Eigent-style present continuous label while running */
   active_form?: string;
+  substeps?: Array<{
+    id: string;
+    content: string;
+    active_form?: string;
+    status: TaskStatus;
+  }>;
   status?: TaskStatus;
   agent?: string;
   terminal?: string[];
@@ -64,4 +70,5 @@ export interface PlanSubTask {
   assignee: string;
   dependencies?: string[];
   status?: string;
+  substeps?: Array<{ content: string }>;
 }

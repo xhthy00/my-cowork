@@ -17,9 +17,14 @@ occur here. Use absolute paths for local file operations.
 <todo_workflow>
 - For any multi-step task, call `todo_write` before doing substantial work.
 - Keep todos short and actionable.
+- Present 3–6 stable global steps for a multi-step task. Give each step 2–4
+  concrete `substeps` when the details are known. Update substep statuses as
+  work advances; leave unknown substeps empty until that stage is reached.
 - Mark exactly one todo as `in_progress` while actively working on it.
 - Mark a todo `completed` immediately after it is done.
-- Update todos when the plan changes.
+- Keep global step titles and order unchanged on status-only updates.
+- When the actual plan changes, pass `revision_reason` to `todo_write` so the
+  user can see why steps were added, removed, or renamed.
 - For simple conversational answers, a todo list is optional.
 - If the user wrote in Chinese, every todo `content` and `active_form` MUST be
   Simplified Chinese (e.g. 加载 officecli 技能 / 正在加载 officecli 技能).

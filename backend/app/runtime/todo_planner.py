@@ -70,12 +70,16 @@ def normalize_todos(raw: Any) -> list[dict[str, Any]]:
         status = str(item.get("status") or "pending").strip().lower()
         if status not in ("pending", "in_progress", "completed"):
             status = "pending"
+        substeps = _normalize_substeps(item.get("substeps"), f"todo_{index}")
+        if status == "completed":
+            _complete_open_substeps(substeps)
         todos.append(
             {
                 "id": f"todo_{index}",
                 "content": content,
                 "active_form": active,
                 "status": status,
+                "substeps": substeps,
             }
         )
 
@@ -95,6 +99,150 @@ def normalize_todos(raw: Any) -> list[dict[str, Any]]:
             if t["status"] == "in_progress" and t["id"] != keep:
                 t["status"] = "pending"
     return todos
+
+
+def _normalize_substeps(raw: Any, parent_id: str) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        status = str(item.get("status") or "pending").strip().lower()
+        if status not in {"pending", "in_progress", "completed", "failed"}:
+            status = "pending"
+        out.append({
+            "id": f"{parent_id}_step_{len(out) + 1}",
+            "content": content,
+            "active_form": str(item.get("active_form") or "").strip() or _to_active_form(content),
+            "status": status,
+        })
+    return out
+
+
+def _complete_open_substeps(substeps: list[dict[str, Any]]) -> None:
+    """A completed parent cannot leave planned children pending or running."""
+    for substep in substeps:
+        if substep.get("status") in {"pending", "in_progress"}:
+            substep["status"] = "completed"
+
+
+def _reconcile_substeps(
+    parent_id: str,
+    previous: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+    *,
+    allow_rewording: bool,
+) -> list[dict[str, Any]]:
+    if not incoming:
+        return [dict(row) for row in previous]
+    if len(incoming) < len(previous) and not allow_rewording:
+        by_title = {str(row.get("content")): row for row in incoming}
+        return [
+            {**old, "status": by_title.get(str(old.get("content")), {}).get("status", old.get("status"))}
+            for old in previous
+        ]
+    same_shape = len(previous) == len(incoming)
+    used: set[str] = set()
+    next_index = max(
+        (int(match.group(1)) for row in previous
+         if (match := re.search(r"_step_(\d+)$", str(row.get("id") or "")))),
+        default=0,
+    ) + 1
+    out: list[dict[str, Any]] = []
+    for index, child in enumerate(incoming):
+        old = next((row for row in previous if row.get("content") == child.get("content")
+                    and str(row.get("id")) not in used), None)
+        if old is None and same_shape and index < len(previous):
+            candidate = previous[index]
+            if str(candidate.get("id")) not in used:
+                old = candidate
+        item = dict(child)
+        if old is not None:
+            item["id"] = str(old["id"])
+            used.add(item["id"])
+            if not allow_rewording:
+                item["content"] = old["content"]
+                item["active_form"] = old.get("active_form") or child.get("active_form")
+        else:
+            item["id"] = f"{parent_id}_step_{next_index}"
+            next_index += 1
+        out.append(item)
+    return out
+
+
+def reconcile_todos(
+    previous: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+    *,
+    revision_reason: str = "",
+) -> tuple[list[dict[str, Any]], bool]:
+    """Keep visible step identities stable while accepting explicit plan revisions.
+
+    A normal todo_write is a status update. Rewording the same number of rows
+    without a reason must not make the progress panel jump. Added/removed rows
+    are a genuine revision and retain IDs for matching existing titles.
+    """
+    if not previous:
+        return incoming, bool(incoming)
+    same_shape = len(previous) == len(incoming)
+    allow_rewording = bool(revision_reason.strip())
+    old_titles = [str(row.get("content") or "") for row in previous]
+    new_titles = [str(row.get("content") or "") for row in incoming]
+    reordered = same_shape and old_titles != new_titles and sorted(old_titles) == sorted(new_titles)
+    used_ids: set[str] = set()
+    next_id = max(
+        (int(str(row.get("id") or "")[5:]) for row in previous
+         if re.fullmatch(r"todo_\d+", str(row.get("id") or ""))),
+        default=0,
+    ) + 1
+    result: list[dict[str, Any]] = []
+    changed = bool(reordered)
+
+    for index, row in enumerate(incoming):
+        old = None
+        if same_shape and not allow_rewording and not reordered:
+            old = previous[index]
+        else:
+            old = next((p for p in previous if p.get("content") == row.get("content")
+                        and str(p.get("id")) not in used_ids), None)
+            if old is None and same_shape and index < len(previous) and str(previous[index].get("id")) not in used_ids:
+                old = previous[index]
+        item = dict(row)
+        if old is not None:
+            item["id"] = str(old["id"])
+            used_ids.add(item["id"])
+            if not allow_rewording and same_shape and not reordered:
+                item["content"] = old["content"]
+                item["active_form"] = old.get("active_form") or row.get("active_form")
+            elif item["content"] != old["content"]:
+                changed = True
+            old_children = list(old.get("substeps") or [])
+            new_children = list(row.get("substeps") or [])
+            if not new_children:
+                new_children = old_children
+            children = _reconcile_substeps(
+                item["id"], old_children, new_children,
+                allow_rewording=allow_rewording,
+            )
+            if item["status"] == "completed":
+                _complete_open_substeps(children)
+            item["substeps"] = children
+        else:
+            item["id"] = f"todo_{next_id}"
+            next_id += 1
+            item["substeps"] = _normalize_substeps(item.get("substeps"), item["id"])
+            if item["status"] == "completed":
+                _complete_open_substeps(item["substeps"])
+            changed = True
+        result.append(item)
+
+    if len(previous) != len(result):
+        changed = True
+    return result, changed
 
 
 def _to_active_form(content: str) -> str:

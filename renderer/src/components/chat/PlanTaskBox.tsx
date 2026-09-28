@@ -115,6 +115,11 @@ export default function PlanTaskBox() {
           status: "waiting" as const,
           agent: t.assignee,
           terminal: [],
+          substeps: (t.substeps || []).map((step, index) => ({
+            id: `${t.id}_step_${index + 1}`,
+            content: step.content,
+            status: "waiting" as const,
+          })),
         })),
       );
       clearPendingPlan();
