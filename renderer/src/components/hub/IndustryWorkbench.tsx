@@ -36,7 +36,10 @@ export default function IndustryWorkbench() {
 
   useEffect(() => {
     void refresh();
-    return window.api.onBackendReady?.(() => void refresh());
+    return window.api.onBackendReady?.(() => {
+      setNotice("");
+      void refresh();
+    });
   }, [refresh]);
 
   const active = apps.find((entry) => entry.id === activeId);
@@ -143,8 +146,8 @@ export default function IndustryWorkbench() {
     setBusy(true);
     try {
       await window.api.restartBackend();
-      setNotice("后端已重启，应用状态已更新。");
       await refresh();
+      setNotice("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -256,6 +259,16 @@ export default function IndustryWorkbench() {
               <p className="mt-1 text-sm text-ds-text-neutral-muted-default">{pending.details.manifest.description}</p>
               <p className="mt-3 text-sm">此 ZIP 含可在 MyCowork 后端进程中运行的 Python 代码。请仅安装你信任的来源。</p>
               <p className="mt-2 text-xs text-ds-text-neutral-muted-default">应用 ID：{pending.details.manifest.id} · {pending.details.file_count} 个文件</p>
+              {(pending.details.manifest.agent_tools?.length ?? 0) > 0 && (
+                <div className="mt-3 rounded-lg border border-ds-border-neutral-subtle-default p-3 text-xs">
+                  <p className="m-0 font-medium">将提供给聊天 Agent 的行业工作台工具</p>
+                  <ul className="mb-0 mt-2 grid gap-1.5 pl-4">
+                    {pending.details.manifest.agent_tools?.map((tool) => (
+                      <li key={tool.name}>{tool.title} <span className="text-ds-text-neutral-muted-default">· {tool.access === "write" ? "写入，调用时需确认" : "只读"}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="mt-4 flex gap-2">
                 <Button variant="primary" disabled={busy} onClick={() => void installPackage()}>确认安装</Button>
                 <Button variant="outline" disabled={busy} onClick={() => setPending(null)}>取消</Button>

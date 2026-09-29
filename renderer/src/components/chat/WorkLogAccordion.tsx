@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronDown,
   ChevronRight,
+  Boxes,
   Code2,
   FileSpreadsheet,
   FileText,
@@ -39,6 +40,7 @@ import { useWorkforceStore } from "@/store/workforce";
 
 function toolGlyph(tool?: string): LucideIcon {
   const key = (tool ?? "").toLowerCase();
+  if (key.startsWith("industry__")) return Boxes;
   if (/search|web_fetch|http/.test(key)) return Globe;
   if (/browser/.test(key)) return MousePointerClick;
   if (/bash|exec/.test(key)) return Terminal;
@@ -61,7 +63,8 @@ function ToolStepCard({
   thinks: { id: string; text: string; closed: boolean }[];
   running: boolean;
 }) {
-  const Icon = toolGlyph(step.tool);
+  const industry = step.source === "industry_app";
+  const Icon = industry ? Boxes : toolGlyph(step.tool);
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -69,9 +72,12 @@ function ToolStepCard({
       className="flex min-w-0 flex-col gap-0.5"
     >
       <div
+        data-testid={industry ? "industry-tool-step" : "standard-tool-step"}
         className={cn(
           "flex min-w-0 items-start gap-2 rounded-lg border px-2.5 py-1.5",
-          isRunning
+          industry
+            ? "border-ds-border-information-default-default bg-ds-bg-brand-subtle-default"
+            : isRunning
             ? "border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default"
             : "border-transparent bg-ds-bg-neutral-muted-default/60 opacity-70",
         )}
@@ -80,9 +86,15 @@ function ToolStepCard({
           size={14}
           strokeWidth={2}
           aria-hidden
-          className="mt-0.5 shrink-0 text-ds-icon-neutral-muted-default"
+          className={cn("mt-0.5 shrink-0", industry ? "text-ds-text-brand-default-default" : "text-ds-icon-neutral-muted-default")}
         />
         <div className="min-w-0 flex-1">
+          {industry ? (
+            <div className="mb-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-4">
+              <span className="shrink-0 rounded px-1 py-0.5 font-medium text-ds-text-brand-default-default">行业工作台</span>
+              <span className="truncate text-ds-text-neutral-muted-default" title={step.appName}>{step.appName}</span>
+            </div>
+          ) : null}
           <div
             className={cn(
               "truncate text-body-sm",

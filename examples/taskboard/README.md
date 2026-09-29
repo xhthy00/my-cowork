@@ -12,4 +12,4 @@
 
 开发 Python 接口时保持 backend/mcapp_cn_example_taskboard 为唯一顶层包名。页面资源放在 frontend/dist，index.html 使用相对路径加载 JS/CSS。页面只能通过工作台的 postMessage 桥接请求 /api/apps/cn.example.taskboard 下的业务 API。
 
-当前版本支持可信本地 Python + 静态页面 + 独立 SQLite 数据。Python 第三方依赖、Skills、AI 工具、数据迁移和任意宿主能力还未开放；对应清单字段会被安装器拒绝。
+当前版本支持可信本地 Python、静态页面、独立 SQLite 数据以及声明式 Agent 工具。本样例贡献一个只读“查询任务”工具，可在聊天中使用。Python 第三方依赖、Skills、数据迁移和任意宿主能力还未开放；对应清单字段会被安装器拒绝。

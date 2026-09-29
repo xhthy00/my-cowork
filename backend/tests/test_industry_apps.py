@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import asyncio
 import io
 import shutil
 import zipfile
@@ -11,6 +12,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.industry_apps.loader import load_enabled_apps
+from app.industry_apps.sdk import LoadedAppTool
+from app.industry_apps.tooling import make_agent_tool
 from app.industry_apps.package import (
     AppPackageError,
     inspect_zip,
@@ -45,7 +48,8 @@ def test_install_and_load_taskboard_in_existing_fastapi_process(tmp_path: Path) 
     assert list_installed(root)[0]["status"] == "pending_restart"
 
     app = FastAPI()
-    assert load_enabled_apps(app, root) == [{"id": "cn.example.taskboard", "status": "ready"}]
+    loaded_tools: list[LoadedAppTool] = []
+    assert load_enabled_apps(app, root, tool_sink=loaded_tools) == [{"id": "cn.example.taskboard", "status": "ready"}]
     client = TestClient(app)
     created = client.post(
         "/api/apps/cn.example.taskboard/tasks",
@@ -56,6 +60,13 @@ def test_install_and_load_taskboard_in_existing_fastapi_process(tmp_path: Path) 
     assert client.get("/api/apps/cn.example.taskboard/tasks").json()["tasks"] == [
         {"id": 1, "title": "核对订单", "done": False}
     ]
+    assert len(loaded_tools) == 1
+    agent_tool = make_agent_tool(loaded_tools[0], None)
+    assert agent_tool.name == "industry__cn_example_taskboard__list_tasks"
+    assert agent_tool.metadata["tool_source"] == "industry_app"
+    assert asyncio.run(agent_tool.ainvoke({})) == {
+        "total": 1, "tasks": [{"id": 1, "title": "核对订单", "done": False}]
+    }
     assert list_installed(root)[0]["status"] == "ready"
 
 

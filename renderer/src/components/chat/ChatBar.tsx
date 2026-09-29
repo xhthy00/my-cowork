@@ -5,6 +5,7 @@
  */
 import {
   ArrowRight,
+  Boxes,
   ChevronDown,
   ChevronUp,
   Gamepad2,
@@ -26,6 +27,7 @@ import { postSSE, type SSEvent } from "../../api/sse";
 import { RichChatInput } from "./RichChatInput";
 import {
   ConnectorPickerPanel,
+  IndustryToolPickerPanel,
   KnowledgePickerPanel,
   SkillPickerPanel,
   type PickerItem,
@@ -62,7 +64,7 @@ export interface ChatAttachment {
   fileName: string;
 }
 
-type PickerPanelKind = "connector" | "skill" | "knowledge";
+type PickerPanelKind = "connector" | "skill" | "knowledge" | "industry";
 
 const HISTORY_MAX_TURNS = 12;
 const HISTORY_MAX_CHARS = 6000;
@@ -450,6 +452,11 @@ export default function ChatBar({
               />
             ) : openPanel === "skill" ? (
               <SkillPickerPanel inputValue={input} onToggleItem={toggleToken} />
+            ) : openPanel === "industry" ? (
+              <IndustryToolPickerPanel onChoose={(appName, title) => {
+                insertToken(`请使用「${appName}」的「${title}」工具，`);
+                setOpenPanel(null);
+              }} />
             ) : (
               <KnowledgePickerPanel
                 selected={boundKnowledge}
@@ -618,6 +625,22 @@ export default function ChatBar({
               onClick={() => togglePanel("skill")}
             >
               <WandSparkles className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="行业工作台工具"
+              data-picker-trigger
+              aria-label="查看行业工作台工具"
+              aria-haspopup="true"
+              aria-expanded={openPanel === "industry"}
+              className={cn(
+                "inline-flex h-8 w-8 items-center justify-center rounded-lg text-ds-text-brand-default-default hover:bg-ds-bg-brand-subtle-default",
+                openPanel === "industry" && "bg-ds-bg-brand-subtle-default",
+              )}
+              disabled={disabled || Boolean(pendingQuestion)}
+              onClick={() => togglePanel("industry")}
+            >
+              <Boxes className="h-4 w-4" />
             </button>
             <button
               type="button"

@@ -8,7 +8,7 @@ from contextlib import closing
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from app.industry_apps.sdk import AppContext, AppContribution
+from app.industry_apps.sdk import AppContext, AppContribution, AppTool, AppToolCallContext
 
 
 class NewTask(BaseModel):
@@ -27,6 +27,11 @@ class NewTask(BaseModel):
 class TaskPatch(BaseModel):
     done: bool
     workspace_id: str = "local"
+
+
+class QueryTasks(BaseModel):
+    done: bool | None = None
+    limit: int = Field(default=50, ge=1, le=200)
 
 
 def register(context: AppContext) -> AppContribution:
@@ -69,4 +74,16 @@ def register(context: AppContext) -> AppContribution:
                 raise HTTPException(status_code=404, detail="task not found")
             return {"id": task_id, "done": body.done}
 
-    return AppContribution(router=router)
+    def agent_list_tasks(_call: AppToolCallContext, args: QueryTasks) -> dict:
+        rows = list_tasks()["tasks"]
+        if args.done is not None:
+            rows = [row for row in rows if row["done"] == args.done]
+        return {"total": len(rows), "tasks": rows[:args.limit]}
+
+    return AppContribution(router=router, tools=[AppTool(
+        name="list_tasks",
+        title="查询任务",
+        description="查询任务管理样例中的任务及完成状态。",
+        args_schema=QueryTasks,
+        run=agent_list_tasks,
+    )])

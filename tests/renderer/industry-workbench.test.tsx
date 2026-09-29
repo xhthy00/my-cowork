@@ -97,4 +97,18 @@ describe("industry workbench", () => {
       ok: true,
     }), "mycowork-app://cn.example.taskboard"));
   });
+
+  it("does not keep a success banner after the updated app is ready", async () => {
+    let currentApp = { ...app, status: "pending_restart" };
+    industryList.mockImplementation(async () => ({ apps: [currentApp] }));
+    window.api.restartBackend = vi.fn(async () => { currentApp = { ...app }; return "ready"; });
+
+    render(<IndustryWorkbench />);
+    await userEvent.click(await screen.findByRole("button", { name: /任务管理样例/ }));
+    await userEvent.click(screen.getByRole("button", { name: "重启后端以应用变更" }));
+
+    expect(await screen.findByTitle("任务管理样例")).toBeTruthy();
+    expect(screen.queryByText("后端已重启，应用状态已更新。")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });

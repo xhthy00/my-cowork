@@ -235,11 +235,13 @@ def _emit_tool_event(
         return
     preview = _tool_preview(name, args or {})
     stamp = datetime.now(timezone.utc).isoformat()
+    metadata = getattr(rt.bus, "tool_metadata", {}).get(name, {})
     nested: dict[str, Any] = {
         "call_id": call_id,
         "tool": name,
         "preview": preview,
         "timestamp": stamp,
+        **metadata,
     }
     subtask_id = get_current_subtask_id()
     if subtask_id:
@@ -256,6 +258,7 @@ def _emit_tool_event(
             "tool": name,
             "preview": preview,
             "sub_task_id": subtask_id,
+            **metadata,
             "payload": nested,
         }
     )

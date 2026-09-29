@@ -1,0 +1,109 @@
+"""Validate ZIP-contributed tools and adapt them to the Agent tool runtime."""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import uuid
+from typing import Any
+
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel
+
+from app.guardrails.approval import is_remote_channel
+from app.industry_apps.package import AppManifest
+from app.industry_apps.sdk import AppContribution, AppToolCallContext, LoadedAppTool
+from app.runtime.todo_context import get_todo_runtime
+from app.runtime.workspace_context import get_workspace_runtime
+
+
+def validate_app_tools(manifest: AppManifest, contribution: AppContribution) -> list[LoadedAppTool]:
+    """Require the loaded Python tools to match the reviewed ZIP manifest."""
+    declared = {item.name: item for item in manifest.agent_tools}
+    supplied = contribution.tools
+    if len(supplied) != len(declared):
+        raise ValueError("agent tools do not match the package manifest")
+    loaded: list[LoadedAppTool] = []
+    seen: set[str] = set()
+    for tool in supplied:
+        name = getattr(tool, "name", None)
+        if not isinstance(name, str) or name in seen or name not in declared:
+            raise ValueError("agent tools do not match the package manifest")
+        seen.add(name)
+        item = declared[name]
+        if (tool.title != item.title or tool.description != item.description
+                or tool.access != item.access):
+            raise ValueError(f"agent tool {name!r} differs from the package manifest")
+        if not isinstance(tool.args_schema, type) or not issubclass(tool.args_schema, BaseModel):
+            raise TypeError(f"agent tool {name!r} needs a Pydantic args_schema")
+        if not callable(tool.run):
+            raise TypeError(f"agent tool {name!r} needs a callable run handler")
+        loaded.append(LoadedAppTool(manifest.id, manifest.name, tool))
+    return loaded
+
+
+def agent_tool_name(entry: LoadedAppTool) -> str:
+    return f"industry__{entry.app_id.replace('.', '_')}__{entry.tool.name}"
+
+
+def agent_tool_metadata(entry: LoadedAppTool) -> dict[str, str]:
+    return {
+        "tool_source": "industry_app",
+        "app_id": entry.app_id,
+        "app_name": entry.app_name,
+        "tool_title": entry.tool.title,
+        "tool_access": entry.tool.access,
+    }
+
+
+def _call_context(app_id: str) -> AppToolCallContext:
+    workspace = get_workspace_runtime()
+    todo = get_todo_runtime()
+    return AppToolCallContext(
+        app_id=app_id,
+        space_id=workspace.space_id if workspace else None,
+        project_id=workspace.project_id if workspace else None,
+        task_id=todo.task_id if todo else None,
+    )
+
+
+def make_agent_tool(entry: LoadedAppTool, confirm_hub: Any) -> StructuredTool:
+    """Wrap one app operation with typed arguments and a host write gate."""
+    spec = entry.tool
+    name = agent_tool_name(entry)
+    metadata = agent_tool_metadata(entry)
+
+    def run_sync(**kwargs: Any) -> Any:
+        if spec.access == "write":
+            raise RuntimeError("write tools require an asynchronous confirmation")
+        args = spec.args_schema.model_validate(kwargs)
+        result = spec.run(_call_context(entry.app_id), args)
+        if inspect.isawaitable(result):
+            return asyncio.run(result)
+        return result
+
+    async def run_async(**kwargs: Any) -> Any:
+        args = spec.args_schema.model_validate(kwargs)
+        if spec.access == "write":
+            if is_remote_channel():
+                return "[ERROR] Industry application writes require desktop approval"
+            if confirm_hub is None:
+                return "[ERROR] Host confirmation is unavailable"
+            allowed = await confirm_hub.request(
+                f"{name}:{uuid.uuid4().hex}", name, args.model_dump(mode="json")
+            )
+            if not allowed:
+                return "Operation rejected by user"
+        context = _call_context(entry.app_id)
+        if inspect.iscoroutinefunction(spec.run):
+            return await spec.run(context, args)
+        return await asyncio.to_thread(spec.run, context, args)
+
+    return StructuredTool.from_function(
+        func=run_sync,
+        coroutine=run_async,
+        name=name,
+        description=f"[行业工作台：{entry.app_name}] {spec.description}",
+        args_schema=spec.args_schema,
+        metadata=metadata,
+    )

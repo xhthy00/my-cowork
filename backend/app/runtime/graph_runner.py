@@ -1255,6 +1255,7 @@ def _tool_result_events(
                 events.append(preview)
         if len(result_text) > 4000:
             result_text = result_text[:4000] + "…"
+        metadata = getattr(bus, "tool_metadata", {}).get(tool_name, {})
         ev = _event(
             task_id,
             "tool.result",
@@ -1262,10 +1263,12 @@ def _tool_result_events(
             tool=tool_name,
             result=result_text,
             agent_id=agent_id,
+            **metadata,
             payload={
                 "call_id": call_id,
                 "tool": tool_name,
                 "result": result_text,
+                **metadata,
             },
         )
         bus.emit(ev)

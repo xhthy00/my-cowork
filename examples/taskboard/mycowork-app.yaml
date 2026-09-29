@@ -19,3 +19,8 @@ data:
 capabilities:
   host_api: []
   network_domains: []
+agent_tools:
+  - name: list_tasks
+    title: 查询任务
+    description: 查询任务管理样例中的任务及完成状态。
+    access: read

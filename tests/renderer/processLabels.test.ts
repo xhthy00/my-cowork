@@ -6,7 +6,7 @@ import {
   humanizeAssignContent,
   humanizeTool,
 } from "../../renderer/src/lib/processLabels";
-import { buildWorkLogSteps } from "../../renderer/src/lib/progressFromTrace";
+import { buildContextItems, buildWorkLogSteps } from "../../renderer/src/lib/progressFromTrace";
 
 describe("processLabels", () => {
   it("localizes agent ids", () => {
@@ -117,5 +117,35 @@ describe("processLabels", () => {
     expect(tools[0].tool).toBe("bash");
     expect(tools[1].status).toBe("running");
     expect(tools[1].preview).toContain("officecli add");
+  });
+
+  it("keeps industry app identity and title separate from ordinary tools", () => {
+    const steps = buildWorkLogSteps([
+      { id: "1", type: "tool.start", payload: {
+        call_id: "industry-1", tool: "industry__cn_mycowork_tasks__get_work_hours",
+        tool_source: "industry_app", app_id: "cn.mycowork.tasks",
+        app_name: "任务与工时", tool_title: "统计工时",
+      } },
+      { id: "2", type: "tool.result", payload: {
+        call_id: "industry-1", tool: "industry__cn_mycowork_tasks__get_work_hours",
+        tool_source: "industry_app", app_name: "任务与工时", tool_title: "统计工时",
+      } },
+      { id: "3", type: "tool.result", payload: { tool: "fs.read" } },
+    ], []);
+    expect(steps[0]).toMatchObject({
+      source: "industry_app", appName: "任务与工时", label: "统计工时", status: "done",
+    });
+    expect(steps[1].label).toBe("读取文件");
+    expect(steps[1].source).toBeUndefined();
+    expect(buildContextItems([
+      { id: "1", type: "tool.result", payload: {
+        tool: "industry__cn_mycowork_tasks__get_work_hours", tool_source: "industry_app",
+        app_name: "任务与工时", tool_title: "统计工时",
+      } },
+      { id: "2", type: "tool.result", payload: { tool: "fs.read" } },
+    ], [])).toMatchObject([
+      { category: "industry", label: "任务与工时 · 统计工时" },
+      { category: "skill", label: "读取文件" },
+    ]);
   });
 });

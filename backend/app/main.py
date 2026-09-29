@@ -81,6 +81,8 @@ from app.server.routes import (
     workspace as workspace_routes,
 )
 from app.industry_apps.loader import load_enabled_apps
+from app.industry_apps.sdk import LoadedAppTool
+from app.industry_apps.tooling import make_agent_tool
 from app.tools.builtin import exec as exec_tool
 from app.tools.builtin.docgen import pptx_gen
 from app.tools.builtin.docgen.tools import (
@@ -257,6 +259,7 @@ def build_stack(
     multi_modal_agent_llm: BaseChatModel | None = None,
     whitelist: list[str] | None = None,
     mcp_config_path: str | Path | None = None,
+    app_tools: list[LoadedAppTool] | None = None,
     # legacy kwargs
     file_worker_llm: BaseChatModel | None = None,
     doc_worker_llm: BaseChatModel | None = None,
@@ -323,6 +326,8 @@ def build_stack(
     ima_tools = make_ima_tools()
 
     registry = ToolRegistry()
+    industry_tools = [make_agent_tool(item, confirm_hub) for item in (app_tools or [])]
+    bus.tool_metadata = {tool.name: dict(tool.metadata or {}) for tool in industry_tools}
     registry.register("builtin.fs.read", fs_read)
     registry.register("builtin.fs.write", write_tool)
     registry.register("builtin.fs.list", fs_list)
@@ -338,6 +343,8 @@ def build_stack(
         registry.register(f"builtin.memory.{tool.name}", tool)
     for tool in context_tools:
         registry.register(f"builtin.context.{tool.name}", tool)
+    for tool in industry_tools:
+        registry.register(tool.name, tool)
 
     mcp_json_path = Path(
         os.environ.get("MY_COWORK_MCP_JSON") or str(default_mcp_json_path())
@@ -450,6 +457,7 @@ def build_stack(
         *ima_tools,
         *browser_tools,
         *mcp_tools,
+        *industry_tools,
     ]
 
     graph = compile_workforce_graph(
@@ -468,6 +476,7 @@ def build_stack(
                     write_tool,
                     fs_list,
                     bash_tool,
+                    *industry_tools,
                 ],
                 "prompt_name": "developer",
             },
@@ -490,6 +499,7 @@ def build_stack(
                     pdf_tool,
                     lark_tool,
                     *ima_tools,
+                    *industry_tools,
                 ],
                 "prompt_name": "document",
             },
@@ -510,6 +520,7 @@ def build_stack(
                     *ima_tools,
                     *browser_tools,
                     *mcp_tools,
+                    *industry_tools,
                 ],
                 "prompt_name": "browser",
             },
@@ -525,6 +536,7 @@ def build_stack(
                     *note_tools,
                     fs_read,
                     fs_list,
+                    *industry_tools,
                 ],
                 "prompt_name": "multi_modal",
             },
@@ -656,10 +668,13 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    loaded_app_tools: list[LoadedAppTool] = []
+    app.state.industry_apps = load_enabled_apps(app, tool_sink=loaded_app_tools)
+
     started_stack = False
     stack: dict[str, Any] = {}
     if task_manager is None:
-        stack = build_stack()
+        stack = build_stack(app_tools=loaded_app_tools)
         task_manager = stack["task_manager"]
         bus = stack["bus"]
         confirm_hub = stack["confirm_hub"]
@@ -707,8 +722,6 @@ def create_app(
             app.state.automations,
             AutomationRunner(app.state.automations, task_manager, bus),
         )
-
-    app.state.industry_apps = load_enabled_apps(app)
 
     return app
 

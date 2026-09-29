@@ -37,6 +37,7 @@ const OPERATION_LABEL: Record<OperationKind, string> = {
 
 function getOperationKind(tool: string): OperationKind {
   const key = tool.toLowerCase();
+  if (key.startsWith("industry__")) return "tool";
   if (key.startsWith("browser_")) return "fetch";
   if (key.includes("bash") || key.includes("exec") || key.includes("terminal")) return "execute";
   if (key.includes("write") || key.includes("edit") || key.includes("patch")) return "edit";
@@ -175,6 +176,9 @@ export default function ChatConfirmCard({ confirm }: { confirm: ConfirmData }) {
         >
           {toolTitle}
         </span>
+        {confirm.tool.startsWith("industry__") && (
+          <span className="inline-flex shrink-0 items-center rounded-full bg-ds-bg-brand-subtle-default px-1.5 py-px text-[10px] font-medium text-ds-text-brand-default-default">行业工作台</span>
+        )}
         <span className="inline-flex shrink-0 items-center rounded-full border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default/80 px-1.5 py-px text-[10px] font-medium leading-[1.4] text-ds-text-neutral-muted-default">
           {OPERATION_LABEL[operationKind]}
         </span>
@@ -318,6 +322,9 @@ function ConfirmRecordHeader({
       </span>
       <span className="shrink-0 text-ds-text-neutral-muted-default">·</span>
       <span className="min-w-0 truncate text-ds-text-neutral-default-default">{toolTitle}</span>
+      {confirm.tool.startsWith("industry__") && (
+        <span className="shrink-0 rounded-full bg-ds-bg-brand-subtle-default px-1.5 py-px text-[10px] font-medium text-ds-text-brand-default-default">行业工作台</span>
+      )}
       {showKind ? (
         <>
           <span className="shrink-0 text-ds-text-neutral-muted-default">·</span>

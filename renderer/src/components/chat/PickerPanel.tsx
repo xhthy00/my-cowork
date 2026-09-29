@@ -2,7 +2,7 @@
  * Adapted from eigent: ChatBox/BottomBox/PickerPanel.tsx
  * Floating connector/skill list above the chat input; toggles @/# tokens.
  */
-import { Check, Plus, Wrench } from "lucide-react";
+import { Boxes, Check, Plus, Wrench } from "lucide-react";
 import {
   Fragment,
   useEffect,
@@ -293,6 +293,61 @@ export function SkillPickerPanel({
         setHubTab("agents");
       }}
     />
+  );
+}
+
+/** Agent tools contributed by installed industry applications. */
+export function IndustryToolPickerPanel({ onChoose }: { onChoose: (appName: string, title: string) => void }) {
+  const setHubTab = usePageTabStore((s) => s.setHubTab);
+  const [apps, setApps] = useState<Awaited<ReturnType<typeof window.api.industryList>>["apps"]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await window.api.industryList();
+        if (!cancelled) setApps(result.apps.filter((app) => app.enabled && app.status === "ready" && app.manifest.agent_tools?.length));
+      } catch {
+        if (!cancelled) setApps([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default">
+      <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-xs font-bold text-ds-text-neutral-muted-default">
+        <Boxes className="size-3.5 text-ds-text-brand-default-default" aria-hidden />行业工作台工具
+      </div>
+      <div className="flex max-h-[280px] flex-col gap-0.5 overflow-y-auto p-1">
+        {loading ? <div className="h-8 animate-pulse rounded-lg bg-ds-bg-neutral-strong-default" /> : apps.length ? (
+          apps.map((app) => (
+            <div key={app.id}>
+              <div className="px-2 pb-0.5 pt-1.5 text-xs font-bold text-ds-text-neutral-muted-default">{app.manifest.name}</div>
+              {app.manifest.agent_tools?.map((tool) => (
+                <button key={tool.name} type="button" onClick={() => onChoose(app.manifest.name, tool.title)}
+                  className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-ds-bg-neutral-default-default">
+                  <Boxes className="size-4 shrink-0 text-ds-text-brand-default-default" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-ds-text-neutral-default-default">{tool.title}</span>
+                    <span className="block truncate text-xs text-ds-text-neutral-muted-default" title={tool.description}>{tool.description}</span>
+                  </span>
+                  <span className="shrink-0 rounded bg-ds-bg-brand-subtle-default px-1 py-0.5 text-[10px] text-ds-text-brand-default-default">{tool.access === "write" ? "写入" : "只读"}</span>
+                </button>
+              ))}
+            </div>
+          ))
+        ) : (
+          <div className="flex items-center justify-between gap-2 px-2 py-2 text-xs text-ds-text-neutral-muted-default">
+            <span>暂无可用工具。安装应用后请重启后端。</span>
+            <Button variant="ghost" size="xs" onClick={() => setHubTab("workbench")}>打开工作台</Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

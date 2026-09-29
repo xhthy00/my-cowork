@@ -68,7 +68,7 @@ export interface ElectronAPI {
       enabled: boolean;
       status: string;
       error?: string;
-      manifest: { name: string; description: string; ui: { entry: string } };
+      manifest: { name: string; description: string; ui: { entry: string }; agent_tools?: Array<{ name: string; title: string; description: string; access: "read" | "write" }> };
     }>;
   }>;
   industryInspect(filePath: string): Promise<{
@@ -76,7 +76,7 @@ export interface ElectronAPI {
     file_count: number;
     expanded_bytes: number;
     trusted_code: boolean;
-    manifest: { id: string; name: string; version: string; description: string; capabilities: { host_api: string[] } };
+    manifest: { id: string; name: string; version: string; description: string; capabilities: { host_api: string[] }; agent_tools?: Array<{ name: string; title: string; description: string; access: "read" | "write" }> };
   }>;
   industryInstall(filePath: string, expectedSha256: string): Promise<{
     id: string;

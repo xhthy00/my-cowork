@@ -29,6 +29,7 @@ class TraceBus:
 
     def __init__(self) -> None:
         self._subs: list[Callable[[dict[str, Any]], None]] = []
+        self.tool_metadata: dict[str, dict[str, str]] = {}
 
     def subscribe(self, callback: Callable[[dict[str, Any]], None]) -> Callable[[], None]:
         """Register a callback. Returns an unsubscribe callable."""

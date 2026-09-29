@@ -5,6 +5,7 @@
 import {
   AlertCircle,
   Check,
+  Boxes,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -324,11 +325,13 @@ export default function SessionSidePanel() {
               title="执行上下文"
             >
               <div className="flex flex-col gap-2">
-                  {(["skill", "connector", "file"] as const).map((cat) => {
+                  {(["industry", "skill", "connector", "file"] as const).map((cat) => {
                     const group = contextItems.filter((i) => i.category === cat);
                     if (!group.length) return null;
                     const label =
-                      cat === "skill"
+                      cat === "industry"
+                        ? "行业工作台工具"
+                        : cat === "skill"
                         ? "技能"
                         : cat === "connector"
                           ? "MCP 工具"
@@ -341,7 +344,9 @@ export default function SessionSidePanel() {
                             <li key={item.id}>
                               <SidePanelListRow
                                 leading={
-                                  <FileText className="h-3.5 w-3.5 text-ds-icon-neutral-muted-default" />
+                                  cat === "industry"
+                                    ? <Boxes className="h-3.5 w-3.5 text-ds-text-brand-default-default" />
+                                    : <FileText className="h-3.5 w-3.5 text-ds-icon-neutral-muted-default" />
                                 }
                                 interactiveHover
                                 onClick={() => {

@@ -96,7 +96,7 @@ export function buildStepExecutionDetails(
     if (existing) {
       if (ev.type === "tool.result") existing.done = true;
     } else {
-      details.push({ id, label: humanizeTool(tool), done: ev.type === "tool.result" });
+      details.push({ id, label: industryToolInfo(ev.payload, tool).label || humanizeTool(tool), done: ev.type === "tool.result" });
     }
   }
   return out;
@@ -112,7 +112,22 @@ export type WorkLogStep = {
   agentId?: string;
   /** Original tool / node id for icons; not shown in the UI. */
   tool?: string;
+  source?: "industry_app";
+  appName?: string;
+  appId?: string;
 };
+
+function industryToolInfo(payload: Record<string, unknown>, tool: string) {
+  const isIndustry = payload.tool_source === "industry_app" || tool.startsWith("industry__");
+  if (!isIndustry) return {};
+  const localName = tool.split("__").at(-1) || tool;
+  return {
+    source: "industry_app" as const,
+    appName: String(payload.app_name || "行业应用"),
+    appId: String(payload.app_id || ""),
+    label: String(payload.tool_title || localName.replace(/_/g, " ")),
+  };
+}
 
 export function findInFlightTool(trace: TraceEvent[]): {
   tool: string;
@@ -171,6 +186,7 @@ export function buildWorkLogSteps(
     ) {
       const tool = String(ev.payload.tool ?? "").trim();
       if (!tool) continue;
+      const industry = industryToolInfo(ev.payload, tool);
       const callId = String(ev.payload.call_id ?? ev.payload.id ?? "");
       const preview = String(ev.payload.preview ?? "").trim();
       const status = ev.type === "tool.result" ? "done" : "running";
@@ -183,6 +199,8 @@ export function buildWorkLogSteps(
           preview: preview || prev.preview,
           status,
           tool: tool || prev.tool,
+          ...industry,
+          label: industry.label && (!prev.source || ev.payload.tool_title) ? industry.label : prev.label,
         };
         continue;
       }
@@ -192,12 +210,13 @@ export function buildWorkLogSteps(
       toolIndex.set(key, steps.length);
       steps.push({
         id: key,
-        label: humanizeTool(tool),
+        label: industry.label || humanizeTool(tool),
         preview: preview || undefined,
         kind: "tool",
         status,
         agentId: String(ev.payload.agent_id ?? "") || undefined,
         tool,
+        ...industry,
       });
     } else if (ev.type === "graph.step") {
       const node = String(ev.payload.node ?? "");
@@ -242,7 +261,7 @@ export function buildWorkLogSteps(
 export type ContextItem = {
   id: string;
   label: string;
-  category: "skill" | "connector" | "file";
+  category: "skill" | "connector" | "industry" | "file";
 };
 
 export function buildContextItems(
@@ -256,13 +275,14 @@ export function buildContextItems(
     if (ev.type !== "tool.confirm_request" && ev.type !== "tool.result") continue;
     const tool = String(ev.payload.tool ?? "").trim();
     if (!tool) continue;
-    const label = humanizeTool(tool);
+    const industry = industryToolInfo(ev.payload, tool);
+    const label = industry.source ? `${industry.appName} · ${industry.label}` : humanizeTool(tool);
     if (seen.has(label)) continue;
     seen.add(label);
     items.push({
       id: tool,
       label,
-      category: /mcp|connector/i.test(tool) ? "connector" : "skill",
+      category: industry.source ? "industry" : /mcp|connector/i.test(tool) ? "connector" : "skill",
     });
   }
 

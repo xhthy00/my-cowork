@@ -97,6 +97,10 @@ export function humanizeAgent(agentId: string): string {
 export function humanizeTool(tool: string): string {
   const t = normalizeKey(tool);
   if (!t) return "工具";
+  if (t.startsWith("industry__")) {
+    const action = t.split("__").at(-1) || "工具";
+    return action.replace(/_/g, " ");
+  }
 
   const direct = TOOL_ZH[t] || TOOL_ZH[toolLookupKey(t)];
   if (direct) return direct;

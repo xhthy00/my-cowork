@@ -68,6 +68,14 @@ class Capabilities(BaseModel):
     network_domains: list[str] = Field(default_factory=list)
 
 
+class AgentToolSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$", max_length=64)
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=500)
+    access: Literal["read", "write"] = "read"
+
+
 class AppManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal[1]
@@ -83,6 +91,7 @@ class AppManifest(BaseModel):
     ui: UiSpec
     data: DataSpec = Field(default_factory=DataSpec)
     capabilities: Capabilities = Field(default_factory=Capabilities)
+    agent_tools: list[AgentToolSpec] = Field(default_factory=list, max_length=32)
     skills: list[str] = Field(default_factory=list)
 
     @field_validator("id")
@@ -101,6 +110,9 @@ class AppManifest(BaseModel):
 
     @model_validator(mode="after")
     def valid_entries(self) -> "AppManifest":
+        names = [tool.name for tool in self.agent_tools]
+        if len(names) != len(set(names)):
+            raise ValueError("agent_tools names must be unique")
         prefix = f"mcapp_{self.id.replace('.', '_')}"
         entry = self.backend.entry.split(":")
         if len(entry) != 2 or not entry[1].isidentifier():

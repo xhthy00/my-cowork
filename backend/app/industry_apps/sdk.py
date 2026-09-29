@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 
 @dataclass(frozen=True)
@@ -25,5 +26,34 @@ class AppContext:
 @dataclass
 class AppContribution:
     router: APIRouter
-    tools: list[Any] = field(default_factory=list)
+    tools: list["AppTool"] = field(default_factory=list)
     jobs: list[Any] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AppToolCallContext:
+    """Host-owned execution identity; never supplied by the language model."""
+
+    app_id: str
+    space_id: str | None
+    project_id: str | None
+    task_id: str | None
+
+
+@dataclass(frozen=True)
+class AppTool:
+    """A typed business operation supplied by a trusted application ZIP."""
+
+    name: str
+    title: str
+    description: str
+    args_schema: type[BaseModel]
+    run: Callable[[AppToolCallContext, BaseModel], Any]
+    access: Literal["read", "write"] = "read"
+
+
+@dataclass(frozen=True)
+class LoadedAppTool:
+    app_id: str
+    app_name: str
+    tool: AppTool
