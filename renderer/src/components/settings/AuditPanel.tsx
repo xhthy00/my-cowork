@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSessionsStore } from "@/store/sessions";

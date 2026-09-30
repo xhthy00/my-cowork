@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import re
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,23 @@ class SkillMeta:
     path: Path | None = None
     base_dir: Path | None = None
     is_example: bool = False
+    app_origin: dict[str, str] | None = None
+    available: bool = True
+
+
+_bundled: ContextVar[dict[str, SkillMeta]] = ContextVar('bundled_skills', default={})
+task_skill_selection: ContextVar[dict[str, SkillMeta] | None] = ContextVar('task_skill_selection', default=None)
+
+
+@contextmanager
+def bundled_skill_scope(skills: dict[str, SkillMeta], *, selected: dict[str, SkillMeta] | None = None):
+    token = _bundled.set(skills)
+    selection_token = task_skill_selection.set(selected)
+    try:
+        yield
+    finally:
+        task_skill_selection.reset(selection_token)
+        _bundled.reset(token)
 
 
 def repo_root() -> Path:
@@ -148,19 +167,23 @@ def _skill_roots(root: Path | None = None) -> list[tuple[Path, bool]]:
     return roots
 
 
-def discover_skills(root: Path | None = None) -> list[SkillMeta]:
+def discover_skills(root: Path | None = None, *, bundled: dict[str, SkillMeta] | None = None) -> list[SkillMeta]:
     """Load ``*/skill.yaml`` and ``*/SKILL.md`` under user + example skill roots."""
     seen: set[str] = set()
     skills: list[SkillMeta] = []
     for base, is_example in _skill_roots(root):
         _scan_root(base, is_example=is_example, seen=seen, out=skills)
-    return skills
+    # The app namespace cannot be shadowed by user files or display names.
+    return [s for s in skills if not s.id.startswith('app:')] + list((_bundled.get() if bundled is None else bundled).values())
 
 
 def find_skill(skill_id: str, root: Path | None = None) -> SkillMeta | None:
     needle = (skill_id or "").strip()
+    if needle.startswith('app:'):
+        meta = _bundled.get().get(needle)
+        return meta if meta and meta.available else None
     for skill in discover_skills(root):
-        if skill.id == needle or skill.name == needle:
+        if not skill.app_origin and (skill.id == needle or skill.name == needle):
             return skill
     return None
 
@@ -168,6 +191,13 @@ def find_skill(skill_id: str, root: Path | None = None) -> SkillMeta | None:
 def format_loaded_skill(meta: SkillMeta) -> str:
     """Eigent/CAMEL-style load_skill return body."""
     base = meta.base_dir or (meta.path.parent if meta.path else None)
+    if meta.app_origin:
+        return (
+            f'## Skill: {meta.name}\nID: {meta.id}\n'
+            f'Plugin: {meta.app_origin["name"]} {meta.app_origin["version"]}\n'
+            'Read referenced text using read_skill_resource(name=the full skill ID, path=relative path).\n'
+            f'{meta.prompt}\n'
+        )
     files_block = "(none)"
     if base and base.is_dir():
         entries: list[str] = []

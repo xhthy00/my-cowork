@@ -14,6 +14,24 @@ import {
 import { initModelsStore, upsertProfile } from "../electron/models_store";
 
 describe("keychain", () => {
+  it("scopes every native-store account and restores the ordinary service", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcapp-scope-"));
+    const get = vi.fn().mockResolvedValue(null), set = vi.fn(), remove = vi.fn().mockResolvedValue(true);
+    const scope = 'a'.repeat(64);
+    initKeychain(dir, scope);
+    overrideBackend({ get, set, delete: remove });
+    try {
+      for (const account of ['model:x', 'openai', 'lark:app_secret', 'search:brave']) {
+        await getKey('my-cowork', account); await setKey('my-cowork', account, 'sentinel'); await deleteKey('my-cowork', account);
+        expect(get).toHaveBeenCalledWith(`my-cowork:app-dev:${scope}`, account);
+        expect(set).toHaveBeenCalledWith(`my-cowork:app-dev:${scope}`, account, 'sentinel');
+        expect(remove).toHaveBeenCalledWith(`my-cowork:app-dev:${scope}`, account);
+      }
+      initKeychain(dir); overrideBackend({ get, set });
+      await getKey('my-cowork', 'openai');
+      expect(get).toHaveBeenLastCalledWith('my-cowork', 'openai');
+    } finally { initKeychain(dir); fs.rmSync(dir, { recursive: true, force: true }); }
+  });
   it("getKey returns value from backend", async () => {
     overrideBackend({
       get: vi.fn().mockResolvedValue("sk-test-key"),

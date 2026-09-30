@@ -81,6 +81,11 @@ from app.server.routes import (
     workspace as workspace_routes,
 )
 from app.industry_apps.loader import load_enabled_apps
+from app.industry_apps.locks import FileLock
+from app.industry_apps.package import app_root
+from app.industry_apps.lifecycle import runtime_entries
+from app.runtime.admission import Admission, MaintenanceBusy
+from app.server.maintenance import AdmissionMiddleware, router as maintenance_router
 from app.industry_apps.sdk import LoadedAppTool
 from app.industry_apps.tooling import make_agent_tool
 from app.tools.builtin import exec as exec_tool
@@ -260,6 +265,7 @@ def build_stack(
     whitelist: list[str] | None = None,
     mcp_config_path: str | Path | None = None,
     app_tools: list[LoadedAppTool] | None = None,
+    admission: Admission | None = None,
     # legacy kwargs
     file_worker_llm: BaseChatModel | None = None,
     doc_worker_llm: BaseChatModel | None = None,
@@ -326,7 +332,7 @@ def build_stack(
     ima_tools = make_ima_tools()
 
     registry = ToolRegistry()
-    industry_tools = [make_agent_tool(item, confirm_hub) for item in (app_tools or [])]
+    industry_tools = [make_agent_tool(item, confirm_hub, admission) for item in (app_tools or [])]
     bus.tool_metadata = {tool.name: dict(tool.metadata or {}) for tool in industry_tools}
     registry.register("builtin.fs.read", fs_read)
     registry.register("builtin.fs.write", write_tool)
@@ -436,7 +442,9 @@ def build_stack(
     checkpointer = get_checkpointer(data_dir / "checkpoints.db")
 
     # Eigent Single Agent: one meta-agent with the full tool set (no routing).
+    from app.industry_apps.file_tools import make_app_file_tools
     single_agent_tools = [
+        *make_app_file_tools(),
         todo_tool,
         ask_human_tool,
         *automation_tools,
@@ -568,6 +576,7 @@ def build_stack(
         notes_root=data_dir / "notes",
         task_store=task_store,
         short_term=short_term,
+        admission=admission,
     )
     return {
         "task_manager": task_manager,
@@ -592,7 +601,7 @@ def build_stack(
     }
 
 
-def create_app(
+def _create_app(
     task_manager: Any | None = None,
     bus: Any | None = None,
     confirm_hub: ConfirmHub | None = None,
@@ -619,12 +628,14 @@ def create_app(
                 )
             except Exception as exc:  # noqa: BLE001
                 print(f"skill schedule import failed: {exc}", file=sys.stderr)
-            automation_scheduler.start()
+            if not app.state.admission.paused:
+                automation_scheduler.start()
         mgr = getattr(app.state, "channels", None)
         if mgr is not None:
             mgr.bind_loop(asyncio.get_running_loop())
             autostart = os.environ.get("MY_COWORK_CHANNEL_AUTOSTART", "1") != "0"
-            if autostart and not os.environ.get("PYTEST_CURRENT_TEST"):
+            if autostart and not app.state.admission.paused and not os.environ.get("PYTEST_CURRENT_TEST"):
+                app.state.channels_started = True
                 mgr.restore_enabled()
         try:
             yield
@@ -634,16 +645,31 @@ def create_app(
             automation_store = getattr(app.state, "automations", None)
             if automation_store is not None:
                 automation_store.close()
+            runtime_lock = getattr(app.state, "runtime_lock", None)
+            if runtime_lock:
+                runtime_lock.close()
 
+    gate = Admission(paused=bool(os.environ.get("MY_COWORK_OPERATION_TOKEN")))
     app = FastAPI(title="my-cowork", lifespan=lifespan)
+    app.state.admission = gate
+    app.state.generation = __import__("uuid").uuid4().hex
+    app.add_middleware(AdmissionMiddleware, admission=gate)
+    app.include_router(maintenance_router)
+
+    @app.exception_handler(MaintenanceBusy)
+    async def maintenance_busy(request, exc):
+        from starlette.responses import JSONResponse
+        return JSONResponse({"detail": str(exc)}, status_code=503)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[],
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.add_middleware(LocalhostOnlyMiddleware)
-    app.add_middleware(IndustryAppAuthMiddleware)
+    # Injected test/embedded managers need no desktop transport unless a token
+    # is configured. Real assembled backends always fail closed without one.
+    app.add_middleware(IndustryAppAuthMiddleware, protect_all=task_manager is None or bool(os.environ.get("MY_COWORK_INDUSTRY_TOKEN")))
     app.include_router(chat.router)
     app.include_router(audit_routes.router)
     app.include_router(browser_routes.router)
@@ -654,6 +680,9 @@ def create_app(
     app.include_router(mcp_routes.router)
     app.include_router(ima_routes.router)
     app.include_router(industry_apps_routes.router)
+    from app.server.routes import industry_ai
+    app.include_router(industry_ai.router)
+    app.include_router(industry_ai.host_router)
     app.include_router(skills_routes.router)
     app.include_router(assistants_routes.router)
     app.include_router(officecli_routes.router)
@@ -674,12 +703,15 @@ def create_app(
     started_stack = False
     stack: dict[str, Any] = {}
     if task_manager is None:
-        stack = build_stack(app_tools=loaded_app_tools)
+        stack = build_stack(app_tools=loaded_app_tools, admission=gate)
         task_manager = stack["task_manager"]
         bus = stack["bus"]
         confirm_hub = stack["confirm_hub"]
         started_stack = True
 
+    if isinstance(task_manager, TaskManager):
+        task_manager.admission = gate
+        task_manager.app_skills = app.state.app_skills
     app.state.task_manager = task_manager
     app.state.automations = stack.get("automation_store")
     app.state.bus = bus
@@ -721,9 +753,32 @@ def create_app(
         app.state.automation_scheduler = AutomationScheduler(
             app.state.automations,
             AutomationRunner(app.state.automations, task_manager, bus),
+            admission=gate,
         )
 
     return app
+
+
+def create_app(task_manager=None, bus=None, confirm_hub=None):
+    if task_manager is not None:
+        return _create_app(task_manager, bus, confirm_hub)
+    root = app_root()
+    lock = FileLock(root, "running")
+    try:
+        token = os.environ.get("MY_COWORK_OPERATION_TOKEN", "")
+        if token:
+            lock.acquire()
+            runtime_entries(root, token)
+        else:
+            with FileLock(root, "operation"):
+                lock.acquire()
+                runtime_entries(root)
+        application = _create_app()
+        application.state.runtime_lock = lock
+        return application
+    except BaseException:
+        lock.close()
+        raise
 
 
 # Uvicorn entrypoint: ``uvicorn app.main:app``. Lazy so ``from app.main import
@@ -744,6 +799,29 @@ def main() -> None:
     """CLI entry for PyInstaller / packaged backend: ``my-cowork-backend --port 0``."""
     import argparse
 
+    # Frozen Windows executables may keep the system code page despite Python
+    # environment flags. The desktop pipe protocol is always UTF-8.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+    if os.environ.get("MY_COWORK_PARENT_PIPE") == "1" and "--industry-maintenance" not in sys.argv:
+        import threading
+        def watch_parent():
+            try:
+                while os.read(sys.stdin.fileno(), 1):
+                    pass
+            finally:
+                os._exit(1)
+        threading.Thread(target=watch_parent, daemon=True).start()
+    if "--industry-maintenance" in sys.argv:
+        from app.industry_apps.maintenance import serve
+        serve()
+        return
+    if "--industry-migrate" in sys.argv:
+        from app.industry_apps.lifecycle import migrate_worker
+        migrate_worker()
+        return
     import uvicorn
 
     parser = argparse.ArgumentParser(prog="my-cowork-backend")

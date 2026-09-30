@@ -57,21 +57,48 @@ export interface UpdaterStatus {
   message?: string;
 }
 
+export interface IndustryStatus {
+  busy: boolean;
+  phase: string;
+  appId?: string;
+  message?: string;
+  detail?: string;
+  active?: number;
+  tasks?: string[];
+  generation?: string;
+}
+
 export interface ElectronAPI {
   getBackendUrl(): Promise<string>;
+  backendRequest(id: string, request: { url: string; method?: string; headers?: Record<string, string>; body?: Uint8Array }): Promise<{ status: number; statusText: string; headers: Record<string, string> }>;
+  backendRead(id: string): Promise<{ done: boolean; value?: Uint8Array }>;
+  backendCancel(id: string): Promise<void>;
   restartBackend(): Promise<string>;
+  industryStatus(): Promise<IndustryStatus>;
+  industryCancel(): Promise<void>;
+  onIndustryStatus(callback: (status: IndustryStatus) => void): () => void;
   industryList(): Promise<{
+    lifecycle?: IndustryStatus;
+    operation?: { id: string; phase: string; app_id: string; error?: string; retained?: string };
     apps: Array<{
       id: string;
-      version: string;
+      version: string | null;
+      generation?: string;
+      dev_revision?: string;
+      dev_url?: string;
+      candidate?: { version: string };
+      recovery?: { snapshot: { created_at: string } };
       previous_version?: string | null;
       enabled: boolean;
       status: string;
       error?: string;
-      manifest: { name: string; description: string; ui: { entry: string }; agent_tools?: Array<{ name: string; title: string; description: string; access: "read" | "write" }> };
+      manifest: { name: string; description: string; ui: { entry: string }; capabilities?: { host_api: string[] }; agent_tools?: Array<{ name: string; title: string; description: string; access: "read" | "write" }> };
     }>;
   }>;
   industryInspect(filePath: string): Promise<{
+    skill_names?: string[];
+    current_version?: string | null;
+    previous_tools?: Array<{ name: string; title: string; access: string }>;
     sha256: string;
     file_count: number;
     expanded_bytes: number;
@@ -83,8 +110,8 @@ export interface ElectronAPI {
     version: string;
     requires_restart: boolean;
   }>;
-  industryRequest(appId: string, method: string, requestPath: string, body?: unknown): Promise<unknown>;
-  industryManage(appId: string, action: "disable" | "enable" | "rollback"): Promise<unknown>;
+  industryRequest(appId: string, method: string, requestPath: string, body?: unknown, generation?: string): Promise<unknown>;
+  industryManage(appId: string, action: "disable" | "enable" | "rollback" | "remove" | "retry"): Promise<unknown>;
   getKey(account: string): Promise<string | null>;
   setKey(account: string, value: string): Promise<void>;
   getModels(): Promise<ModelsState>;

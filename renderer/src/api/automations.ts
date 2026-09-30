@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 export type Schedule = {
   kind: "cron" | "once" | "interval";
   cron?: string | null;

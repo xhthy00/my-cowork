@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Adapted from eigent: pages/Agents/Skills.tsx
  * Data: GET/PATCH/DELETE/import via /api/skills (not Eigent skillsStore).
@@ -44,6 +45,9 @@ export default function SkillsView() {
 
   useEffect(() => {
     void load();
+    const backend = window.api.onBackendReady?.(() => { void load(); });
+    const industry = window.api.onIndustryStatus?.((state) => { if (!state.busy) void load(); });
+    return () => { backend?.(); industry?.(); };
   }, [load]);
 
   async function patch(id: string, body: Record<string, unknown>) {

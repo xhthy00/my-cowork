@@ -60,15 +60,10 @@ describe("python_runner", () => {
     expect(info.url).toBe("http://127.0.0.1:54321");
     expect(info.process).toBeDefined();
 
-    expect(spawnMock).toHaveBeenCalledWith(
-      "uv",
-      ["run", "uvicorn", "app.main:app", "--port", "0", "--reload", "--reload-dir", "/fake/cwd/app"],
-      expect.objectContaining({
-        cwd: "/fake/cwd",
-        env: expect.objectContaining({ PYTHONUNBUFFERED: "1" }),
-        detached: process.platform !== "win32",
-      }),
-    );
+    expect(spawnMock.mock.calls[0][0]).toBe(path.join("/fake/cwd", ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"));
+    expect(spawnMock.mock.calls[0][1]).toEqual(["-m", "app.main", "--port", "0"]);
+    expect(spawnMock.mock.calls[0][2].env.PYTHONUNBUFFERED).toBe("1");
+    expect(spawnMock.mock.calls[0][2].env.MY_COWORK_PARENT_PIPE).toBe("1");
   });
 
   it("passes env overrides through to spawn", async () => {

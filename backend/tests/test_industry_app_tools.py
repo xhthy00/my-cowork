@@ -27,9 +27,11 @@ class Approval:
     def __init__(self, allow: bool) -> None:
         self.allow = allow
         self.calls: list[tuple[str, dict]] = []
+        self.tool_title = None
 
-    async def request(self, _call_id: str, name: str, args: dict) -> bool:
+    async def request(self, _call_id: str, name: str, args: dict, *, tool_title: str | None = None) -> bool:
         self.calls.append((name, args))
+        self.tool_title = tool_title
         return self.allow
 
 
@@ -53,6 +55,7 @@ def test_write_tool_uses_host_confirmation() -> None:
     assert asyncio.run(tool.ainvoke({"value": "A"})) == "Operation rejected by user"
     assert writes == []
     assert denied.calls[0] == (tool.name, {"value": "A"})
+    assert denied.tool_title == "保存项目"
     allowed = Approval(True)
     assert asyncio.run(make_agent_tool(entry, allowed).ainvoke({"value": "B"})) == {"saved": "B"}
     assert writes == ["B"]

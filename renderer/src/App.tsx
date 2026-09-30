@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { automationApi, type Automation } from "./api/automations";
+import { watchAppTasks, useAppTasks } from "./api/industryAI";
+import { expandAppTask } from "./components/hub/IndustryAIPanel";
 
 import ChatView from "./components/ChatView";
 import PreviewPanel from "./components/preview/PreviewPanel";
@@ -12,6 +14,7 @@ import StartupSplash from "./components/StartupSplash";
 import TopBar from "./components/shell/TopBar";
 import TitleBar from "./components/TitleBar";
 import { usePageTabStore } from "./store/pageTab";
+import { useIndustryNavigation } from "./store/industryNavigation";
 import { useSessionStore } from "./store/session";
 import { connectDesktopSessionSync, initDesktopSessionSync } from "./store/desktopSessionSync";
 import {
@@ -24,10 +27,20 @@ import {
  */
 export default function App() {
   const workspaceView = usePageTabStore((s) => s.workspaceView);
+  const hubTab = usePageTabStore((s) => s.hubTab);
+  const activeAppId = useIndustryNavigation((s) => s.activeId);
   const activeId = useSessionsStore((s) => s.activeId);
   const messageCount = useSessionStore((s) => s.messages.length);
   const [backendReady, setBackendReady] = useState(false);
   const [automationNotice, setAutomationNotice] = useState("");
+  const appTasks = useAppTasks(state => state.records);
+  const waitingAppTask = Object.values(appTasks).find(task => task.waiting
+    && !(workspaceView === "hub" && hubTab === "workbench" && activeAppId === task.origin.app_id)
+    && !(workspaceView === "workspace" && activeId === task.origin.project_id));
+
+  useEffect(() => {
+    if (backendReady) return watchAppTasks();
+  }, [backendReady]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -64,14 +77,12 @@ export default function App() {
     // Already up (restart / fast boot)? Skip splash.
     void window.api.getBackendUrl().then((url) => {
       if (url) {
-        setBackendReady(true);
-        void connectDesktopSessionSync(url);
+        void connectDesktopSessionSync(url).finally(() => setBackendReady(true));
       }
     });
     const offReady =
       window.api.onBackendReady?.((url) => {
-        setBackendReady(true);
-        if (url) void connectDesktopSessionSync(url);
+        if (url) void connectDesktopSessionSync(url).finally(() => setBackendReady(true));
       }) ?? (() => {});
     return offReady;
   }, []);
@@ -113,6 +124,7 @@ export default function App() {
       {!backendReady && <StartupSplash />}
       <TitleBar />
       <TopBar />
+      {waitingAppTask && <button type="button" className="shrink-0 border-b border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default px-4 py-1.5 text-left text-xs" onClick={() => expandAppTask(waitingAppTask)}>{waitingAppTask.origin.app_name} · 有 AI 任务待处理 <span className="text-ds-text-brand-default-default">查看</span></button>}
       <div className="body">
         {/* Eigent /history is full-width (no ProjectSidebar); Workspace keeps left rail */}
         {workspaceView === "hub" ? (

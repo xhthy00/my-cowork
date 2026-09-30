@@ -52,6 +52,7 @@ describe("ChatBar", () => {
       getBackendUrl: vi.fn().mockResolvedValue(BACKEND_URL),
       getKey: vi.fn().mockResolvedValue(null),
       restartBackend: vi.fn().mockResolvedValue(BACKEND_URL),
+      industryStatus: vi.fn().mockResolvedValue({ busy: false, phase: "idle" }),
     };
     const { useSessionStore } = await import("../../renderer/src/store/session");
     useSessionStore.setState({
@@ -94,6 +95,24 @@ describe("ChatBar", () => {
     });
     // Memory saving is configured in the backend, not a browser-local flag.
     expect(body).not.toHaveProperty("memory_enabled");
+  });
+
+  it("sends the full selected plugin skill identity with the current turn", async () => {
+    render(<ChatBar onEvent={vi.fn()} />);
+    await userEvent.type(screen.getByRole('textbox'), '#app:cn.example.one:risk-analysis 分析');
+    await userEvent.click(screen.getByTitle('发送'));
+    const call = vi.mocked(globalThis.fetch).mock.calls.find(row => String(row[0]).includes('/api/chat'));
+    expect(JSON.parse(String(call?.[1]?.body)).enabled_skill_ids).toContain('app:cn.example.one:risk-analysis');
+  });
+
+  it("keeps a draft if maintenance starts immediately before sending", async () => {
+    render(<ChatBar onEvent={vi.fn()} />);
+    const input = screen.getByRole("textbox");
+    await userEvent.type(input, "保留这份草稿");
+    vi.mocked(window.api.industryStatus).mockResolvedValue({ busy: true, phase: "draining" });
+    await userEvent.click(screen.getByTitle("发送"));
+    expect(input).toHaveTextContent("保留这份草稿");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("includes prior conversation history on follow-up", async () => {

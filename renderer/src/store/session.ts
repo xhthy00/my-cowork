@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 import { createStore, type StoreApi } from "zustand";
 
 import type { SSEvent } from "../api/sse";
@@ -35,8 +36,9 @@ export interface Message {
   confirm?: {
     call_id: string;
     tool: string;
+    tool_title?: string;
     args: Record<string, unknown>;
-    status: "pending" | "allowed" | "denied";
+    status: "pending" | "allowed" | "denied" | "expired";
     responded_at?: number;
   };
   humanQuestion?: {
@@ -85,6 +87,7 @@ export interface TraceEdge {
 export interface ConfirmRequest {
   call_id: string;
   tool: string;
+  tool_title?: string;
   args: Record<string, unknown>;
 }
 
@@ -215,6 +218,7 @@ function unresolvedConfirmFromTrace(
   return {
     call_id: callId,
     tool: String(ev.payload.tool ?? ""),
+    ...(typeof ev.payload.tool_title === "string" && ev.payload.tool_title ? { tool_title: ev.payload.tool_title } : {}),
     args: (ev.payload.args as Record<string, unknown>) ?? {},
   };
 }
@@ -887,6 +891,9 @@ export function createSessionStore(
 
   handleEvent: (event, projectId) => {
     const payload = event.payload ?? {};
+    if (event.type === "tool.confirm_resolved") {
+      get().resolveConfirm(String(payload.call_id ?? ""), payload.ok === true);
+    }
 
     if (event.type === "human.answered") {
       get().answerHumanQuestion(
@@ -1054,7 +1061,7 @@ export function createSessionStore(
         const tool = String(payload.tool ?? "");
         const args = (payload.args as Record<string, unknown>) ?? {};
         const callId = String(payload.call_id ?? "");
-        const request = { call_id: callId, tool, args };
+        const request = { call_id: callId, tool, args, ...(typeof payload.tool_title === "string" && payload.tool_title ? { tool_title: payload.tool_title } : {}) };
         if (callId) {
           if (tool && state.alwaysAllowTools.includes(tool)) {
             // Silent approve: do not enqueue (avoids card flash). Only show UI if POST fails.
@@ -1091,7 +1098,7 @@ export function createSessionStore(
                   role: "assistant" as const,
                   content: "",
                   createdAt: Date.now(),
-                  confirm: { call_id: callId, tool, args, status: "pending" as const },
+                  confirm: { ...request, status: "pending" as const },
                 },
               ];
             }
@@ -1166,8 +1173,10 @@ export function createSessionStore(
         updates.messages = (updates.messages ?? state.messages).map((m) =>
           m.humanQuestion?.status === "pending"
             ? { ...m, humanQuestion: { ...m.humanQuestion, status: "cancelled" as const } }
+            : m.confirm?.status === "pending" ? { ...m, confirm: { ...m.confirm, status: "expired" as const } }
             : m,
         );
+        updates.confirmQueue = [];
         const started = state.taskStartedAt;
         const elapsed =
           (started ? Date.now() - started : 0) + state.taskElapsedMs;

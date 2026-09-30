@@ -9,7 +9,8 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.skills import find_skill, format_loaded_skill
+from app.skills import find_skill, format_loaded_skill, task_skill_selection
+from app.skills.bundled import read_skill_resource as read_resource
 from app.runtime.v2.office_gate import is_office_skill, office_skills_allowed
 from app.skills.config import (
     default_skills_config_path,
@@ -51,6 +52,9 @@ def _visible_skills(
     config_path: Path | None,
 ) -> list[dict[str, Any]]:
     skills = list_skills_api(root=root, config_path=config_path)
+    selection = task_skill_selection.get()
+    if selection is not None:
+        return [s for s in skills if s['id'] in selection and s['enabled']]
     if agent_id == "single_agent":
         rows = [s for s in skills if s.get("enabled", True)]
     else:
@@ -93,12 +97,31 @@ def make_skill_tools(
             description="A single skill name/id or list of names."
         )
 
+    class _ResourceArgs(BaseModel):
+        name: str = Field(description='Full skill ID from the preloaded skill or list_skills.')
+        path: str = Field(description='UTF-8 text file path relative to this skill, such as references/rules.md.')
+
+    def read_skill_resource(name: str, path: str) -> str:
+        """Read bounded text belonging to an available skill, without filesystem grants."""
+        try:
+            selection = task_skill_selection.get()
+            if selection is not None:
+                meta = selection.get(name)
+            else:
+                visible = _visible_skills(agent_id, root=skills_root, config_path=cfg_path)
+                meta = find_skill(name, root=skills_root) if any(s['id'] == name for s in visible) else None
+            if meta is None:
+                raise ValueError('技能未授权给本次任务或已不可用')
+            return read_resource(meta, path)
+        except (ValueError, OSError) as exc:
+            return f'[ERROR] {exc}'
+
     def load_skill(name: str | list[str]) -> str:
         """Load skill instructions into context and follow them as the plan."""
         names = name if isinstance(name, list) else [name]
         visible = _visible_skills(agent_id, root=skills_root, config_path=cfg_path)
         allowed = {str(s.get("id") or "") for s in visible} | {
-            str(s.get("name") or "") for s in visible
+            str(s.get("name") or "") for s in visible if not s.get('appOrigin')
         }
         chunks: list[str] = []
         for raw in names:
@@ -132,6 +155,8 @@ def make_skill_tools(
     )
 
     return [
+        StructuredTool.from_function(func=read_skill_resource, name='read_skill_resource', args_schema=_ResourceArgs,
+                                    description='Read one UTF-8 reference/template from an available skill using its full ID and relative path.'),
         StructuredTool.from_function(
             func=list_skills,
             name="list_skills",

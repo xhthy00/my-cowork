@@ -782,7 +782,17 @@ class ChannelManager:
             event_id=event_id,
         )
 
-    async def _run_and_reply(
+    async def _run_and_reply(self, task_req, chat_id, platform="lark", **kwargs):
+        from contextlib import nullcontext
+        from app.runtime.admission import MaintenanceBusy
+        gate = getattr(self.task_manager, "admission", None)
+        try:
+            with gate.work("渠道任务") if gate else nullcontext():
+                await self._run_and_reply_accepted(task_req, chat_id, platform, **kwargs)
+        except MaintenanceBusy as exc:
+            await self._send_text(chat_id, str(exc), platform=platform)
+
+    async def _run_and_reply_accepted(
         self,
         task_req: TaskRequest,
         chat_id: str,

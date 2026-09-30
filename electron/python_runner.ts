@@ -26,7 +26,7 @@ const DEFAULT_HEALTH_TIMEOUT_MS = 15_000;
 
 // ── runner ───────────────────────────────────────────────────────────────────
 
-function resolvePackagedBackend(): { cmd: string; args: string[]; cwd: string } {
+export function resolvePackagedBackend(): { cmd: string; args: string[]; cwd: string } {
   // One-dir build (preferred): resources/python_runtime/python.exe.
   // Skips per-launch temp extraction of one-file; cold start ~1-3s vs 10-30s.
   const onedirExe = path.join(process.resourcesPath, "python_runtime", "python.exe");
@@ -84,11 +84,15 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
     injectPackagedSkillEnv(env);
     injectPackagedBrowserEnv(env);
   }
-  const appModule = env.MY_COWORK_UVICORN_APP || "app.main:app";
+  env.MY_COWORK_PARENT_PIPE = "1";
   const packaged = options.dev ? null : resolvePackagedBackend();
-  const cmd = options.dev ? "uv" : packaged!.cmd;
+  const cmd = options.dev ? path.join(options.cwd, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python") : packaged!.cmd;
+  // A single owned process must hold the run lock. A reloader would start a
+  // replacement behind the lifecycle coordinator while data is being restored.
   const args = options.dev
-    ? ["run", "uvicorn", appModule, "--port", "0", "--reload", "--reload-dir", path.join(options.cwd, "app")]
+    ? (env.MY_COWORK_UVICORN_APP
+      ? ["-m", "uvicorn", env.MY_COWORK_UVICORN_APP, "--port", "0"]
+      : ["-m", "app.main", "--port", "0"])
     : packaged!.args;
 
   if (packaged && !existsSync(packaged.cmd)) {
@@ -108,6 +112,20 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
   return new Promise<BackendInfo>((resolve, reject) => {
     let resolved = false;
     let stderrBuf = "";
+    let settled = false;
+    const succeed = (info: BackendInfo) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startTimer);
+      resolve(info);
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startTimer);
+      void stopAndWait(proc).then(() => reject(err), (stopError) => reject(new Error(`${err.message}; ${stopError}`)));
+    };
+    const startTimer = setTimeout(() => fail(new Error("Backend startup timed out")), options.healthTimeoutMs || DEFAULT_HEALTH_TIMEOUT_MS);
 
     const onData = (chunk: Buffer) => {
       const text = chunk.toString();
@@ -119,27 +137,27 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
           port,
           proc,
           options.healthTimeoutMs || DEFAULT_HEALTH_TIMEOUT_MS,
-          resolve,
-          reject,
+          succeed,
+          fail,
         );
       }
     };
 
     proc.stdout.on("data", onData);
     proc.stderr.on("data", (chunk: Buffer) => {
-      stderrBuf += chunk.toString();
+      stderrBuf = (stderrBuf + chunk.toString()).slice(-4000);
       onData(chunk);
     });
 
     proc.on("error", (err) => {
-      if (!resolved) reject(err);
+      fail(err);
     });
 
     proc.on("exit", (code) => {
-      if (!resolved) {
+      if (!settled) {
         const detail = stderrBuf.trim();
         const suffix = detail ? `\n${detail.slice(-2000)}` : "";
-        reject(new Error(`Python process exited with code ${code}${suffix}`));
+        fail(new Error(`Python process exited with code ${code}${suffix}`));
       }
     });
   });
@@ -152,7 +170,7 @@ export function stop(proc: ChildProcess | null | undefined): void {
   try {
     if (process.platform === "win32") {
       spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
-        stdio: "ignore",
+        stdio: "ignore", windowsHide: true,
       });
     } else if ((proc as ChildProcess & { backendProcessGroup?: boolean }).backendProcessGroup) {
       process.kill(-pid, "SIGTERM");
@@ -171,6 +189,28 @@ export function stop(proc: ChildProcess | null | undefined): void {
       /* ignore */
     }
   }
+}
+
+export async function stopAndWait(proc: ChildProcess | null | undefined): Promise<void> {
+  if (!proc || proc.exitCode != null || proc.signalCode != null) return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("无法确认后端已经退出，已停止更新")), 10_000);
+    proc.once("exit", () => { clearTimeout(timeout); resolve(); });
+    proc.stdin?.end();
+    stop(proc);
+  });
+}
+
+export function startMaintenance(options: RunnerOptions): ChildProcess {
+  const packaged = options.dev ? null : resolvePackagedBackend();
+  const cmd = options.dev
+    ? path.join(options.cwd, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python")
+    : packaged!.cmd;
+  return spawn(cmd, options.dev ? ["-m", "app.main", "--industry-maintenance"] : ["--industry-maintenance"], {
+    cwd: packaged?.cwd || options.cwd,
+    env: { ...process.env, ...options.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+    windowsHide: true,
+  });
 }
 
 // ── health polling ───────────────────────────────────────────────────────────

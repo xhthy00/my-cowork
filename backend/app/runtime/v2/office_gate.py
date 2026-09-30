@@ -40,6 +40,8 @@ _OFFICE_SAVE_RE = re.compile(
 
 def is_office_skill(skill_id: str) -> bool:
     key = (skill_id or "").strip()
+    if key.startswith('app:'):
+        return False  # Package identity is not an Office file-format inference.
     if not key:
         return False
     if key.lower() in _OFFICE_EXACT:

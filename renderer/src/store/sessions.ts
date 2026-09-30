@@ -61,9 +61,12 @@ export interface Project {
   boundKnowledgeBases?: BoundKnowledgeBase[];
   /** Recommended prompts from the bound office assistant (Hub cold-start). */
   assistantPrompts?: string[];
+  appOrigin?: { appId: string; appName: string; route: string; taskId: string; generation: string };
 }
 
 type CreateProjectOpts = {
+  background?: boolean;
+  appOrigin?: Project["appOrigin"];
   id?: string;
   initialMessages?: Message[];
   spaceId?: string;
@@ -161,6 +164,7 @@ function migrateProject(raw: Record<string, unknown>, messages: Message[]): Proj
     assistantPrompts: Array.isArray(raw.assistantPrompts)
       ? raw.assistantPrompts.map(String)
       : undefined,
+    appOrigin: raw.appOrigin && typeof raw.appOrigin === "object" ? raw.appOrigin as Project["appOrigin"] : undefined,
   };
 }
 
@@ -174,7 +178,7 @@ export const useSessionsStore = create<SessionsState>()(
     (set, get) => {
       const createProject = (title = "新对话", opts?: CreateProjectOpts) => {
         if (opts?.id && get().sessions.some((item) => item.id === opts.id)) {
-          get().setActive(opts.id);
+          if (!opts.background) get().setActive(opts.id);
           return opts.id;
         }
         const spaceId =
@@ -201,12 +205,13 @@ export const useSessionsStore = create<SessionsState>()(
               : undefined,
           enabledSkillIds: opts?.enabledSkillIds,
           assistantPrompts: opts?.assistantPrompts,
+          appOrigin: opts?.appOrigin,
         };
         const prev = get().activeId;
-        if (prev) parkProject(prev);
+        if (prev && !opts?.background) parkProject(prev);
         set((s) => ({
           sessions: [session, ...s.sessions],
-          activeId: id,
+          activeId: opts?.background ? s.activeId : id,
           messagesById: {
             ...s.messagesById,
             ...(prev
@@ -215,8 +220,10 @@ export const useSessionsStore = create<SessionsState>()(
             [id]: opts?.initialMessages || [],
           },
         }));
-        restoreProject(id, opts?.initialMessages || []);
-        setLiveBoundId(id);
+        if (!opts?.background) {
+          restoreProject(id, opts?.initialMessages || []);
+          setLiveBoundId(id);
+        }
         return id;
       };
 

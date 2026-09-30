@@ -34,6 +34,11 @@ class QueryTasks(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class CreateSubtask(BaseModel):
+    parent_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=200)
+
+
 def register(context: AppContext) -> AppContribution:
     router = APIRouter()
 
@@ -46,6 +51,7 @@ def register(context: AppContext) -> AppContribution:
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)"
         )
+        connection.execute('CREATE TABLE IF NOT EXISTS task_parents (task_id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL)')
         connection.commit()
         return connection
 
@@ -75,10 +81,31 @@ def register(context: AppContext) -> AppContribution:
             return {"id": task_id, "done": body.done}
 
     def agent_list_tasks(_call: AppToolCallContext, args: QueryTasks) -> dict:
+        # The host Space and this plugin's local partition are deliberately distinct.
+        scope = _call.business
+        if scope is not None and scope.get('partition') != 'local':
+            raise ValueError('此示例只支持 local 数据分区')
         rows = list_tasks()["tasks"]
+        if scope is not None:
+            selected = scope.get('selection', [])
+            rows = [row for row in rows if row['id'] in selected]
+            if len(rows) != len(set(selected)):
+                raise ValueError('选中的任务已删除，请返回页面重新选择')
         if args.done is not None:
             rows = [row for row in rows if row["done"] == args.done]
         return {"total": len(rows), "tasks": rows[:args.limit]}
+
+    def agent_create_subtask(call: AppToolCallContext, args: CreateSubtask) -> dict:
+        if call.business is not None:
+            if call.business.get('partition') != 'local' or args.parent_id not in call.business.get('selection', []):
+                raise PermissionError('父任务不在本次选择范围内')
+        with closing(connect('local')) as db:
+            if not db.execute('SELECT id FROM tasks WHERE id=?', (args.parent_id,)).fetchone():
+                raise ValueError('父任务已删除')
+            with db:
+                cursor = db.execute('INSERT INTO tasks(title) VALUES(?)', (args.title.strip(),))
+                db.execute('INSERT INTO task_parents VALUES(?,?)', (cursor.lastrowid, args.parent_id))
+            return {'id': cursor.lastrowid, 'parent_id': args.parent_id, 'title': args.title.strip(), 'done': False}
 
     return AppContribution(router=router, tools=[AppTool(
         name="list_tasks",
@@ -86,4 +113,5 @@ def register(context: AppContext) -> AppContribution:
         description="查询任务管理样例中的任务及完成状态。",
         args_schema=QueryTasks,
         run=agent_list_tasks,
-    )])
+    ), AppTool(name='create_subtask', title='创建子任务', description='在指定父任务下创建一条子任务。',
+               args_schema=CreateSubtask, run=agent_create_subtask, access='write')])

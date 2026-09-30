@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 import { Check, Copy, RefreshCw, Trash2, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";

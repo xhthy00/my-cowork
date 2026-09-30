@@ -12,6 +12,10 @@ import * as path from "path";
 import { getActiveProfile, toBackendProvider } from "./models_store";
 
 const SERVICE = "my-cowork";
+let credentialScope = "";
+function scopedService(service: string): string {
+  return service === SERVICE && credentialScope ? `${service}:app-dev:${credentialScope}` : service;
+}
 
 // ── back-end ─────────────────────────────────────────────────────────────────
 interface KeychainBackend {
@@ -93,7 +97,9 @@ function tryKeytar(): KeychainBackend | null {
 }
 
 /** Call once from Electron main after ``app.ready``. Prefers keytar, else file. */
-export function initKeychain(userDataPath: string): void {
+export function initKeychain(userDataPath: string, scope = ""): void {
+  if (scope && !/^[0-9a-f]{64}$/.test(scope)) throw new Error("invalid credential scope");
+  credentialScope = scope;
   const keytar = tryKeytar();
   if (keytar) {
     _backend = keytar;
@@ -109,19 +115,19 @@ export function overrideBackend(backend: KeychainBackend): void {
 }
 
 export async function getKey(service: string, account: string): Promise<string | null> {
-  return _backend.get(service, account);
+  return _backend.get(scopedService(service), account);
 }
 
 export async function setKey(service: string, account: string, password: string): Promise<void> {
-  return _backend.set(service, account, password);
+  return _backend.set(scopedService(service), account, password);
 }
 
 export async function deleteKey(service: string, account: string): Promise<boolean> {
   if (_backend.delete) {
-    return _backend.delete(service, account);
+    return _backend.delete(scopedService(service), account);
   }
   // Fallback: overwrite with empty then ignore (legacy backends).
-  await _backend.set(service, account, "");
+  await _backend.set(scopedService(service), account, "");
   return true;
 }
 

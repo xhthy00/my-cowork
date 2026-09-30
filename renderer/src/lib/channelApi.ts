@@ -1,4 +1,5 @@
-import { subscribeSSE, type SSEvent } from "@/api/sse";
+import { apiFetch as fetch } from "@/api/backend";
+import { subscribeSSE, openEventStream, type HostEventStream, type SSEvent } from "@/api/sse";
 import type {
   ChannelPairing,
   ChannelPluginStatus,
@@ -131,7 +132,7 @@ export const channelApi = {
       },
     ),
   subscribe: (onEvent: (ev: SSEvent) => void): (() => void) => {
-    let es: EventSource | null = null;
+    let es: HostEventStream | null = null;
     let cancelled = false;
     void base().then((url) => {
       if (cancelled) return;
@@ -151,7 +152,7 @@ export const channelApi = {
     },
   ): Promise<() => void> => {
     const url = await base();
-    const es = new EventSource(`${url}/api/channel/weixin/login`);
+    const es = openEventStream(`${url}/api/channel/weixin/login`);
     es.addEventListener("qr", (e: MessageEvent) => {
       try {
         const { qrcodeData } = JSON.parse(String(e.data)) as { qrcodeData: string };

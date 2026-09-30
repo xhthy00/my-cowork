@@ -47,6 +47,8 @@ import ChatModelSelect from "./ChatModelSelect";
 import ContextUsageIndicator from "./ContextUsageIndicator";
 import { resolveContextUsage } from "@/lib/formatTokens";
 import { migrateLegacyMemorySetting } from "@/lib/memorySettingsMigration";
+import { followupAppTask } from "@/api/industryAI";
+import { appSkillIdsInText } from "@/lib/richText";
 
 interface ChatBarProps {
   onEvent: (event: SSEvent, projectId?: string) => void;
@@ -112,6 +114,11 @@ export default function ChatBar({
   modeInteractive = true,
 }: ChatBarProps) {
   const [input, setInput] = useState("");
+  const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  useEffect(() => {
+    void window.api.industryStatus?.().then(status => setMaintenanceBusy(status.busy));
+    return window.api.onIndustryStatus?.(status => setMaintenanceBusy(status.busy));
+  }, []);
   const [files, setFiles] = useState<ChatAttachment[]>([]);
   const [openPanel, setOpenPanel] = useState<PickerPanelKind | null>(null);
   const [hoveredFilePath, setHoveredFilePath] = useState<string | null>(null);
@@ -313,6 +320,22 @@ export default function ChatBar({
       return;
     }
 
+    const maintenance = await window.api.industryStatus?.();
+    if (maintenance?.busy) {
+      setMaintenanceBusy(true);
+      return;
+    }
+    const currentProject = getActiveProjectContext().project;
+    if (currentProject?.appOrigin) {
+      if (files.length) { setReplyError("请返回业务页面选择附件，追问会沿用原任务的数据与工具范围。"); return; }
+      setIsLoading(true); setReplyError("");
+      try {
+        await followupAppTask(currentProject.id, raw);
+        setInput("");
+      } catch (error) { setReplyError(error instanceof Error ? error.message : "发起失败"); }
+      finally { setIsLoading(false); }
+      return;
+    }
     let text = raw;
     if (files.length) {
       const paths = files.map((f) => f.filePath).join(", ");
@@ -392,9 +415,7 @@ export default function ChatBar({
           ...(project?.assistantId
             ? { assistant_id: project.assistantId }
             : {}),
-          ...(project?.enabledSkillIds?.length
-            ? { enabled_skill_ids: project.enabledSkillIds }
-            : {}),
+          enabled_skill_ids: [...new Set([...(project?.enabledSkillIds || []), ...appSkillIdsInText(text)])],
           ...(project?.boundKnowledgeBases?.length
             ? { knowledge_bases: project.boundKnowledgeBases }
             : {}),
@@ -406,6 +427,10 @@ export default function ChatBar({
           onEvent(ev, streamProjectId);
         },
         (message) => {
+          if (message.includes("HTTP 503")) {
+            setInput(current => current || raw);
+            setFiles(current => current.length ? current : files);
+          }
           onEvent(
             { type: "step.delta", payload: { delta: message } },
             streamProjectId,
@@ -578,7 +603,7 @@ export default function ChatBar({
             }}
           />
         </div>
-        {replyError && pendingQuestion && (
+        {replyError && (
           <p className="mb-2 text-xs text-[var(--danger)]" role="alert">{replyError}</p>
         )}
 
@@ -676,7 +701,7 @@ export default function ChatBar({
             <button
               type="button"
               title="发送"
-              disabled={!hasContent || disabled || isLoading}
+              disabled={!hasContent || disabled || isLoading || (maintenanceBusy && !pendingQuestion)}
               onClick={() => void handleSend()}
               className={cn(
                 "chat-send inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition-colors disabled:opacity-35",
@@ -697,6 +722,7 @@ export default function ChatBar({
         </div>
       </div>
 
+      {maintenanceBusy && !pendingQuestion && <p role="status" className="mt-2 text-xs text-ds-text-neutral-muted-default">应用正在更新，稍后可继续。输入内容会保留。</p>}
       {showFooter && (
         <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
           <button

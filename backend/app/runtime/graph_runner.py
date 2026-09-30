@@ -58,6 +58,7 @@ from app.tools.builtin.docgen.gongwen_format import (
 from app.workspace.output_files import list_new_office_files
 from app.workspace.resolver import get_workspace_resolver
 from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
+from app.runtime.app_context import app_task_scope
 from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
@@ -429,6 +430,10 @@ def _emit_graph_end(
 
 def _deliverable_constraint(plan_ask: str) -> str:
     """Format-specific workspace hint — do not advertise docx when the user asked for md."""
+    scope = app_task_scope.get()
+    if scope:
+        return ('- 使用 app_write_report 保存完整 Markdown 报告；只使用本任务列出的文件引用和业务工具。\n'
+                if 'app_write_report' in scope.tools else '- 本次业务任务不生成文件，只使用已列出的业务工具。\n')
     notes = (
         "- 过程发现、草稿路径写入笔记（`create_note` / "
         "`append_note(\"shared_files\", …)`），不要当作最终交付。\n"
@@ -1056,6 +1061,12 @@ async def run_graph(
         elif need_html and not html_ok:
             end_status = "error"
             end_extra["error"] = "未生成 HTML 文件。请重试；若弹出写入确认，请点击允许。"
+        scope = app_task_scope.get()
+        if scope:
+            end_status, end_extra = 'ok', {}
+            if 'app_write_report' in scope.tools and not any(Path(path).is_file() for path in scope.artifacts):
+                end_status = 'error'
+                end_extra['error'] = '报告文件未成功保存，请查看执行过程后重新发起。'
         if session_mode == "workforce":
             summary = ""
             # Prefer synthesize node's compose; never use a worker last-AI dump.

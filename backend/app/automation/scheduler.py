@@ -8,16 +8,18 @@ from typing import Awaitable, Callable
 
 from .models import Automation, AutomationRun
 from .store import AutomationStore
+from app.runtime.admission import Admission, MaintenanceBusy
 
 logger = logging.getLogger(__name__)
 Runner = Callable[[Automation, AutomationRun], Awaitable[AutomationRun]]
 
 
 class AutomationScheduler:
-    def __init__(self, store: AutomationStore, runner: Runner, *, tick_seconds: float = 30.0) -> None:
+    def __init__(self, store: AutomationStore, runner: Runner, *, tick_seconds: float = 30.0, admission: Admission | None = None) -> None:
         self.store = store
         self.runner = runner
         self.tick_seconds = tick_seconds
+        self.admission = admission or Admission()
         self._loop_task: asyncio.Task | None = None
         self._spawned: set[asyncio.Task] = set()
         self._spawned_by_run: dict[str, asyncio.Task] = {}
@@ -55,6 +57,8 @@ class AutomationScheduler:
                 logger.exception("Automation scheduler tick failed")
 
     async def tick(self, *, trigger: str = "schedule") -> None:
+        if self.admission.paused:
+            return
         for task_id in self.store.due_ids():
             try:
                 run = self.store.claim(task_id, trigger=trigger)
@@ -64,12 +68,16 @@ class AutomationScheduler:
                 logger.exception("Could not claim scheduled task %s", task_id)
 
     def run_now(self, task_id: str) -> AutomationRun | None:
+        if self.admission.paused:
+            raise MaintenanceBusy()
         run = self.store.claim(task_id, trigger="manual")
         if run is not None:
             self._spawn(task_id, run)
         return run
 
     def resume_reviewed(self, run_id: str) -> AutomationRun | None:
+        if self.admission.paused:
+            raise MaintenanceBusy()
         run = self.store.get_run(run_id)
         if run is None or run.status != "recovery_review" or run_id in self._spawned_by_run:
             return None
@@ -83,7 +91,12 @@ class AutomationScheduler:
         return run
 
     def _spawn(self, task_id: str, run: AutomationRun) -> None:
-        child = asyncio.create_task(self._run_claimed(task_id, run))
+        lease = self.admission.acquire("定时任务")
+        async def execute():
+            with self.admission.work(run.run_id, lease):
+                await self._run_claimed(task_id, run)
+        child = asyncio.create_task(execute())
+        child.add_done_callback(lambda _: self.admission.release(lease))
         self._spawned.add(child)
         self._spawned_by_run[run.run_id] = child
         self._runs_by_id[run.run_id] = run

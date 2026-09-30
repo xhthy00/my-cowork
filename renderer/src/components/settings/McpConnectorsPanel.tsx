@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Custom MCP connectors — local JSON / remote URL, aligned with eigent dialogs.
  */
