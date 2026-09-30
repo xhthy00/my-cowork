@@ -1,4 +1,6 @@
-import { subscribeSSE, type SSEvent } from "@/api/sse";
+import { apiFetch as fetch } from "@/api/backend";
+import { backendUnavailableMessage } from "@/lib/backendStatus";
+import { subscribeSSE, openEventStream, type HostEventStream, type SSEvent } from "@/api/sse";
 import type {
   ChannelPairing,
   ChannelPluginStatus,
@@ -8,7 +10,7 @@ import type {
 
 async function base(): Promise<string> {
   const url = await window.api.getBackendUrl();
-  if (!url) throw new Error("后端未连接");
+  if (!url) throw new Error(await backendUnavailableMessage());
   return url.replace(/\/$/, "");
 }
 
@@ -131,7 +133,7 @@ export const channelApi = {
       },
     ),
   subscribe: (onEvent: (ev: SSEvent) => void): (() => void) => {
-    let es: EventSource | null = null;
+    let es: HostEventStream | null = null;
     let cancelled = false;
     void base().then((url) => {
       if (cancelled) return;
@@ -151,7 +153,7 @@ export const channelApi = {
     },
   ): Promise<() => void> => {
     const url = await base();
-    const es = new EventSource(`${url}/api/channel/weixin/login`);
+    const es = openEventStream(`${url}/api/channel/weixin/login`);
     es.addEventListener("qr", (e: MessageEvent) => {
       try {
         const { qrcodeData } = JSON.parse(String(e.data)) as { qrcodeData: string };

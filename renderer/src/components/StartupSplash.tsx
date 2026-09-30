@@ -14,17 +14,26 @@ export default function StartupSplash() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    void window.api.getBackendUrl().then((url) => {
-      if (url) setStatus("loading");
-    });
-    const offReady = window.api.onBackendReady?.(() => setStatus("loading")) ?? (() => {});
+    let changed = false;
+    const loading = () => { changed = true; setStatus("loading"); setMessage(""); };
+    const offReady = window.api.onBackendReady?.(loading) ?? (() => {});
+    const offStarting = window.api.onBackendStarting?.(loading) ?? (() => {});
     const offFailed =
       window.api.onBackendFailed?.((msg) => {
+        changed = true;
         setStatus("failed");
         setMessage(msg);
       }) ?? (() => {});
+    void window.api.getBackendStatus?.().then((current) => {
+      if (!changed && current?.state === "failed") {
+        setStatus("failed");
+        setMessage(current.error);
+      }
+    }).catch(() => {});
     return () => {
+      changed = true;
       offReady();
+      offStarting();
       offFailed();
     };
   }, []);
@@ -86,7 +95,14 @@ export default function StartupSplash() {
                 <button
                   type="button"
                   className="mt-3 rounded-lg bg-gradient-to-r from-violet-500 to-orange-400 px-4 py-1.5 text-xs text-white shadow-md transition-transform hover:scale-105"
-                  onClick={() => window.api.restartBackend().catch(() => {})}
+                  onClick={async () => {
+                    setStatus("loading"); setMessage("");
+                    try { await window.api.restartBackend(); }
+                    catch (error) {
+                      setStatus("failed");
+                      setMessage(error instanceof Error ? error.message : "后端重启失败");
+                    }
+                  }}
                 >
                   重试
                 </button>

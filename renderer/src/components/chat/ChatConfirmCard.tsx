@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 import { AlertTriangle, ChevronDown, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import { useCallback, useId, useState, type ReactNode } from "react";
 
@@ -5,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { humanizeTool } from "../../lib/processLabels";
 import type { Message } from "../../store/session";
 import { useSessionStore } from "../../store/session";
+import { getProjectRuntime } from "../../store/projectRuntime";
 import { cn } from "../../lib/utils";
 
 /** Permission intent classification, ported from AionUi `permissionOptions.ts`. */
@@ -113,19 +115,24 @@ function OptionSpinner({ active }: { active: boolean }) {
  * response is sent, resolveConfirm updates the message's confirm.status,
  * and ChatView swaps this card for ChatConfirmRecord.
  */
-export default function ChatConfirmCard({ confirm }: { confirm: ConfirmData }) {
-  const resolveConfirm = useSessionStore((state) => state.resolveConfirm);
-  const addAlwaysAllowTool = useSessionStore((state) => state.addAlwaysAllowTool);
+export default function ChatConfirmCard({ confirm, projectId }: { confirm: ConfirmData; projectId?: string }) {
+  const activeResolve = useSessionStore((state) => state.resolveConfirm);
+  const activeAllow = useSessionStore((state) => state.addAlwaysAllowTool);
+  const bound = projectId ? getProjectRuntime(projectId).session.getState() : undefined;
+  const resolveConfirm = bound?.resolveConfirm || activeResolve;
+  const addAlwaysAllowTool = bound?.addAlwaysAllowTool || activeAllow;
 
   const [isResponding, setIsResponding] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const optionsLabelId = useId();
 
-  const toolTitle = humanizeTool(confirm.tool);
+  const toolTitle = confirm.tool_title || humanizeTool(confirm.tool);
+  const industryTool = confirm.tool.startsWith("industry__");
   const operationKind = getOperationKind(confirm.tool);
-  const operationDescription = getOperationDescription(confirm.tool, operationKind);
-  const detail = renderDetail(confirm.tool, confirm.args);
+  const operationDescription = industryTool ? undefined : getOperationDescription(confirm.tool, operationKind);
+  const { 业务范围: businessScope, ...toolArgs } = confirm.args;
+  const detail = renderDetail(confirm.tool, industryTool ? toolArgs : confirm.args);
   const allowOnce = CONFIRM_OPTIONS[0];
   const allowAlways = CONFIRM_OPTIONS[1];
   const rejectOnce = CONFIRM_OPTIONS[2];
@@ -140,17 +147,17 @@ export default function ChatConfirmCard({ confirm }: { confirm: ConfirmData }) {
       setHasError(false);
 
       try {
-        if (option.value === "proceed_always") {
-          addAlwaysAllowTool(confirm.tool);
-        }
         const backendUrl = await window.api.getBackendUrl();
-        if (backendUrl) {
-          await fetch(`${backendUrl}/api/tool/confirm/${encodeURIComponent(confirm.call_id)}`, {
+        if (!backendUrl) throw new Error("后端未连接");
+        {
+          const response = await fetch(`${backendUrl}/api/tool/confirm/${encodeURIComponent(confirm.call_id)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ok }),
           });
+          if (!response.ok || !(await response.json()).resolved) throw new Error("此确认已失效");
         }
+        if (option.value === "proceed_always") addAlwaysAllowTool(confirm.tool);
         resolveConfirm(confirm.call_id, ok);
       } catch {
         setHasError(true);
@@ -180,7 +187,7 @@ export default function ChatConfirmCard({ confirm }: { confirm: ConfirmData }) {
           <span className="inline-flex shrink-0 items-center rounded-full bg-ds-bg-brand-subtle-default px-1.5 py-px text-[10px] font-medium text-ds-text-brand-default-default">行业工作台</span>
         )}
         <span className="inline-flex shrink-0 items-center rounded-full border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default/80 px-1.5 py-px text-[10px] font-medium leading-[1.4] text-ds-text-neutral-muted-default">
-          {OPERATION_LABEL[operationKind]}
+          {industryTool ? "写入业务" : OPERATION_LABEL[operationKind]}
         </span>
       </div>
 
@@ -193,7 +200,7 @@ export default function ChatConfirmCard({ confirm }: { confirm: ConfirmData }) {
 
         {detail && (
           <div className="confirm-detail-block min-w-0 rounded-[7px] bg-ds-bg-neutral-subtle-default/70 px-2.5 py-[7px]">
-            <span className="shrink-0 text-[11px] text-ds-text-neutral-muted-default">命令</span>
+            <span className="shrink-0 text-[11px] text-ds-text-neutral-muted-default">{industryTool ? "操作参数" : "命令"}</span>
             <code
               dir="auto"
               className="min-w-0 flex-1 overflow-auto [overflow-wrap:anywhere] whitespace-pre-wrap bg-transparent font-mono text-[11px] leading-[1.45] text-ds-text-neutral-default-default"
@@ -202,6 +209,8 @@ export default function ChatConfirmCard({ confirm }: { confirm: ConfirmData }) {
             </code>
           </div>
         )}
+
+        {industryTool && businessScope !== undefined && <details className="app-details text-xs text-ds-text-neutral-muted-default"><summary>业务范围</summary><pre className="mb-0 max-h-32 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(businessScope, null, 2)}</pre></details>}
 
         {hasError && (
           <div
@@ -303,7 +312,7 @@ function ConfirmRecordHeader({
   trailing?: ReactNode;
 }) {
   const isAllowed = confirm.status === "allowed";
-  const toolTitle = humanizeTool(confirm.tool);
+  const toolTitle = confirm.tool_title || humanizeTool(confirm.tool);
   const operationKind = getOperationKind(confirm.tool);
   const kindLabel = OPERATION_LABEL[operationKind];
   const showKind = kindLabel !== toolTitle;
@@ -318,7 +327,7 @@ function ConfirmRecordHeader({
         className="shrink-0 font-medium"
         style={{ color: isAllowed ? "var(--ds-text-status-completed-default)" : "var(--danger)" }}
       >
-        {isAllowed ? "已允许" : "已拒绝"}
+        {isAllowed ? "已允许" : confirm.status === "expired" ? "已失效" : "已拒绝"}
       </span>
       <span className="shrink-0 text-ds-text-neutral-muted-default">·</span>
       <span className="min-w-0 truncate text-ds-text-neutral-default-default">{toolTitle}</span>
@@ -403,11 +412,11 @@ export function ChatConfirmRecordGroup({ confirms }: { confirms: ConfirmData[] }
   const denied = confirms.length - allowed;
   const allAllowed = denied === 0;
   const label =
-    denied === 0
+    confirms.some(confirm => confirm.status === "expired") ? `${confirms.length} 项操作确认记录` : denied === 0
       ? `已允许 ${confirms.length} 项操作`
       : allowed === 0
         ? `已拒绝 ${confirms.length} 项操作`
-        : `已执行 ${confirms.length} 项操作`;
+        : `${confirms.length} 项操作确认记录`;
 
   return (
     <details

@@ -1,0 +1,6 @@
+{
+  "name": "__APP_ID__", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": { "build": "tsc --noEmit && vite build" },
+  "dependencies": { "@mycowork/app-sdk": "file:__SDK_PATH__", "react": "__REACT_VERSION__", "react-dom": "__REACT_DOM_VERSION__" },
+  "devDependencies": { "@types/react": "__REACT_TYPES_VERSION__", "@types/react-dom": "__REACT_DOM_TYPES_VERSION__", "@vitejs/plugin-react": "__REACT_PLUGIN_VERSION__", "vite": "__VITE_VERSION__", "typescript": "__TS_VERSION__" }
+}

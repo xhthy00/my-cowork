@@ -86,3 +86,12 @@ temp/
 .cache/
 .vite/
 video/
+
+# Legacy user skills must not be committed; current user skills live outside
+# the repository. Keep only the PPT templates and README.
+skills/*
+!skills/_templates/
+!skills/README.md
+
+# Isolated backend verification environment
+backend/.venv-test/

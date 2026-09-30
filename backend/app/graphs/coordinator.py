@@ -6,9 +6,10 @@ import json
 import re
 from typing import Any
 
+from app.llm.context_limits import ContextPreparationError
 from app.agents.factory import load_prompt
 from app.graphs.routing import ready_subtasks
-from app.runtime.notes_context import notes_excerpt
+from app.task_support.notes_context import notes_excerpt
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -70,6 +71,8 @@ async def coordinate(
             ]
         )
         data = _parse(str(getattr(msg, "content", None) or msg))
+    except ContextPreparationError:
+        raise
     except Exception:
         data = {}
     action = str(data.get("action") or "").strip().lower()

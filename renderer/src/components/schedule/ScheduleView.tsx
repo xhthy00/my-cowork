@@ -1,3 +1,6 @@
+import { apiFetch as fetch } from "@/api/backend";
+import { BudgetResumePanel } from "../chat/TaskBudget";
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, CalendarClock, ChevronRight, Clock3, ExternalLink, Loader2, Pause, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 
@@ -11,7 +14,7 @@ import { useSpacesStore } from "@/store/spaces";
 import type { Message } from "@/store/session";
 
 const card = "rounded-2xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default";
-const input = "w-full rounded-xl border border-ds-border-neutral-strong-default bg-white px-3 py-2.5 text-sm text-ds-text-neutral-default-default outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default";
+const input = "w-full rounded-xl border border-ds-border-neutral-strong-default bg-ds-bg-neutral-subtle-default px-3 py-2.5 text-sm text-ds-text-neutral-default-default outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default";
 const label = "mb-1.5 block text-sm font-medium text-ds-text-neutral-default-default";
 
 function fmt(value: number | null | undefined): string {
@@ -30,7 +33,7 @@ function Status({ value }: { value: string | null }) {
   const tone = value === "ok" ? "text-emerald-700 bg-emerald-50" :
     value === "error" || value === "interrupted" ? "text-red-700 bg-red-50" :
     value === "running" || value === "waiting_user" || value === "recovery_review" ? "text-violet-700 bg-violet-100" :
-    "text-ds-text-neutral-muted-default bg-white";
+    "text-ds-text-neutral-muted-default bg-ds-bg-neutral-subtle-default";
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>{statusName(value)}</span>;
 }
 
@@ -130,7 +133,7 @@ function TaskForm({ task, initial, busy, onCancel, onSubmit }: {
         {form.frequency === "custom" ? <div><label className={label} htmlFor="auto-cron">Cron 表达式</label><input id="auto-cron" className={input} value={form.cron} onChange={(e) => update({ cron: e.target.value })} placeholder="0 9 * * 1-5" /><p className="mt-1 text-xs text-ds-text-neutral-muted-default">分钟 小时 日期 月份 星期；例如 0 9 * * 1-5。</p></div> : null}
         <label className="flex cursor-pointer items-center gap-2 text-sm text-ds-text-neutral-default-default"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />完成后在应用内通知我</label>
         {notify ? <div><label className={label} htmlFor="auto-notify-target">同时发送到飞书（可选）</label><input id="auto-notify-target" className={input} value={notifyTarget} onChange={(e) => setNotifyTarget(e.target.value)} placeholder="飞书 chat_id" /><p className="mt-1 text-xs text-ds-text-neutral-muted-default">填入目标会话的 chat_id 后，任务成功时发送一条摘要。</p></div> : null}
-        {!task ? <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-white p-3 text-sm"><summary className="cursor-pointer font-medium">高级：固定目标授权</summary>
+        {!task ? <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default p-3 text-sm"><summary className="cursor-pointer font-medium">高级：固定目标授权</summary>
           <p className="my-2 text-xs text-ds-text-neutral-muted-default">仅对指定工具和完全匹配的目标生效。工作区内的交付文件可以直接写入；其他操作仍会询问你。</p>
           <div className="flex flex-wrap gap-2"><select aria-label="授权工具" className={`${input} max-w-44`} value={grantTool} onChange={(e) => setGrantTool(e.target.value)}>
             <option value="lark.send_message">飞书发送消息</option><option value="browser_navigate">浏览器打开网址</option><option value="fs.write">写入文件</option>
@@ -138,14 +141,14 @@ function TaskForm({ task, initial, busy, onCancel, onSubmit }: {
             <option value="xlsx.gen">生成 Excel</option><option value="pdf.gen">生成 PDF</option>
           </select><input aria-label="授权目标" className={`${input} min-w-44 flex-1`} value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder={grantTool === "browser_navigate" ? "https://example.com/page" : grantTool === "lark.send_message" ? "飞书 chat_id" : "完整文件路径"} />
             <Button type="button" variant="outline" onClick={() => { if (!grantTarget.trim()) return; setGrants((items) => [...items, { tool: grantTool, target: grantTarget.trim(), access: "write" }]); setGrantTarget(""); }}>添加</Button></div>
-          {grants.length ? <div className="mt-2 space-y-1">{grants.map((grant, index) => <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-2 py-1" key={`${grant.tool}-${grant.target}-${index}`}><span className="min-w-0 flex-1 truncate">{grant.tool} · {grant.target}</span><Button type="button" size="xs" variant="ghost" onClick={() => setGrants((items) => items.filter((_, row) => row !== index))}>移除</Button></div>)}</div> : null}
+          {grants.length ? <div className="mt-2 space-y-1">{grants.map((grant, index) => <div className="flex items-center gap-2 rounded-lg bg-ds-bg-brand-subtle-default px-2 py-1" key={`${grant.tool}-${grant.target}-${index}`}><span className="min-w-0 flex-1 truncate">{grant.tool} · {grant.target}</span><Button type="button" size="xs" variant="ghost" onClick={() => setGrants((items) => items.filter((_, row) => row !== index))}>移除</Button></div>)}</div> : null}
         </details> : null}
-        <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-white p-3 text-sm"><summary className="cursor-pointer font-medium">高级：执行授权{commands.length ? ` (${commands.length} 条命令)` : ""}</summary>
+        <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default p-3 text-sm"><summary className="cursor-pointer font-medium">高级：执行授权{commands.length ? ` (${commands.length} 条命令)` : ""}</summary>
           <p className="my-2 text-xs text-ds-text-neutral-muted-default">仅当代理在此任务的工作区执行完全相同的命令时自动允许。不同命令仍会暂停询问；命令中的参数和路径也必须完全一致。</p>
           <label className="mb-3 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><input type="checkbox" className="mt-1" checked={autoApproveCommands} onChange={(event) => setAutoApproveCommands(event.target.checked)} /><span><strong className="block">自动批准此任务的命令与浏览器交互</strong><span className="mt-1 block text-xs text-amber-900">适用于无人值守运行；包括网页输入、点击、选择和上传。终端命令可访问工作区外的文件及网络，仅对你信任的任务开启。</span></span></label>
           <div className="flex flex-wrap gap-2"><input aria-label="允许的完整命令" className={`${input} min-w-44 flex-1 font-mono`} value={commandDraft} onChange={(e) => setCommandDraft(e.target.value)} placeholder="例如：git status --short" />
             <Button type="button" variant="outline" onClick={() => { const value = commandDraft.trim(); if (!value || commands.includes(value)) return; if (/[\x00-\x1f\x7f]/.test(value) || value.length > 2000) { setError("命令须为单行且不超过 2000 字符"); return; } setCommands((items) => [...items, value]); setCommandDraft(""); setError(""); }}>添加命令</Button></div>
-          {commands.length ? <div className="mt-2 space-y-1">{commands.map((command) => <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-2 py-1" key={command}><code className="min-w-0 flex-1 break-all text-xs">{command}</code><Button type="button" size="xs" variant="ghost" onClick={() => setCommands((items) => items.filter((item) => item !== command))}>移除</Button></div>)}</div> : null}
+          {commands.length ? <div className="mt-2 space-y-1">{commands.map((command) => <div className="flex items-center gap-2 rounded-lg bg-ds-bg-brand-subtle-default px-2 py-1" key={command}><code className="min-w-0 flex-1 break-all text-xs">{command}</code><Button type="button" size="xs" variant="ghost" onClick={() => setCommands((items) => items.filter((item) => item !== command))}>移除</Button></div>)}</div> : null}
         </details>
       </div>
       {error ? <p role="alert" className="mt-3 text-sm text-red-600">{error}</p> : null}
@@ -159,13 +162,14 @@ function eventData(event: RunEvent): Record<string, unknown> {
 }
 
 function PendingInput({ run, events, onResolved }: { run: AutomationRun; events: RunEvent[]; onResolved: () => Promise<void> }) {
-  const pending = [...events].reverse().find((event) => ["human.ask", "tool.confirm_request", "to_sub_tasks"].includes(event.type));
+  const pending = [...events].reverse().find((event) => ["human.ask", "tool.confirm_request", "to_sub_tasks", "budget.paused"].includes(event.type || ""));
   const data = pending ? eventData(pending) : null;
   const [answer, setAnswer] = useState("");
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!data || run.status !== "waiting_user") return null;
+  if (pending?.type === "budget.paused") return <BudgetResumePanel taskId={run.task_execution_id} used={Number(data.tokens || 0)} cap={data.max_tokens === null ? null : Number(data.max_tokens || 200_000)} required={Number(data.required_tokens || 1)} onResolved={onResolved} />;
   const fields = Array.isArray(data.fields) ? data.fields as Array<{ label: string; kind: string; options?: string[]; required?: boolean }> : [];
   const options = Array.isArray(data.options) ? data.options.map(String) : [];
   const isQuestion = pending?.type === "human.ask";
@@ -177,7 +181,7 @@ function PendingInput({ run, events, onResolved }: { run: AutomationRun; events:
         throw new Error("请先填写所有必填项");
       }
       const base = await window.api.getBackendUrl();
-      if (!base) throw new Error("后端尚未连接");
+      if (!base) throw new Error(await backendUnavailableMessage());
       if (rememberCommand) {
         const command = (data?.args as Record<string, unknown> | undefined)?.cmd;
         if (data?.tool !== "exec.bash" || typeof command !== "string" || !command.trim()) throw new Error("无法保存这条命令");
@@ -193,7 +197,7 @@ function PendingInput({ run, events, onResolved }: { run: AutomationRun; events:
       const response = await fetch(url, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(isQuestion ? { question_id: data?.question_id, answer: content }
-          : isPlan ? { task_id: run.task_execution_id, subtasks: data.subtasks || [] }
+          : isPlan ? { task_id: run.task_execution_id, subtasks: data?.subtasks || [] }
             : { ok: allowed }),
       });
       if (!response.ok) throw new Error(`提交失败 (${response.status})`);
@@ -209,7 +213,7 @@ function PendingInput({ run, events, onResolved }: { run: AutomationRun; events:
         {field.kind === "single" && field.options?.length ? <select id={`answer-${field.label}`} className={input} value={choices[field.label] || ""} onChange={(e) => setChoices({ ...choices, [field.label]: e.target.value })}><option value="">请选择</option>{field.options.map((option) => <option key={option}>{option}</option>)}</select>
           : field.kind === "multiple" && field.options?.length ? <div className="grid gap-1.5 sm:grid-cols-2">{field.options.map((option) => {
             const selected = (choices[field.label] || "").split("、").filter(Boolean);
-            return <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg border border-ds-border-neutral-subtle-default bg-white p-2 text-sm"><input type="checkbox" checked={selected.includes(option)} onChange={(event) => setChoices({ ...choices, [field.label]: (event.target.checked ? [...selected, option] : selected.filter((item) => item !== option)).join("、") })} />{option}</label>;
+            return <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default p-2 text-sm"><input type="checkbox" checked={selected.includes(option)} onChange={(event) => setChoices({ ...choices, [field.label]: (event.target.checked ? [...selected, option] : selected.filter((item) => item !== option)).join("、") })} />{option}</label>;
           })}</div>
           : <input id={`answer-${field.label}`} className={input} value={choices[field.label] || ""} onChange={(e) => setChoices({ ...choices, [field.label]: e.target.value })} />}</div>)}
       {!fields.length && options.length ? <div className="mb-3 flex flex-wrap gap-2">{options.map((option) => <Button type="button" key={option} variant={answer === option ? "primary" : "outline"} onClick={() => setAnswer(option)}>{option}</Button>)}</div> : null}
@@ -217,11 +221,11 @@ function PendingInput({ run, events, onResolved }: { run: AutomationRun; events:
       <textarea id="run-answer" className={`${input} min-h-20`} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="也可以自行填写" />
       <div className="mt-3"><Button disabled={busy || (!answer.trim() && !Object.values(choices).some(Boolean))} onClick={() => void respond()}>提交并继续</Button></div>
     </> : isPlan ? <>
-      <div className="mb-3 space-y-2">{(Array.isArray(data.subtasks) ? data.subtasks : []).map((step, index) => <div key={index} className="rounded-xl border border-ds-border-neutral-subtle-default bg-white p-3 text-sm">{index + 1}. {String((step as Record<string, unknown>).title || (step as Record<string, unknown>).description || "执行步骤")}</div>)}</div>
+      <div className="mb-3 space-y-2">{(Array.isArray(data.subtasks) ? data.subtasks : []).map((step, index) => <div key={index} className="rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default p-3 text-sm">{index + 1}. {String((step as Record<string, unknown>).title || (step as Record<string, unknown>).description || "执行步骤")}</div>)}</div>
       <Button disabled={busy} onClick={() => void respond()}>确认方案并继续</Button>
     </> : <>
       <p className="mb-2 text-sm">{String(data.tool || "工具调用")}</p>
-      <pre className="mb-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-xs">{JSON.stringify(data.args || {}, null, 2)}</pre>
+      <pre className="mb-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-ds-bg-neutral-subtle-default p-3 text-xs">{JSON.stringify(data.args || {}, null, 2)}</pre>
       <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => void respond(true)}>本次允许</Button>{data.tool === "exec.bash" ? <Button disabled={busy} variant="outline" onClick={() => void respond(true, true)}>此任务以后允许这条命令</Button> : null}<Button disabled={busy} variant="outline" onClick={() => void respond(false)}>拒绝</Button></div>
     </>}
     {error ? <p role="alert" className="mt-2 text-sm text-red-600">{error}</p> : null}
@@ -308,9 +312,9 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
 
   const currentTask = detail?.task;
   return <div className="w-full overflow-y-auto px-4 pb-8">
-    <div className="sticky top-0 z-10 mb-4 flex items-center justify-between border-b border-ds-border-neutral-subtle-default bg-white/95 py-3 backdrop-blur">
+    <div className="sticky top-0 z-10 mb-4 flex items-center justify-between border-b border-ds-border-neutral-subtle-default bg-[var(--ui-card-bg)] py-3">
       <div className="flex items-center gap-2">
-        {selectedId ? <Button variant="ghost" size="icon" aria-label="返回任务列表" onClick={() => { setSelectedId(null); setSelectedRunId(null); setDetail(null); setRunDetail(null); setEditing(false); }}><ArrowLeft /></Button> : <CalendarClock className="size-5 text-violet-700" />}
+        {selectedId ? <Button variant="ghost" size="icon" aria-label="返回任务列表" onClick={() => { setSelectedId(null); setSelectedRunId(null); setDetail(null); setRunDetail(null); setEditing(false); }}><ArrowLeft /></Button> : <CalendarClock className="size-5 text-ds-text-brand-default-default" />}
         <div><h2 className="text-base font-bold text-ds-text-neutral-default-default">{currentTask?.title || "定时任务"}</h2><p className="text-xs text-ds-text-neutral-muted-default">{selectedId ? "任务详情与运行记录" : "让代理按你的计划自动完成工作"}</p></div>
       </div>
       <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void refresh()} aria-label="刷新定时任务"><RefreshCw /></Button>
@@ -340,7 +344,7 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
       </div> : null}
     </div> : currentTask ? <div className="space-y-4">
       <div className={`${card} p-5`}>
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wide text-violet-700">{currentTask.source === "skill" ? "技能计划" : "自动化任务"}</div><div className="mt-1 text-lg font-bold">{currentTask.title}</div></div><Status value={currentTask.last_status} /></div>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wide text-ds-text-brand-default-default">{currentTask.source === "skill" ? "技能计划" : "自动化任务"}</div><div className="mt-1 text-lg font-bold">{currentTask.title}</div></div><Status value={currentTask.last_status} /></div>
         <p className="whitespace-pre-wrap text-sm leading-6 text-ds-text-neutral-default-default">{currentTask.instructions}</p>
         <div className="mt-4 grid gap-2 border-t border-ds-border-neutral-subtle-default pt-3 text-sm text-ds-text-neutral-muted-default sm:grid-cols-2"><span>计划：{currentTask.schedule_label}</span><span>时区：{currentTask.schedule.timezone}</span><span>下次运行：{fmt(currentTask.next_run)}</span><span>上次运行：{fmt(currentTask.last_run)}</span></div>
         {currentTask.notify_target ? <p className="mt-2 text-xs text-ds-text-neutral-muted-default">完成通知：{currentTask.notify_target}</p> : null}
@@ -375,7 +379,7 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
       }} /> : null}
       <div className={`${card} p-5`}>
         <div className="mb-3 font-semibold">运行记录</div>
-        {detail.runs.length ? <div className="space-y-2">{detail.runs.map((run) => <button type="button" key={run.run_id} onClick={() => void openRun(run.run_id)} className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors hover:border-violet-300 ${selectedRunId === run.run_id ? "border-violet-400 bg-violet-50" : "border-ds-border-neutral-subtle-default bg-white"}`}>
+        {detail.runs.length ? <div className="space-y-2">{detail.runs.map((run) => <button type="button" key={run.run_id} onClick={() => void openRun(run.run_id)} className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors hover:border-violet-300 ${selectedRunId === run.run_id ? "border-violet-400 bg-ds-bg-brand-subtle-default" : "border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default"}`}>
           <div><div className="text-sm font-medium">{fmt(run.started_at)}</div><div className="text-xs text-ds-text-neutral-muted-default">{run.trigger === "manual" ? "手动运行" : run.trigger === "catchup" ? "启动补执行" : "按计划运行"}</div></div><Status value={run.status} />
         </button>)}</div> : <p className="text-sm text-ds-text-neutral-muted-default">尚无运行记录。</p>}
       </div>
@@ -384,10 +388,10 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
           {["ok", "error", "interrupted", "cancelled"].includes(runDetail.run.status) ? <Button size="sm" variant="outline" onClick={() => continueRun(runDetail.run)}><ExternalLink /> 进入会话追问</Button>
             : ["running", "waiting_user", "recovery_review"].includes(runDetail.run.status) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void mutate(() => automationApi(`/${encodeURIComponent(currentTask.id)}/runs/${encodeURIComponent(runDetail.run.run_id)}/cancel`, { method: "POST" }))}>停止运行</Button> : null}</div>
         {runDetail.run.status === "recovery_review" ? <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><div className="font-semibold">恢复前请检查上次操作</div><p className="mt-1">后端退出时，下列工具正在执行，无法确认外部操作是否已完成。请先检查目标文件或消息，再决定是否重试。</p><ul className="mt-2 list-disc pl-5">{(runDetail.run.recovery_tools || []).map((item) => <li key={item.call_id}>{item.tool}</li>)}</ul><Button className="mt-3" disabled={busy} onClick={() => void mutate(() => automationApi(`/${encodeURIComponent(currentTask.id)}/runs/${encodeURIComponent(runDetail.run.run_id)}/resume`, { method: "POST" }))}>我已检查，继续重试</Button></div> : null}
-        {runDetail.run.result_text ? <div className="prose prose-sm max-w-none rounded-xl bg-white p-4"><MarkdownView>{runDetail.run.result_text}</MarkdownView></div> : null}
+        {runDetail.run.result_text ? <div className="prose prose-sm max-w-none rounded-xl bg-ds-bg-neutral-subtle-default p-4"><MarkdownView>{runDetail.run.result_text}</MarkdownView></div> : null}
         {runDetail.run.error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{runDetail.run.error}</p> : null}
         {runDetail.run.notification_error ? <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">任务已完成，但飞书通知失败：{runDetail.run.notification_error}</p> : null}
-        {runDetail.run.artifacts.length ? <div className="mt-3 text-sm"><div className="mb-1 font-medium">交付文件</div>{runDetail.run.artifacts.map((path) => <div key={path} className="break-all text-violet-700">{path}</div>)}</div> : null}
+        {runDetail.run.artifacts.length ? <div className="mt-3 text-sm"><div className="mb-1 font-medium">交付文件</div>{runDetail.run.artifacts.map((path) => <div key={path} className="break-all text-ds-text-brand-default-default">{path}</div>)}</div> : null}
         <PendingInput run={runDetail.run} events={runDetail.events} onResolved={refresh} />
         {!runDetail.run.result_text && !runDetail.run.error && !["waiting_user", "recovery_review"].includes(runDetail.run.status) ? <p className="text-sm text-ds-text-neutral-muted-default">代理正在执行，完成后结果会显示在这里。</p> : null}
       </div> : null}

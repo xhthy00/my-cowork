@@ -145,7 +145,8 @@ describe("workforce + preview stores", () => {
     const info = useWorkforceStore.getState().taskInfo;
     expect(info).toHaveLength(2);
     expect(info[0].status).toBe("running");
-    expect(info[0].content).toContain("正在理解需求");
+    expect(info[0].content).toBe("理解用户需求与交付目标");
+    expect(info[0].active_form).toBe("正在理解需求");
     expect(info[1].status).toBe("waiting");
   });
 

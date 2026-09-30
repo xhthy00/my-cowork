@@ -62,16 +62,12 @@ export function resolveContextUsage(opts: {
   draft?: string;
   contextTokens?: number;
   contextLimit?: number;
-  budgetMaxTokens?: number;
+  budgetMaxTokens?: number | null;
 }): { used: number; limit: number; percentage: number } {
-  const limit =
-    opts.contextLimit && opts.contextLimit > 0
-      ? opts.contextLimit
-      : opts.budgetMaxTokens && opts.budgetMaxTokens > 0
-        ? opts.budgetMaxTokens
-        : DEFAULT_CONTEXT_LIMIT;
-  const estimated = estimateSessionContextTokens(opts.messages ?? [], opts.draft ?? "");
-  const used = Math.max(opts.contextTokens ?? 0, estimated);
+  const limit = opts.contextLimit && opts.contextLimit > 0 ? opts.contextLimit : DEFAULT_CONTEXT_LIMIT;
+  const used = opts.contextTokens !== undefined
+    ? Math.max(0, opts.contextTokens) + estimateTokensFromText(opts.draft ?? "")
+    : estimateSessionContextTokens(opts.messages ?? [], opts.draft ?? "");
   const percentage = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
   return { used, limit, percentage };
 }

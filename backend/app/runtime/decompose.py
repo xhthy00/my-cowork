@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.llm.context_limits import ContextPreparationError
+
 import json
 import logging
 import re
@@ -192,7 +194,7 @@ def align_subtasks_to_user_format(
     Eigent document agent writes the user-specified extension via write_to_file;
     unspecified format is HTML. Workforce Progress is this subtask list.
     """
-    from app.graphs.routing import wants_document, wants_markdown_file
+    from app.task_support.documents import wants_document, wants_markdown_file
 
     q = (text or "").strip()
     if not subtasks or not (wants_markdown_file(q) and not wants_document(q)):
@@ -239,6 +241,8 @@ async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]
         if todos:
             return align_subtasks_to_user_format(q, todos)
         _LOG.warning("decompose produced no JSON subtasks; using single-task fallback")
+    except ContextPreparationError:
+        raise
     except Exception:
         _LOG.exception("decompose llm failed; using single-task fallback")
     return align_subtasks_to_user_format(q, fallback_subtasks(q))

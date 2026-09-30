@@ -227,7 +227,7 @@ export default function HomeHub() {
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col">
       {/* Adapted from eigent HomeHubToolbar sticky offset */}
-      <div className="sticky top-[var(--home-hub-history-tabs-offset,49px)] z-10 mb-3 flex w-full flex-wrap items-center justify-between gap-3 bg-ds-bg-neutral-subtle-default pb-3 pt-8">
+      <div className="sticky top-[var(--home-hub-history-tabs-offset,49px)] z-10 mb-3 flex w-full flex-wrap items-center justify-between gap-3 bg-[var(--ui-card-bg)] pb-3 pt-8">
         <Tabs
           value={homeSection}
           onValueChange={(v) => setHomeSection(v as HomeSection)}

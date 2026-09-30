@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from app.agents.workers import WORKER_IDS, WORKER_LABELS
-from app.graphs.routing import (
+from app.task_support.documents import (
     document_tools_succeeded,
     extract_claimed_office_paths,
     has_office_deliverable,
@@ -22,8 +22,9 @@ from app.graphs.routing import (
 from app.guardrails.approval import is_remote_channel
 from app.llm.token_counter import count_tokens
 from app.runtime.attachments import stage_attachments_for_task
-from app.runtime.budget import BudgetExhausted
-from app.runtime.budget_context import (
+from app.llm.budget import BudgetExhausted
+from app.llm.context_limits import ContextPreparationError
+from app.llm.budget_context import (
     BudgetRuntime,
     context_window_limit,
     reset_budget_runtime,
@@ -43,8 +44,8 @@ from app.runtime.memory_context import (
     reset_long_term_runtime,
     set_long_term_runtime,
 )
-from app.runtime.notes_context import NotesRuntime, reset_notes_runtime, set_notes_runtime
-from app.runtime.workspace_context import (
+from app.task_support.notes_context import NotesRuntime, reset_notes_runtime, set_notes_runtime
+from app.task_support.workspace_context import (
     WorkspaceRuntime,
     reset_workspace_runtime,
     set_workspace_runtime,
@@ -57,12 +58,13 @@ from app.tools.builtin.docgen.gongwen_format import (
 )
 from app.workspace.output_files import list_new_office_files
 from app.workspace.resolver import get_workspace_resolver
-from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
+from app.task_support.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
+from app.task_support.app_context import app_task_scope
 from app.runtime.todo_planner import (
     advance_todos,
     pick_todo_for_worker,
 )
-from app.runtime.v2.office_gate import is_office_write_command
+from app.guardrails.office_gate import is_office_write_command
 from app.runtime.v2.synthesize import (
     extract_worker_summary,
     is_process_meta as _is_process_meta,
@@ -322,7 +324,7 @@ def _is_process_code_file(path: str) -> bool:
 
 def _hide_office_artifact(path: str) -> bool:
     """Markdown-only tasks must not surface Word/PPT/Excel chips."""
-    from app.runtime.todo_context import get_todo_runtime
+    from app.task_support.todo_context import get_todo_runtime
 
     rt = get_todo_runtime()
     if rt is None or not markdown_only(rt.user_text):
@@ -429,6 +431,10 @@ def _emit_graph_end(
 
 def _deliverable_constraint(plan_ask: str) -> str:
     """Format-specific workspace hint — do not advertise docx when the user asked for md."""
+    scope = app_task_scope.get()
+    if scope:
+        return ('- 使用 app_write_report 保存完整 Markdown 报告；只使用本任务列出的文件引用和业务工具。\n'
+                if 'app_write_report' in scope.tools else '- 本次业务任务不生成文件，只使用已列出的业务工具。\n')
     notes = (
         "- 过程发现、草稿路径写入笔记（`create_note` / "
         "`append_note(\"shared_files\", …)`），不要当作最终交付。\n"
@@ -528,6 +534,7 @@ async def run_graph(
     long_term: Any = None,
     metrics: Any = None,
     *,
+    budget_runtime: BudgetRuntime | None = None,
     compress_threshold: int = 120_000,
     planner_llm: Any = None,
     confirm_hub: Any = None,
@@ -564,7 +571,7 @@ async def run_graph(
     budget_token = None
     if budget is not None:
         budget_token = set_budget_runtime(
-            BudgetRuntime(task_id=task_id, bus=bus, budget=budget)
+            budget_runtime or BudgetRuntime(task_id=task_id, bus=bus, budget=budget)
         )
 
     workspace_token = None
@@ -591,17 +598,10 @@ async def run_graph(
                 space_root=frozen.space_root,
             )
         )
-        # Ensure tools may touch workdir / run output / space root
+        # Stage selected attachments in the task's already-authorized workdir.
         try:
-            from app.tools.builtin.fs import get_guard
-
-            guard = get_guard()
-            guard.add_whitelist(str(frozen.working_directory))
-            guard.add_whitelist(str(frozen.task_output_root))
-            if frozen.space_root is not None:
-                guard.add_whitelist(str(frozen.space_root))
             user_ask = stage_attachments_for_task(
-                user_ask, frozen.working_directory, guard
+                user_ask, frozen.working_directory
             )
             user_ask = (
                 f"{user_ask.rstrip()}\n\n"
@@ -739,7 +739,9 @@ async def run_graph(
                 self.messages = messages
 
         ctx = _Ctx(state["messages"])
-        await maybe_compress(ctx, threshold=compress_threshold)
+        from app.llm.model_config import current_model_config
+        if current_model_config() is None:
+            await maybe_compress(ctx, threshold=compress_threshold)
         state["messages"] = ctx.messages
         run_messages = list(state.get("messages") or [])
 
@@ -783,7 +785,7 @@ async def run_graph(
                     if extra_msgs:
                         run_messages.extend(extra_msgs)
                     if session_mode == "workforce" and update.get("subtasks"):
-                        from app.graphs.state import merge_subtasks
+                        from app.task_support.state import merge_subtasks
 
                         live_subtasks = merge_subtasks(
                             live_subtasks, list(update["subtasks"])
@@ -932,7 +934,7 @@ async def run_graph(
                         "steps": budget.steps,
                         "context_limit": context_window_limit(),
                     }
-                    if ctx_n:
+                    if ctx_n and current_model_config() is None:
                         extra["context_tokens"] = ctx_n
                     budget_event = _event(task_id, "budget.update", **extra)
                     bus.emit(budget_event)
@@ -1056,6 +1058,12 @@ async def run_graph(
         elif need_html and not html_ok:
             end_status = "error"
             end_extra["error"] = "未生成 HTML 文件。请重试；若弹出写入确认，请点击允许。"
+        scope = app_task_scope.get()
+        if scope:
+            end_status, end_extra = 'ok', {}
+            if 'app_write_report' in scope.tools and not any(Path(path).is_file() for path in scope.artifacts):
+                end_status = 'error'
+                end_extra['error'] = '报告文件未成功保存，请查看执行过程后重新发起。'
         if session_mode == "workforce":
             summary = ""
             # Prefer synthesize node's compose; never use a worker last-AI dump.
@@ -1128,6 +1136,7 @@ async def run_graph(
             "error",
             written_paths=written_paths,
             error=str(exc),
+            **({"error_code": "context_preparation"} if isinstance(exc, ContextPreparationError) else {}),
         ):
             yield ev
         raise

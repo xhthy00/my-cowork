@@ -1,3 +1,5 @@
+import { apiFetch as fetch } from "@/api/backend";
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 /**
  * Custom MCP connectors — local JSON / remote URL, aligned with eigent dialogs.
  */
@@ -8,6 +10,7 @@ import { SettingsField } from "@/components/settings/SettingsField";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 
 const LOCAL_MCP_EXAMPLE = `{
   "mcpServers": {
@@ -165,7 +168,7 @@ export default function McpConnectorsPanel() {
   const [remoteName, setRemoteName] = useState("");
   const [remoteUrl, setRemoteUrl] = useState("");
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<string | None>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<McpServerEntry | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -179,7 +182,7 @@ export default function McpConnectorsPanel() {
   const load = useCallback(async (opts?: { keepStatus?: boolean }) => {
     const backendUrl = await window.api.getBackendUrl();
     if (!backendUrl) {
-      setStatus("后端未连接");
+      setStatus(await backendUnavailableMessage());
       return;
     }
     const res = await fetch(`${backendUrl}/api/mcp/servers`);
@@ -192,9 +195,10 @@ export default function McpConnectorsPanel() {
     if (!opts?.keepStatus) setStatus("");
   }, []);
 
+  const backendEpoch = useBackendEpoch();
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, backendEpoch]);
 
   async function putAll(next: Record<string, McpServerEntry>) {
     const backendUrl = await window.api.getBackendUrl();
@@ -214,7 +218,7 @@ export default function McpConnectorsPanel() {
   async function importServers(payload: Record<string, McpServerEntry>) {
     const backendUrl = await window.api.getBackendUrl();
     if (!backendUrl) {
-      setStatus("后端未连接");
+      setStatus(await backendUnavailableMessage());
       return;
     }
     setSaving(true);
@@ -314,7 +318,7 @@ export default function McpConnectorsPanel() {
   async function testServer(key: string) {
     const backendUrl = await window.api.getBackendUrl();
     if (!backendUrl) {
-      setToast({ kind: "err", text: "后端未连接" });
+      setToast({ kind: "err", text: await backendUnavailableMessage() });
       return;
     }
     setTesting(key);

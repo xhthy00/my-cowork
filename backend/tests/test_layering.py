@@ -1,3 +1,5 @@
+import os
+import sys
 import subprocess
 from pathlib import Path
 
@@ -14,10 +16,12 @@ def test_import_linter_contract():
     reporting is used; the exit code is the contract pass/fail signal.
     """
     result = subprocess.run(
-        ["lint-imports"],
+        [sys.executable, "-c", "from importlinter.cli import lint_imports_command; lint_imports_command()"],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path), "PYTHONIOENCODING": "utf-8"},
         cwd=BACKEND_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     print(result.stdout)
     print(result.stderr)

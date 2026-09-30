@@ -9,6 +9,16 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
+
+_STARTUP_STARTED = time.perf_counter()
+
+
+def _startup_stage(name: str) -> None:
+    print(f"[startup] {name} ({time.perf_counter() - _STARTUP_STARTED:.2f}s)", file=sys.stderr, flush=True)
+
+
+_startup_stage("loading modules")
 
 # Child processes inherit these. Set before other imports that spawn tools.
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -81,6 +91,11 @@ from app.server.routes import (
     workspace as workspace_routes,
 )
 from app.industry_apps.loader import load_enabled_apps
+from app.industry_apps.locks import FileLock
+from app.industry_apps.package import app_root
+from app.industry_apps.lifecycle import runtime_entries
+from app.task_support.admission import Admission, MaintenanceBusy
+from app.server.maintenance import AdmissionMiddleware, router as maintenance_router
 from app.industry_apps.sdk import LoadedAppTool
 from app.industry_apps.tooling import make_agent_tool
 from app.tools.builtin import exec as exec_tool
@@ -103,6 +118,7 @@ from app.tools.builtin.web_fetch import make_web_fetch_tool
 from app.tools.builtin.browser import make_browser_tools
 from app.tools.builtin.ima.tools import make_ima_tools
 from app.skills.config import default_skills_config_path, default_skills_root
+from app.skills import default_example_skills_root, legacy_user_skills_roots
 from app.tools.mcp.manager import (
     McpManager,
     default_mcp_json_path,
@@ -112,10 +128,6 @@ from app.tools.mcp.manager import (
     save_mcp_json,
 )
 from app.tools.registry import ToolRegistry
-
-
-def _default_whitelist() -> list[str]:
-    return [str(Path.home())]
 
 
 def _parse_fallback_specs() -> list[tuple[str, str]]:
@@ -260,6 +272,7 @@ def build_stack(
     whitelist: list[str] | None = None,
     mcp_config_path: str | Path | None = None,
     app_tools: list[LoadedAppTool] | None = None,
+    admission: Admission | None = None,
     # legacy kwargs
     file_worker_llm: BaseChatModel | None = None,
     doc_worker_llm: BaseChatModel | None = None,
@@ -267,10 +280,16 @@ def build_stack(
     msg_worker_llm: BaseChatModel | None = None,
 ) -> dict[str, Any]:
     """Wire the full backend stack and return a dict of core services."""
+    _startup_stage("modules loaded; assembling stores and tools")
     pptx_gen.ensure_templates()
 
-    guard = PathGuard(whitelist or _default_whitelist())
     data_dir = _data_dir()
+    from app.workspace.resolver import get_workspace_resolver
+    guard = PathGuard(
+        whitelist, config_path=data_dir / "directory-permissions.json",
+        workspace_paths=lambda: [b.workspace_root for b in get_workspace_resolver().store.list_bindings()],
+        read_only_paths=[str(p) for p in [default_skills_root(), default_example_skills_root(), *legacy_user_skills_roots()]],
+    )
     from app.runtime.v2.session import configure_session_store
 
     configure_session_store(data_dir / "sessions.db")
@@ -295,7 +314,7 @@ def build_stack(
         long_term = LongTermStore(data_dir / "memory.db")
     memory_settings = MemorySettings(data_dir / "memory-settings.json")
     long_term.memory_settings = memory_settings
-    from app.runtime.todo_context import get_todo_runtime
+    from app.task_support.todo_context import get_todo_runtime
 
     memory_tools = make_memory_tools(long_term, memory_settings, get_todo_runtime)
     context_tools = make_context_tools()
@@ -326,7 +345,7 @@ def build_stack(
     ima_tools = make_ima_tools()
 
     registry = ToolRegistry()
-    industry_tools = [make_agent_tool(item, confirm_hub) for item in (app_tools or [])]
+    industry_tools = [make_agent_tool(item, confirm_hub, admission) for item in (app_tools or [])]
     bus.tool_metadata = {tool.name: dict(tool.metadata or {}) for tool in industry_tools}
     registry.register("builtin.fs.read", fs_read)
     registry.register("builtin.fs.write", write_tool)
@@ -373,7 +392,9 @@ def build_stack(
                 connected[cfg.name] = []
         return {"connected": connected}
 
+    _startup_stage("stores and tools ready; connecting MCP")
     reload_mcp()
+    _startup_stage("MCP ready; assembling models and graphs")
 
     def _llm_for(kind: str, override: BaseChatModel | None, fallback: BaseChatModel | None) -> BaseChatModel:
         if override is not None:
@@ -436,7 +457,9 @@ def build_stack(
     checkpointer = get_checkpointer(data_dir / "checkpoints.db")
 
     # Eigent Single Agent: one meta-agent with the full tool set (no routing).
+    from app.industry_apps.file_tools import make_app_file_tools
     single_agent_tools = [
+        *make_app_file_tools(),
         todo_tool,
         ask_human_tool,
         *automation_tools,
@@ -460,8 +483,7 @@ def build_stack(
         *industry_tools,
     ]
 
-    graph = compile_workforce_graph(
-        workers={
+    worker_specs = {
             "developer_agent": {
                 "model": developer_llm,
                 "tools": [
@@ -540,9 +562,9 @@ def build_stack(
                 ],
                 "prompt_name": "multi_modal",
             },
-        },
-        planner_llm=planner_llm,
-        checkpointer=checkpointer,
+        }
+    graph = compile_workforce_graph(
+        workers=worker_specs, planner_llm=planner_llm, checkpointer=checkpointer,
     )
     single_agent_graph = compile_single_agent_graph(
         model=planner_llm,
@@ -550,6 +572,44 @@ def build_stack(
         synthesize_llm=planner_llm,
         checkpointer=checkpointer,
     )
+
+    from app.llm.model_config import ModelRegistry
+    from app.orchestrator.task_manager import TaskRuntime
+
+    model_registry = ModelRegistry()
+
+    def runtime_factory(config, mode):
+        model = gateway.create_configured_model(config)
+        # Preserve explicitly configured fallback policy. Capture clients now so
+        # later model/credential edits cannot mutate this task's fallback chain.
+        from dataclasses import replace
+        fallback_models = [model]
+        fallback_configs = [config]
+        for provider, model_id in _parse_fallback_specs():
+            if (provider, model_id) == (config.provider, config.model):
+                continue
+            fallback_config = model_registry.find_model(provider, model_id)
+            if fallback_config is None:
+                fallback_config = replace(config, provider=provider, model=model_id,
+                    base_url=config.base_url if provider == "openai_compat" else None,
+                    reasoning_mode="default", reasoning_effort=None,
+                    thinking_enabled=None, thinking_budget=None)
+            fallback_models.append(gateway.create_configured_model(fallback_config))
+            fallback_configs.append(fallback_config)
+        if len(fallback_models) > 1:
+            model = FallbackChatModel(fallback_models, model_configs=fallback_configs, on_fallback=lambda index, error: bus.emit({
+                "type": "llm.fallback", "from_index": index, "error": type(error).__name__,
+            }))
+        if mode == "single-agent":
+            run_graph = compile_single_agent_graph(
+                model=model, tools=single_agent_tools, synthesize_llm=model, checkpointer=checkpointer,
+            )
+        else:
+            run_graph = compile_workforce_graph(
+                workers={name: {**spec, "model": model} for name, spec in worker_specs.items()},
+                planner_llm=model, checkpointer=checkpointer,
+            )
+        return TaskRuntime(run_graph, model, config)
 
     short_term = ShortTermStore(data_dir / "memory.db")
     task_store = TaskStore(data_dir / "tasks.db")
@@ -568,7 +628,11 @@ def build_stack(
         notes_root=data_dir / "notes",
         task_store=task_store,
         short_term=short_term,
+        model_registry=model_registry,
+        runtime_factory=runtime_factory,
+        admission=admission,
     )
+    _startup_stage("runtime assembled")
     return {
         "task_manager": task_manager,
         "automation_store": automation_store,
@@ -587,12 +651,13 @@ def build_stack(
         "reload_mcp": reload_mcp,
         "registry": registry,
         "data_dir": data_dir,
+        "path_guard": guard,
         "graph": graph,
         "single_agent_graph": single_agent_graph,
     }
 
 
-def create_app(
+def _create_app(
     task_manager: Any | None = None,
     bus: Any | None = None,
     confirm_hub: ConfirmHub | None = None,
@@ -606,7 +671,16 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _startup_stage("migrating skills")
+        app.state.skills_migration_warnings = []
+        if started_stack:
+            from app.skills.config import migrate_user_skills
+            try:
+                app.state.skills_migration_warnings = migrate_user_skills()
+            except (OSError, ValueError) as exc:
+                app.state.skills_migration_warnings = [f"技能迁移未完成，旧文件已保留：{exc}"]
         automation_scheduler = getattr(app.state, "automation_scheduler", None)
+        _startup_stage("skills ready; preparing scheduled tasks")
         if automation_scheduler is not None:
             try:
                 import_legacy_jobs(app.state.automations, app.state.legacy_scheduler_db)
@@ -619,14 +693,18 @@ def create_app(
                 )
             except Exception as exc:  # noqa: BLE001
                 print(f"skill schedule import failed: {exc}", file=sys.stderr)
-            automation_scheduler.start()
+            if not app.state.admission.paused:
+                automation_scheduler.start()
         mgr = getattr(app.state, "channels", None)
+        _startup_stage("scheduled tasks ready; preparing channels")
         if mgr is not None:
             mgr.bind_loop(asyncio.get_running_loop())
             autostart = os.environ.get("MY_COWORK_CHANNEL_AUTOSTART", "1") != "0"
-            if autostart and not os.environ.get("PYTEST_CURRENT_TEST"):
+            if autostart and not app.state.admission.paused and not os.environ.get("PYTEST_CURRENT_TEST"):
+                app.state.channels_started = True
                 mgr.restore_enabled()
         try:
+            _startup_stage("application ready")
             yield
         finally:
             if automation_scheduler is not None:
@@ -634,16 +712,31 @@ def create_app(
             automation_store = getattr(app.state, "automations", None)
             if automation_store is not None:
                 automation_store.close()
+            runtime_lock = getattr(app.state, "runtime_lock", None)
+            if runtime_lock:
+                runtime_lock.close()
 
+    gate = Admission(paused=bool(os.environ.get("MY_COWORK_OPERATION_TOKEN")))
     app = FastAPI(title="my-cowork", lifespan=lifespan)
+    app.state.admission = gate
+    app.state.generation = __import__("uuid").uuid4().hex
+    app.add_middleware(AdmissionMiddleware, admission=gate)
+    app.include_router(maintenance_router)
+
+    @app.exception_handler(MaintenanceBusy)
+    async def maintenance_busy(request, exc):
+        from starlette.responses import JSONResponse
+        return JSONResponse({"detail": str(exc)}, status_code=503)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[],
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.add_middleware(LocalhostOnlyMiddleware)
-    app.add_middleware(IndustryAppAuthMiddleware)
+    # Injected test/embedded managers need no desktop transport unless a token
+    # is configured. Real assembled backends always fail closed without one.
+    app.add_middleware(IndustryAppAuthMiddleware, protect_all=task_manager is None or bool(os.environ.get("MY_COWORK_INDUSTRY_TOKEN")))
     app.include_router(chat.router)
     app.include_router(audit_routes.router)
     app.include_router(browser_routes.router)
@@ -654,6 +747,9 @@ def create_app(
     app.include_router(mcp_routes.router)
     app.include_router(ima_routes.router)
     app.include_router(industry_apps_routes.router)
+    from app.server.routes import industry_ai
+    app.include_router(industry_ai.router)
+    app.include_router(industry_ai.host_router)
     app.include_router(skills_routes.router)
     app.include_router(assistants_routes.router)
     app.include_router(officecli_routes.router)
@@ -661,6 +757,10 @@ def create_app(
     app.include_router(schedule_routes.router)
     app.include_router(automation_routes.router)
     app.include_router(workspace_routes.router)
+    from app.server.routes import permissions, model_registry, context
+    app.include_router(permissions.router)
+    app.include_router(model_registry.router)
+    app.include_router(context.router)
     app.include_router(trace_routes.router)
     app.include_router(model_routes.router)
 
@@ -674,13 +774,17 @@ def create_app(
     started_stack = False
     stack: dict[str, Any] = {}
     if task_manager is None:
-        stack = build_stack(app_tools=loaded_app_tools)
+        stack = build_stack(app_tools=loaded_app_tools, admission=gate)
         task_manager = stack["task_manager"]
         bus = stack["bus"]
         confirm_hub = stack["confirm_hub"]
         started_stack = True
 
+    if isinstance(task_manager, TaskManager):
+        task_manager.admission = gate
+        task_manager.app_skills = app.state.app_skills
     app.state.task_manager = task_manager
+    app.state.path_guard = stack.get("path_guard")
     app.state.automations = stack.get("automation_store")
     app.state.bus = bus
     app.state.confirm_hub = confirm_hub or ConfirmHub()
@@ -721,9 +825,32 @@ def create_app(
         app.state.automation_scheduler = AutomationScheduler(
             app.state.automations,
             AutomationRunner(app.state.automations, task_manager, bus),
+            admission=gate,
         )
 
     return app
+
+
+def create_app(task_manager=None, bus=None, confirm_hub=None):
+    if task_manager is not None:
+        return _create_app(task_manager, bus, confirm_hub)
+    root = app_root()
+    lock = FileLock(root, "running")
+    try:
+        token = os.environ.get("MY_COWORK_OPERATION_TOKEN", "")
+        if token:
+            lock.acquire()
+            runtime_entries(root, token)
+        else:
+            with FileLock(root, "operation"):
+                lock.acquire()
+                runtime_entries(root)
+        application = _create_app()
+        application.state.runtime_lock = lock
+        return application
+    except BaseException:
+        lock.close()
+        raise
 
 
 # Uvicorn entrypoint: ``uvicorn app.main:app``. Lazy so ``from app.main import
@@ -744,6 +871,29 @@ def main() -> None:
     """CLI entry for PyInstaller / packaged backend: ``my-cowork-backend --port 0``."""
     import argparse
 
+    # Frozen Windows executables may keep the system code page despite Python
+    # environment flags. The desktop pipe protocol is always UTF-8.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+    if os.environ.get("MY_COWORK_PARENT_PIPE") == "1" and "--industry-maintenance" not in sys.argv:
+        import threading
+        def watch_parent():
+            try:
+                while os.read(sys.stdin.fileno(), 1):
+                    pass
+            finally:
+                os._exit(1)
+        threading.Thread(target=watch_parent, daemon=True).start()
+    if "--industry-maintenance" in sys.argv:
+        from app.industry_apps.maintenance import serve
+        serve()
+        return
+    if "--industry-migrate" in sys.argv:
+        from app.industry_apps.lifecycle import migrate_worker
+        migrate_worker()
+        return
     import uvicorn
 
     parser = argparse.ArgumentParser(prog="my-cowork-backend")

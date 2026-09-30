@@ -1,5 +1,8 @@
+import { apiFetch as fetch } from "@/api/backend";
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 import { useSessionsStore } from "@/store/sessions";
 
 type AuditEvent = {
@@ -21,7 +24,7 @@ export default function AuditPanel() {
   async function refresh() {
     try {
       const url = await window.api.getBackendUrl();
-      if (!url) throw new Error("后端未连接");
+      if (!url) throw new Error(await backendUnavailableMessage());
       const params = new URLSearchParams({ limit: "100" });
       if (sessionId.trim()) params.set("session_id", sessionId.trim());
       const response = await fetch(`${url}/api/audit?${params}`);
@@ -33,7 +36,9 @@ export default function AuditPanel() {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
-  useEffect(() => { void refresh(); }, []);
+  const backendEpoch = useBackendEpoch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on backend (re)start only; the filter refreshes on demand
+  useEffect(() => { void refresh(); }, [backendEpoch]);
   return (
     <div className="px-3">
       <div className="mb-4 border-b border-ds-border-neutral-default-default px-3 py-2 font-bold">操作审计</div>

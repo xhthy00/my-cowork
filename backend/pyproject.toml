@@ -38,6 +38,7 @@ dev = [
     "httpx>=0.27.0",
     "freezegun>=1.5.0",
     "import-linter>=2.1.0",
+    "respx>=0.23.1",
 ]
 
 [tool.pytest.ini_options]
@@ -61,6 +62,7 @@ packages = [
     "app.runtime",
     "app.runtime.v2",
     "app.sandbox",
+    "app.task_support",
     "app.server",
     "app.server.routes",
     "app.tools",
@@ -71,10 +73,5 @@ packages = [
     "app.tools.mcp",
     "app.tools.officecli",
     "app.skills",
-]
-
-[dependency-groups]
-dev = [
-    "freezegun>=1.5.5",
-    "respx>=0.23.1",
+    "app.workspace",
 ]

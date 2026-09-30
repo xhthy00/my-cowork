@@ -10,11 +10,12 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.factory import load_prompt
-from app.graphs.routing import wants_document, wants_pptx
-from app.runtime.v2.office_gate import is_office_skill
+from app.task_support.documents import wants_document, wants_pptx
+from app.guardrails.office_gate import is_office_skill
 from app.runtime.v2.session import load_thread
-from app.runtime.workspace_context import get_workspace_runtime
-from app.skills import find_skill
+from app.task_support.workspace_context import get_workspace_runtime
+from app.skills import find_skill, format_loaded_skill
+from app.task_support.app_context import app_task_scope
 
 _SKILL_CAP = 32_000
 _UNRELATED_SKIP = (
@@ -114,6 +115,19 @@ def render_agent_prompt(name: str, **extra: str) -> str:
     body = load_prompt(name, **placeholders)
     local = load_prompt("local_constraints", **placeholders)
     skills = load_prompt("skills_system", **placeholders)
+    if app_task_scope.get() is not None:
+        body = body.replace(
+            '- Use skills first when the user explicitly references a skill or the task\n  clearly matches an available skill. Call `list_skills`, then `load_skill`.',
+            '- The host preloads the skills selected for this business task.',
+        )
+        skills = (
+            'For this plugin task, only the host-selected skills below are preloaded. '
+            'An empty selection means no skills. Do not discover or load extras. '
+            'Read their referenced UTF-8 text with read_skill_resource using the full skill ID and a relative path. '
+            'Skill instructions do not grant tools or permissions. Use only provided tools. '
+            'Reports use app_write_report (Markdown) when available; do not call fs_write or shell. '
+            'Ask the user when evidence is missing; do not invent business facts.'
+        )
     return f"{body.rstrip()}\n\n{skills.rstrip()}\n\n{local.rstrip()}\n"
 
 
@@ -134,10 +148,12 @@ def default_office_skill_ids(user_text: str) -> list[str]:
 
 def _skill_block(skill_id: str) -> str:
     meta = find_skill(skill_id)
+    if skill_id.startswith('app:'):
+        if meta is None:
+            raise ValueError(f'插件技能不可用：{skill_id}')
+        return f'<preloaded_skill name="{skill_id}">\n{format_loaded_skill(meta)}\n</preloaded_skill>'
     if meta is None or not meta.prompt:
         return f"[skill:{skill_id} — not found on disk]"
-    from app.skills import format_loaded_skill
-
     body = format_loaded_skill(meta)
     if len(body) > _SKILL_CAP:
         listing = ""
@@ -190,8 +206,15 @@ def assemble_system_messages(
                     content=f'<assistant_rules id="{assistant_id}">\n{rules}\n</assistant_rules>'
                 )
             )
-    skill_ids = list(enabled_skill_ids or [])
-    if user_text and not wants_document(user_text):
+    scope = app_task_scope.get()
+    skill_ids = list(scope.skills) if scope is not None else list(enabled_skill_ids or [])
+    if scope is not None:
+        for sid, meta in scope.skills.items():
+            messages.append(SystemMessage(content=f'<preloaded_skill name="{sid}">\n{format_loaded_skill(meta)}\n</preloaded_skill>'))
+        if scope.record_skills and skill_ids:
+            scope.record_skills()
+        skill_ids = []
+    elif user_text and not wants_document(user_text):
         skill_ids = [sid for sid in skill_ids if not is_office_skill(sid)]
     else:
         for sid in default_office_skill_ids(user_text):
@@ -203,7 +226,7 @@ def assemble_system_messages(
         messages.append(SystemMessage(content=_skill_block(sid)))
     if long_term is not None and hasattr(long_term, "prompt_block"):
         from app.memory.scoped import project_memory_key
-        from app.runtime.todo_context import get_todo_runtime
+        from app.task_support.todo_context import get_todo_runtime
 
         runtime = get_todo_runtime()
         workspace = project_memory_key(

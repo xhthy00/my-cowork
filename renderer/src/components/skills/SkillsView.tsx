@@ -1,3 +1,5 @@
+import { backendUnavailableMessage } from "@/lib/backendStatus";
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Adapted from eigent: pages/Agents/Skills.tsx
  * Data: GET/PATCH/DELETE/import via /api/skills (not Eigent skillsStore).
@@ -14,6 +16,7 @@ import SkillListItem, {
 import AlertDialog from "@/components/ui/alertDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 
 function isExampleSkill(skill: SkillItem): boolean {
   return Boolean(skill.isExample);
@@ -29,7 +32,7 @@ export default function SkillsView() {
   const load = useCallback(async () => {
     const backendUrl = await window.api.getBackendUrl();
     if (!backendUrl) {
-      setStatus("后端未连接");
+      setStatus(await backendUnavailableMessage());
       return;
     }
     const res = await fetch(`${backendUrl}/api/skills`);
@@ -37,14 +40,18 @@ export default function SkillsView() {
       setStatus(`加载失败 ${res.status}`);
       return;
     }
-    const data = (await res.json()) as { skills: SkillItem[] };
+    const data = (await res.json()) as { skills: SkillItem[]; warnings?: string[] };
     setSkills(data.skills || []);
-    setStatus("");
+    setStatus((data.warnings || []).join("；"));
   }, []);
 
+  const backendEpoch = useBackendEpoch();
   useEffect(() => {
     void load();
-  }, [load]);
+    const backend = window.api.onBackendReady?.(() => { void load(); });
+    const industry = window.api.onIndustryStatus?.((state) => { if (!state.busy) void load(); });
+    return () => { backend?.(); industry?.(); };
+  }, [load, backendEpoch]);
 
   async function patch(id: string, body: Record<string, unknown>) {
     const backendUrl = await window.api.getBackendUrl();
@@ -148,7 +155,7 @@ export default function SkillsView() {
       <div className="mb-12 flex flex-col gap-6">
         <div className="skills-panel flex w-full flex-col gap-4 rounded-2xl bg-ds-bg-neutral-default-default px-6 py-4">
           <Tabs defaultValue="your-skills" className="w-full">
-            <div className="z-10 flex w-full items-center justify-between gap-4 border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default bg-ds-bg-neutral-default-default">
+            <div className="skills-toolbar z-10 flex w-full items-center justify-between gap-4 border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default bg-transparent">
               <TabsList appearance="border" className="h-auto flex-1 justify-start">
                 <TabsTrigger value="your-skills">您的技能</TabsTrigger>
                 <TabsTrigger value="example-skills">内置技能</TabsTrigger>

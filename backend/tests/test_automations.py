@@ -427,6 +427,28 @@ async def test_runner_persists_terminal_result(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_budget_pause_keeps_automation_waiting_until_budget_resume(tmp_path):
+    store = AutomationStore(tmp_path / "automations.db")
+    task = store.save(_task())
+    run = store.claim(task.id, trigger="manual")
+
+    class FakeManager:
+        async def handle(self, request):
+            yield {"type": "budget.paused", "tokens": 210000, "max_tokens": 200000}
+            assert store.get_run(run.run_id).status == "waiting_user"
+            # A previously started parallel tool completing cannot clear the pause.
+            yield {"type": "tool.result", "result": "done"}
+            assert store.get_run(run.run_id).status == "waiting_user"
+            yield {"type": "budget.resumed", "tokens": 210000, "max_tokens": None}
+            assert store.get_run(run.run_id).status == "running"
+            yield {"type": "graph.end", "status": "done", "summary": "Finished"}
+
+    await AutomationRunner(store, FakeManager())(task, run)
+    assert store.get_run(run.run_id).status == "ok"
+    store.close()
+
+
+@pytest.mark.asyncio
 async def test_runner_sends_optional_lark_completion_notice(tmp_path, monkeypatch):
     from app.tools.builtin.lark import send_message
 
@@ -586,15 +608,17 @@ def test_main_app_starts_scheduler_and_serves_automations(tmp_path, monkeypatch)
             yield {"type": "graph.end", "status": "ok", "summary": "scheduled result",
                    "task_id": request.task_id}
 
-    monkeypatch.setattr(main, "build_stack", lambda: {
+    monkeypatch.setattr(main, "build_stack", lambda **_kwargs: {
         "task_manager": FakeManager(), "automation_store": store,
         "bus": TraceBus(), "confirm_hub": ConfirmHub(), "data_dir": tmp_path,
     })
     monkeypatch.setenv("MY_COWORK_SKILLS_ROOT", str(tmp_path / "skills"))
     monkeypatch.setenv("MY_COWORK_SKILLS_CONFIG", str(tmp_path / "skills.json"))
     monkeypatch.setenv("MY_COWORK_SCHEDULER_DB", str(tmp_path / "legacy.db"))
+    monkeypatch.setenv("MY_COWORK_INDUSTRY_APPS_ROOT", str(tmp_path / "industry-apps"))
+    monkeypatch.setenv("MY_COWORK_INDUSTRY_TOKEN", "automation-test-token")
     app = main.create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-MyCowork-Industry-Token": "automation-test-token"}) as client:
         assert client.get("/api/automations").status_code == 200
         created = client.post("/api/automations", json={
             "title": "One time", "instructions": "Summarize",

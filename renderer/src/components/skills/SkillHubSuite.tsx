@@ -1,9 +1,12 @@
+import { apiFetch as fetch } from "@/api/backend";
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 import { ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import SearchInput from "@/components/hub/SearchInput";
 import SkillHubCard, { type HubSkill } from "@/components/skills/SkillHubCard";
 import { Button } from "@/components/ui/button";
+import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 import { cn } from "@/lib/utils";
 
 export const HUB_CATEGORIES: { id: string; label: string }[] = [
@@ -54,7 +57,7 @@ export default function SkillHubSuite({
     async (nextPage: number, replace: boolean) => {
       const backendUrl = await window.api.getBackendUrl();
       if (!backendUrl) {
-        setStatus("后端未连接");
+        setStatus(await backendUnavailableMessage());
         return;
       }
       const params = new URLSearchParams();
@@ -85,9 +88,10 @@ export default function SkillHubSuite({
     [category, debouncedKeyword],
   );
 
+  const backendEpoch = useBackendEpoch();
   useEffect(() => {
     void loadPage(1, true);
-  }, [loadPage]);
+  }, [loadPage, backendEpoch]);
 
   async function install(skill: HubSkill) {
     const backendUrl = await window.api.getBackendUrl();
