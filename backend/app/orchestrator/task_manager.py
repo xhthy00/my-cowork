@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
+import hashlib
+import logging
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -13,8 +15,12 @@ from app.guardrails.approval import (
     reset_remote_channel,
     set_remote_channel,
 )
-from app.runtime.budget import Budget
+from app.llm.budget import Budget
+from app.llm.budget_context import BudgetRuntime
+from app.llm.model_config import ModelConfig, ModelRegistry, model_scope
 from app.runtime.graph_runner import run_graph
+from app.task_support.admission import Admission
+from app.task_support.app_context import AppTaskScope, app_task_scope
 from app.skills import find_skill
 
 
@@ -70,6 +76,13 @@ def _assistant_skill_prefix(
 
 
 @dataclass
+class TaskRuntime:
+    graph: Any
+    planner: Any
+    config: ModelConfig
+
+
+@dataclass
 class TaskRequest:
     """Inbound request to run a task."""
 
@@ -93,6 +106,12 @@ class TaskRequest:
     run_started_at: float | None = None
     automation_run_id: str | None = None
     automation_store: Any = None
+    model_profile_id: str | None = None
+    reasoning: dict | None = None
+    task_budget: dict | None = None
+    budget_snapshot: dict | None = field(default=None, repr=False)
+    runtime: TaskRuntime | None = field(default=None, repr=False)
+    app_scope: AppTaskScope | None = None
 
 
 @dataclass
@@ -139,6 +158,9 @@ class TaskManager:
         notes_root: Path | str | None = None,
         task_store: Any = None,
         short_term: Any = None,
+        model_registry: ModelRegistry | None = None,
+        runtime_factory: Any = None,
+        admission: Admission | None = None,
     ) -> None:
         self.graph = graph
         self.single_agent_graph = single_agent_graph
@@ -153,24 +175,58 @@ class TaskManager:
         self.human_input_hub = human_input_hub
         self.notes_root = Path(notes_root) if notes_root else None
         self.task_store = task_store
+        if task_store is not None and hasattr(task_store, 'interrupt_app_tasks'):
+            task_store.interrupt_app_tasks()
         self.short_term = short_term
+        self.compacting_sessions: set[str] = set()
+        self.model_registry = model_registry
+        self.runtime_factory = runtime_factory
+        self.admission = admission or Admission()
+        self.app_skills = {}
         self._tasks: dict[str, dict[str, Any]] = {}
+        self._model_snapshots: dict[str, ModelConfig] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._graph_tasks: dict[str, asyncio.Task[None]] = {}
+        self._budgets: dict[str, BudgetRuntime] = {}
+
+    def budget_settings(self) -> dict:
+        if self.task_store is not None:
+            return self.task_store.get_budget_settings(self.max_total_tokens)
+        return {"max_tokens": self.max_total_tokens}
+
+    def set_budget_settings(self, settings: dict) -> None:
+        if self.task_store is not None:
+            self.task_store.save_budget_settings(settings)
+        self.max_total_tokens = settings["max_tokens"]
+
+    def resume_budget(self, task_id: str, limit: int | None) -> None:
+        runtime = self._budgets.get(task_id)
+        if runtime is None or not runtime.paused or self.status(task_id) != "PAUSED":
+            raise ValueError("原任务已结束或后端已重启，无法原位继续")
+        runtime.resume(limit)
+
+    def paused_budgets(self) -> list[dict]:
+        return [{"task_id": tid, "text": self._tasks.get(tid, {}).get("text", ""),
+                 "source": self._tasks.get(tid, {}).get("source", "user"),
+                 "tokens": rt.budget.tokens, "max_tokens": rt.budget.max_total_tokens,
+                 "required_tokens": rt.required_tokens}
+                for tid, rt in self._budgets.items() if rt.paused]
 
     def _set_status(self, task_id: str, status: str, *, source: str = "user", text: str = "") -> None:
         if task_id not in self._tasks:
             self._tasks[task_id] = {"status": status, "events": []}
         else:
             self._tasks[task_id]["status"] = status
+        if text:
+            self._tasks[task_id].update(text=text, source=source)
         if self.task_store is not None:
             try:
                 self.task_store.upsert(task_id, status, source=source, text=text)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._tasks[task_id]['storage_error'] = f'任务记录保存失败：{exc}'
 
     def status(self, task_id: str) -> str:
-        """Return NEW|RUNNING|DONE|FAILED|CANCELLED for a task."""
+        """Return NEW|RUNNING|PAUSED|DONE|FAILED|CANCELLED for a task."""
         if task_id in self._tasks:
             return self._tasks[task_id]["status"]
         if self.task_store is not None:
@@ -181,6 +237,14 @@ class TaskManager:
 
     def cancel(self, task_id: str) -> bool:
         """Request cancellation of a running task. Returns True if signaled."""
+        pending = self._tasks.get(task_id, {})
+        if pending.get('app_task') and pending.get('status') == 'NEW':
+            event = {'type': 'graph.end', 'task_id': task_id, 'status': 'cancelled'}
+            if self.task_store is not None:
+                self.task_store.append_event(task_id, event)
+            pending['events'].append(event)
+            self._set_status(task_id, 'CANCELLED')
+            return True
         if self.human_input_hub is not None:
             self.human_input_hub.cancel_task(task_id)
         ev = self._cancel_events.get(task_id)
@@ -192,8 +256,8 @@ class TaskManager:
         if graph_task is not None and not graph_task.done():
             graph_task.cancel()
             signaled = True
-        if task_id in self._tasks and self._tasks[task_id]["status"] == "RUNNING":
-            self._set_status(task_id, "CANCELLED")
+        if task_id in self._tasks and self._tasks[task_id]["status"] in {"NEW", "RUNNING", "PAUSED", "CANCELLING"}:
+            self._set_status(task_id, "CANCELLING" if self._tasks[task_id].get("app_task") else "CANCELLED")
             signaled = True
         return signaled
 
@@ -209,9 +273,6 @@ class TaskManager:
             if self.cancel(tid):
                 count += 1
         return count
-
-    def _new_budget(self) -> Budget:
-        return Budget(max_steps=self.max_steps, max_total_tokens=self.max_total_tokens)
 
     def _graph_for(self, session_mode: str) -> Any:
         if session_mode == "single-agent" and self.single_agent_graph is not None:
@@ -232,21 +293,80 @@ class TaskManager:
 
     async def submit(self, task_req: TaskRequest) -> str:
         """Enqueue a task in the background and return its id."""
-        task_id = task_req.task_id or str(uuid.uuid4())
-        self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
-        asyncio.create_task(self._run(task_id, task_req))
+        lease = self.admission.acquire(task_req.text[:60] or "聊天任务")
+        try:
+            self.prepare_task(task_req)
+            task_id = task_req.task_id or str(uuid.uuid4())
+            self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
+            self._tasks[task_id]["session_id"] = task_req.session_id or task_req.project_id
+            self._tasks[task_id]['app_task'] = bool(task_req.app_scope)
+            child = asyncio.create_task(self._run(task_id, task_req, lease))
+            child.add_done_callback(lambda _: self.admission.release(lease))
+        except BaseException:
+            self.admission.release(lease)
+            raise
         return task_id
 
     async def handle(self, task_req: TaskRequest) -> AsyncIterator[dict[str, Any]]:
         """Run a task synchronously and yield all trace events."""
-        task_id = task_req.task_id or str(uuid.uuid4())
-        self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
-        async for event in self._execute(task_id, task_req):
-            yield event
+        with self.admission.work(task_req.text[:60] or "聊天任务"):
+            self.prepare_task(task_req)
+            task_id = task_req.task_id or str(uuid.uuid4())
+            self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
+            async for event in self._execute(task_id, task_req):
+                yield event
 
-    async def _run(self, task_id: str, task_req: TaskRequest) -> None:
-        async for _event in self._execute(task_id, task_req):
-            pass
+    def prepare_task(self, request: TaskRequest) -> None:
+        """Resolve before scheduling: subsequent connection edits cannot change this run."""
+        sid = request.session_id or request.project_id
+        if sid in self.compacting_sessions:
+            raise ValueError("会话正在压缩，请稍后发送")
+        if request.runtime is not None:
+            return
+        if request.budget_snapshot is None:
+            saved_budget = self.task_store.load_budget_snapshot(request.task_id) if request.resume_execution and self.task_store else None
+            if saved_budget and saved_budget.get("paused"):
+                raise ValueError("预算暂停期间后端已重启，无法原位继续；请检查已有结果后新建任务")
+            request.budget_snapshot = dict(saved_budget or (request.task_budget if request.task_budget is not None else self.budget_settings()))
+        request.task_id = request.task_id or str(uuid.uuid4())
+        if sid and any(meta.get("session_id") == sid and tid != request.task_id and meta.get("status") in {"NEW", "RUNNING", "PAUSED"} for tid, meta in self._tasks.items()):
+            raise ValueError("会话忙碌中，请等待当前任务结束")
+        if request.resume_execution and request.task_id in self._model_snapshots:
+            request.runtime = self.runtime_factory(self._model_snapshots[request.task_id], request.session_mode)
+        elif self.model_registry is not None and self.model_registry.initialized:
+            saved = self.task_store.load_model_snapshot(request.task_id) if request.resume_execution and self.task_store and hasattr(self.task_store, "load_model_snapshot") else None
+            config = self.model_registry.resolve(saved["id"] if saved else request.model_profile_id)
+            if saved:
+                expected = saved.pop("credential_fingerprint", "")
+                if hashlib.sha256(config.api_key.encode()).hexdigest() != expected or config.base_url != saved.get("base_url"):
+                    raise ValueError("原任务的连接已变化，无法安全恢复；请恢复连接配置或重新运行任务")
+                config = ModelConfig(**saved, api_key=config.api_key)
+            elif request.reasoning is not None:
+                config = config.with_reasoning(request.reasoning)
+            request.runtime = self.runtime_factory(config, request.session_mode)
+            if self.task_store and hasattr(self.task_store, "save_model_snapshot"):
+                snapshot = asdict(config)
+                snapshot.pop("api_key")
+                snapshot["credential_fingerprint"] = hashlib.sha256(config.api_key.encode()).hexdigest()
+                self.task_store.save_model_snapshot(request.task_id, snapshot)
+        elif request.model_profile_id:
+            raise ValueError("模型配置尚未同步，请稍后重试")
+        if request.runtime is not None and request.source == "schedule":
+            self._model_snapshots[request.task_id] = request.runtime.config
+        # Reserve before SSE headers or background scheduling yield to another request.
+        self._set_status(request.task_id, "NEW", source=request.source, text=request.text)
+        self._tasks[request.task_id]["session_id"] = sid
+
+    def session_busy(self, session_id: str) -> bool:
+        return any(meta.get("session_id") == session_id and meta.get("status") in {"NEW", "RUNNING", "PAUSED"}
+                   for meta in self._tasks.values())
+
+    async def _run(self, task_id: str, task_req: TaskRequest, lease=None) -> None:
+        with self.admission.work(task_id, lease):
+            if self._tasks[task_id]['status'] == 'CANCELLED':
+                return
+            async for _event in self._execute(task_id, task_req):
+                pass
 
     async def _execute(
         self, task_id: str, task_req: TaskRequest | str
@@ -302,6 +422,8 @@ class TaskManager:
                 enabled_skill_ids = list(a.get("enabled_skills") or [])
 
         self._set_status(task_id, "RUNNING", source=source, text=text)
+        self._tasks[task_id]["session_id"] = session_id
+        self._tasks[task_id]['app_task'] = bool(req_obj.app_scope)
         self._seed_short_term(task_id, req_obj)
         other_running = any(
             tid != task_id and not gt.done()
@@ -334,8 +456,16 @@ class TaskManager:
             automation_store=automation_store,
         )
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        budget = self._new_budget()
-        graph = self._graph_for(session_mode)
+        budget_snapshot = req_obj.budget_snapshot or req_obj.task_budget or self.budget_settings()
+        budget = Budget(self.max_steps, budget_snapshot["max_tokens"])
+        budget.tokens = budget_snapshot.get("tokens", 0)
+        budget.steps = budget_snapshot.get("steps", 0)
+        budget_runtime = BudgetRuntime(task_id, self.bus, budget)
+        self._budgets[task_id] = budget_runtime
+        if self.task_store:
+            self.task_store.save_budget_snapshot(task_id, {"max_tokens": budget.max_total_tokens, "tokens": budget.tokens, "steps": budget.steps, "paused": False})
+        runtime = req_obj.runtime
+        graph = runtime.graph if runtime else self._graph_for(session_mode)
         cancel_event = asyncio.Event()
         self._cancel_events[task_id] = cancel_event
 
@@ -349,6 +479,14 @@ class TaskManager:
             ):
                 # Unscoped events must not fan out while two chats are live.
                 return
+            if event.get("type") in {"budget.paused", "budget.resumed"}:
+                self._set_status(task_id, "PAUSED" if event["type"] == "budget.paused" else "RUNNING", source=source, text=text)
+            if self.task_store and event.get("type") in {"budget.update", "budget.paused", "budget.resumed"} and not event.get("estimated"):
+                try:
+                    self.task_store.save_budget_snapshot(task_id, {"max_tokens": budget.max_total_tokens,
+                        "tokens": budget.tokens, "steps": budget.steps, "paused": budget_runtime.paused})
+                except Exception:
+                    logging.getLogger(__name__).exception("Failed to persist task budget")
             queue.put_nowait(event)
 
         unsub = self.bus.subscribe(_on_bus)
@@ -358,15 +496,20 @@ class TaskManager:
         mcp_token = set_enabled_mcp(enabled_mcp)
 
         async def _run_graph() -> None:
+            scope_token = app_task_scope.set(req_obj.app_scope)
+            from app.skills import bundled_skill_scope
+            skill_context = bundled_skill_scope(self.app_skills, selected=req_obj.app_scope.skills if req_obj.app_scope is not None else None)
+            skill_context.__enter__()
             try:
                 async for _event in run_graph(
                     task,
                     graph,
                     self.bus,
                     budget=budget,
+                    budget_runtime=budget_runtime,
                     long_term=self.long_term,
                     metrics=self.metrics,
-                    planner_llm=self.planner_llm,
+                    planner_llm=runtime.planner if runtime else self.planner_llm,
                     confirm_hub=self.confirm_hub,
                     human_input_hub=self.human_input_hub,
                     notes_root=self.notes_root,
@@ -384,10 +527,15 @@ class TaskManager:
                         "task_id": task_id,
                     }
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                queue.put_nowait({"type": "graph.end", "status": "error", "task_id": task_id,
+                                 "error": type(exc).__name__})
+            finally:
+                skill_context.__exit__(None, None, None)
+                app_task_scope.reset(scope_token)
 
-        graph_task = asyncio.create_task(_run_graph())
+        with model_scope(runtime.config if runtime else None):
+            graph_task = asyncio.create_task(_run_graph())
         self._graph_tasks[task_id] = graph_task
 
         try:
@@ -398,6 +546,14 @@ class TaskManager:
                     if owner and owner != task_id:
                         continue
                 self._tasks[task_id]["events"].append(event)
+                if req_obj.app_scope and self.task_store is not None:
+                    try:
+                        self.task_store.append_event(task_id, event)
+                    except Exception as exc:
+                        # A result that failed to persist must never look saved.
+                        self._tasks[task_id]['storage_error'] = f'任务记录保存失败：{exc}'
+                        event = {'type': 'graph.end', 'task_id': task_id, 'status': 'error',
+                                 'error': f'任务记录保存失败：{exc}'}
                 if event.get("type") == "graph.end" and self.short_term is not None:
                     try:
                         summary = str(
@@ -413,7 +569,6 @@ class TaskManager:
                             )
                     except Exception:
                         pass
-                yield event
                 if event.get("type") == "graph.end":
                     status = event.get("status")
                     if status == "error":
@@ -423,8 +578,14 @@ class TaskManager:
                     else:
                         final = "DONE"
                     self._set_status(task_id, final, source=source, text=text)
+                    if final in {"DONE", "FAILED"}:
+                        self._model_snapshots.pop(task_id, None)
+                    yield event
                     break
+                yield event
         finally:
+            if self._tasks[task_id]["status"] in {"NEW", "RUNNING", "PAUSED", "CANCELLING"}:
+                self._set_status(task_id, "CANCELLED", source=source, text=text)
             if self.human_input_hub is not None:
                 self.human_input_hub.cancel_task(task_id)
             unsub()
@@ -432,6 +593,7 @@ class TaskManager:
             reset_remote_channel(remote_token)
             self._cancel_events.pop(task_id, None)
             self._graph_tasks.pop(task_id, None)
+            self._budgets.pop(task_id, None)
             if not graph_task.done():
                 graph_task.cancel()
                 try:

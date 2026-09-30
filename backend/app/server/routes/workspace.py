@@ -49,24 +49,12 @@ def workspace_bind(body: BindBody) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    try:
-        from app.tools.builtin.fs import get_guard
-
-        get_guard().add_whitelist(binding.workspace_root)
-    except Exception:
-        pass
     return {"binding": asdict(binding)}
 
 
 @router.post("/scratch")
 def workspace_scratch(body: ScratchBody) -> dict[str, Any]:
     binding = get_workspace_resolver().ensure_scratch_binding(body.space_id)
-    try:
-        from app.tools.builtin.fs import get_guard
-
-        get_guard().add_whitelist(binding.workspace_root)
-    except Exception:
-        pass
     return {"binding": asdict(binding)}
 
 

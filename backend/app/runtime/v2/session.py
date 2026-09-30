@@ -49,6 +49,8 @@ def _serialize(message: Any) -> dict[str, Any]:
         "name": getattr(message, "name", None),
         "tool_call_id": getattr(message, "tool_call_id", None),
         "tool_calls": serial_calls,
+        "additional_kwargs": getattr(message, "additional_kwargs", {}) or {},
+        "response_metadata": getattr(message, "response_metadata", {}) or {},
     }
 
 
@@ -68,6 +70,8 @@ def _deserialize(row: dict[str, Any]) -> Any:
     return AIMessage(
         content=content,
         tool_calls=list(row.get("tool_calls") or []),
+        additional_kwargs=row.get("additional_kwargs") or {},
+        response_metadata=row.get("response_metadata") or {},
         name=row.get("name"),
     )
 

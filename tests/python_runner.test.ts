@@ -2,19 +2,22 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── hoisted mocks ──────────────────────────────────────────────────────────
-const { spawnMock, getMock } = vi.hoisted(() => ({
+const { spawnMock, spawnSyncMock, getMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
+  spawnSyncMock: vi.fn(),
   getMock: vi.fn(),
 }));
 
-vi.mock("child_process", () => ({ spawn: spawnMock }));
+vi.mock("child_process", () => ({ spawn: spawnMock, spawnSync: spawnSyncMock }));
 vi.mock("http", () => ({ get: getMock }));
 
 // ── helpers ───────────────────────────────────────────────────────────────
 class MockChildProcess extends EventEmitter {
+  pid = 123456;
+  kill = vi.fn();
   stdin = { write: vi.fn() };
   stdout = new EventEmitter();
   stderr = new EventEmitter();
@@ -23,6 +26,7 @@ class MockChildProcess extends EventEmitter {
 function fakeHealthOk(): any {
   const res = new EventEmitter() as any;
   res.statusCode = 200;
+  res.resume = vi.fn();
   setTimeout(() => {
     res.emit("data", Buffer.from("healthy"));
     res.emit("end");
@@ -45,7 +49,7 @@ describe("python_runner", () => {
     getMock.mockImplementation((_url: string, cb: any) => {
       const res = fakeHealthOk();
       setTimeout(() => cb(res), 0);
-      return new EventEmitter();
+      return Object.assign(new EventEmitter(), { destroy: vi.fn(), setTimeout: vi.fn() });
     });
 
     const promise = start({ cwd: "/fake/cwd", dev: true });
@@ -60,15 +64,10 @@ describe("python_runner", () => {
     expect(info.url).toBe("http://127.0.0.1:54321");
     expect(info.process).toBeDefined();
 
-    expect(spawnMock).toHaveBeenCalledWith(
-      "uv",
-      ["run", "uvicorn", "app.main:app", "--port", "0", "--reload", "--reload-dir", "/fake/cwd/app"],
-      expect.objectContaining({
-        cwd: "/fake/cwd",
-        env: expect.objectContaining({ PYTHONUNBUFFERED: "1" }),
-        detached: process.platform !== "win32",
-      }),
-    );
+    expect(spawnMock.mock.calls[0][0]).toBe(path.join("/fake/cwd", ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"));
+    expect(spawnMock.mock.calls[0][1]).toEqual(["-m", "app.main", "--port", "0"]);
+    expect(spawnMock.mock.calls[0][2].env.PYTHONUNBUFFERED).toBe("1");
+    expect(spawnMock.mock.calls[0][2].env.MY_COWORK_PARENT_PIPE).toBe("1");
   });
 
   it("passes env overrides through to spawn", async () => {
@@ -77,7 +76,7 @@ describe("python_runner", () => {
     getMock.mockImplementation((_url: string, cb: any) => {
       const res = fakeHealthOk();
       setTimeout(() => cb(res), 0);
-      return new EventEmitter();
+      return Object.assign(new EventEmitter(), { destroy: vi.fn(), setTimeout: vi.fn() });
     });
 
     const promise = start({
@@ -108,7 +107,7 @@ describe("python_runner", () => {
     getMock.mockImplementation((_url: string, cb: (res: unknown) => void) => {
       const res = fakeHealthOk();
       setTimeout(() => cb(res), 0);
-      return new EventEmitter();
+      return Object.assign(new EventEmitter(), { destroy: vi.fn(), setTimeout: vi.fn() });
     });
 
     try {
@@ -152,7 +151,7 @@ describe("python_runner", () => {
     getMock.mockImplementation((_url: string, cb: (res: unknown) => void) => {
       const res = fakeHealthOk();
       setTimeout(() => cb(res), 0);
-      return new EventEmitter();
+      return Object.assign(new EventEmitter(), { destroy: vi.fn(), setTimeout: vi.fn() });
     });
 
     try {
@@ -172,5 +171,89 @@ describe("python_runner", () => {
       (process as { resourcesPath?: string }).resourcesPath = prev;
       fs.rmSync(resources, { recursive: true, force: true });
     }
+  });
+});
+
+describe("python_runner startup lifecycle", () => {
+  let proc: MockChildProcess;
+  const requests: Array<EventEmitter & { destroy: ReturnType<typeof vi.fn>; setTimeout: ReturnType<typeof vi.fn> }> = [];
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    proc = new MockChildProcess();
+    requests.length = 0;
+    spawnMock.mockReturnValue(proc);
+    // Do not send actual signals when tests run on POSIX.
+    vi.spyOn(process, "kill").mockReturnValue(true);
+    getMock.mockImplementation(() => {
+      const req = Object.assign(new EventEmitter(), { destroy: vi.fn(), setTimeout: vi.fn() });
+      requests.push(req);
+      return req;
+    });
+  });
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it("allows a cold start slower than 15 seconds", async () => {
+    const pending = start({ cwd: "/fake", dev: true });
+    proc.stderr.emit("data", Buffer.from("Uvicorn running on http://127.0.0.1:54321\n"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    getMock.mock.calls[0][1]({ statusCode: 200, resume: vi.fn() });
+    expect((await pending).port).toBe(54321);
+    expect(proc.kill).not.toHaveBeenCalled();
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("times out and stops its process tree even when no port is printed", async () => {
+    const pending = start({ cwd: "/fake", dev: true, healthTimeoutMs: 100 }).catch(e => e);
+    await vi.advanceTimersByTimeAsync(101);
+    expect(await pending).toBeInstanceOf(Error);
+    expect(process.platform === "win32" ? spawnSyncMock : process.kill).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bounds hanging health requests and cleans them up", async () => {
+    const pending = start({ cwd: "/fake", dev: true, healthTimeoutMs: 100 }).catch(e => e);
+    proc.stderr.emit("data", Buffer.from("Listening on 127.0.0.1:54321\n"));
+    await vi.advanceTimersByTimeAsync(101);
+    expect(await pending).toBeInstanceOf(Error);
+    expect(requests[0].destroy).toHaveBeenCalled();
+    expect(process.platform === "win32" ? spawnSyncMock : process.kill).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects immediately if the process exits after announcing its port", async () => {
+    const pending = start({ cwd: "/fake", dev: true }).catch(e => e);
+    proc.stderr.emit("data", Buffer.from("Listening on 127.0.0.1:54321\n"));
+    proc.emit("exit", 1);
+    expect((await pending).message).toMatch(/exited.*1/);
+    expect(requests[0].destroy).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("waits for the complete port line when output is split", async () => {
+    const pending = start({ cwd: "/fake", dev: true });
+    proc.stderr.emit("data", Buffer.from("Listening on 127.0.0.1:54"));
+    expect(getMock).not.toHaveBeenCalled();
+    proc.stderr.emit("data", Buffer.from("321\n"));
+    getMock.mock.calls[0][1]({ statusCode: 200, resume: vi.fn() });
+    expect((await pending).port).toBe(54321);
+  });
+
+  it("cancels during startup and ignores late success before retrying", async () => {
+    const controller = new AbortController();
+    const pending = start({ cwd: "/fake", dev: true, signal: controller.signal }).catch(e => e);
+    proc.stderr.emit("data", Buffer.from("Listening on 127.0.0.1:54321\n"));
+    const late = getMock.mock.calls[0][1];
+    controller.abort();
+    expect((await pending).name).toBe("AbortError");
+    late({ statusCode: 200, resume: vi.fn() });
+    const next = new MockChildProcess();
+    spawnMock.mockReturnValue(next);
+    const retry = start({ cwd: "/fake", dev: true });
+    next.stderr.emit("data", Buffer.from("Listening on 127.0.0.1:54322\n"));
+    getMock.mock.calls[1][1]({ statusCode: 200, resume: vi.fn() });
+    expect((await retry).url).toBe("http://127.0.0.1:54322");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -129,18 +129,20 @@ export default function TracePanel({
 
   const budget = useMemo(() => {
     let tokens = 0;
-    let maxTokens = 200_000;
+    let maxTokens: number | null = 200_000;
+    let paused = false;
     let exhausted = false;
     let dailyAlert: string | null = null;
     for (const ev of trace) {
-      if (ev.type === "budget.update") {
+      if (["budget.update", "budget.paused", "budget.resumed"].includes(ev.type)) {
+        if (ev.type !== "budget.update") paused = ev.type === "budget.paused";
         tokens = Number(ev.payload.tokens ?? tokens);
-        maxTokens = Number(ev.payload.max_tokens ?? maxTokens);
+        maxTokens = ev.payload.max_tokens === null ? null : Number(ev.payload.max_tokens ?? maxTokens);
       }
       if (ev.type === "budget.exhausted") {
         exhausted = true;
         tokens = Number(ev.payload.tokens ?? tokens);
-        maxTokens = Number(ev.payload.max_tokens ?? maxTokens);
+        maxTokens = ev.payload.max_tokens === null ? null : Number(ev.payload.max_tokens ?? maxTokens);
       }
       if (ev.type === "metrics.daily_exceeded") {
         const usd = Number(ev.payload.usd ?? 0);
@@ -148,9 +150,9 @@ export default function TracePanel({
         dailyAlert = `今日成本 $${usd.toFixed(2)} 已超阈值 $${limit.toFixed(2)}`;
       }
     }
-    const pct = maxTokens > 0 ? Math.min(100, Math.round((tokens / maxTokens) * 100)) : 0;
+    const pct = maxTokens !== null && maxTokens > 0 ? Math.min(100, Math.round((tokens / maxTokens) * 100)) : 0;
     const usd = tokens * 1e-6;
-    return { tokens, maxTokens, pct, usd, exhausted, dailyAlert };
+    return { tokens, maxTokens, pct, usd, exhausted, paused, dailyAlert };
   }, [trace]);
 
   function toggle(id: string, fallbackOpen: boolean) {
@@ -222,9 +224,9 @@ export default function TracePanel({
               embedded ? "mt-1 text-ds-text-neutral-subtle-default" : "usage-cap"
             }
           >
-            预算 {(budget.maxTokens / 1000).toFixed(0)}k · {budget.pct}% · 事件{" "}
+            预算 {budget.maxTokens === null ? "无上限" : `${(budget.maxTokens / 1000).toFixed(0)}k · ${budget.pct}%`} · 事件{" "}
             {eventCount} · 步骤 {stepCount}
-            {budget.exhausted ? " · 已截断" : ""}
+            {budget.paused ? " · 已暂停" : budget.exhausted ? " · 已停止" : ""}
           </div>
           {budget.dailyAlert && (
             <div

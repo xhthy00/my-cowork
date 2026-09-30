@@ -53,6 +53,15 @@ export interface Project {
   createdAt: number;
   updatedAt: number;
   status: "idle" | "running" | "done" | "error";
+  taskBudget?: { max_tokens: number | null };
+  modelProfileId?: string;
+  modelReasoning?: Record<string, import("../window").ReasoningSelection>;
+  failedDraft?: {
+    taskId: string;
+    text: string;
+    files: { filePath: string; fileName: string }[];
+    error: string;
+  };
   assistantId?: string;
   /** Stable display name; `title` may become the first user query. */
   assistantName?: string;
@@ -61,13 +70,19 @@ export interface Project {
   boundKnowledgeBases?: BoundKnowledgeBase[];
   /** Recommended prompts from the bound office assistant (Hub cold-start). */
   assistantPrompts?: string[];
+  appOrigin?: { appId: string; appName: string; route: string; taskId: string; generation: string };
 }
 
 type CreateProjectOpts = {
+  background?: boolean;
+  appOrigin?: Project["appOrigin"];
   id?: string;
   initialMessages?: Message[];
   spaceId?: string;
   workdirMode?: WorkdirMode;
+  taskBudget?: { max_tokens: number | null };
+  modelProfileId?: string;
+  modelReasoning?: Record<string, import("../window").ReasoningSelection>;
   assistantId?: string;
   assistantName?: string;
   enabledSkillIds?: string[];
@@ -124,6 +139,13 @@ export function hydrateLiveChat(): void {
   setLiveBoundId(id);
 }
 
+function parseFailedDraft(raw: unknown): Project["failedDraft"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.taskId !== "string" || typeof value.text !== "string" || typeof value.error !== "string" || !Array.isArray(value.files)) return undefined;
+  return { taskId: value.taskId, text: value.text, error: value.error, files: value.files.filter((f) => f && typeof f.filePath === "string" && typeof f.fileName === "string") };
+}
+
 function migrateProject(raw: Record<string, unknown>, messages: Message[]): Project {
   const spaceId =
     typeof raw.spaceId === "string" && raw.spaceId
@@ -146,6 +168,10 @@ function migrateProject(raw: Record<string, unknown>, messages: Message[]): Proj
     createdAt: Number(raw.createdAt) || Date.now(),
     updatedAt: Number(raw.updatedAt) || Date.now(),
     status: (raw.status as Project["status"]) || "idle",
+    modelProfileId: typeof raw.modelProfileId === "string" ? raw.modelProfileId : undefined,
+    modelReasoning: raw.modelReasoning && typeof raw.modelReasoning === "object" ? raw.modelReasoning as Project["modelReasoning"] : undefined,
+    taskBudget: raw.taskBudget && typeof raw.taskBudget === "object" && "max_tokens" in raw.taskBudget && (raw.taskBudget.max_tokens === null || (Number.isSafeInteger(raw.taskBudget.max_tokens) && Number(raw.taskBudget.max_tokens) > 0)) ? raw.taskBudget as Project["taskBudget"] : undefined,
+    failedDraft: parseFailedDraft(raw.failedDraft),
     assistantId:
       typeof raw.assistantId === "string" ? raw.assistantId : undefined,
     assistantName:
@@ -161,6 +187,7 @@ function migrateProject(raw: Record<string, unknown>, messages: Message[]): Proj
     assistantPrompts: Array.isArray(raw.assistantPrompts)
       ? raw.assistantPrompts.map(String)
       : undefined,
+    appOrigin: raw.appOrigin && typeof raw.appOrigin === "object" ? raw.appOrigin as Project["appOrigin"] : undefined,
   };
 }
 
@@ -174,7 +201,7 @@ export const useSessionsStore = create<SessionsState>()(
     (set, get) => {
       const createProject = (title = "新对话", opts?: CreateProjectOpts) => {
         if (opts?.id && get().sessions.some((item) => item.id === opts.id)) {
-          get().setActive(opts.id);
+          if (!opts.background) get().setActive(opts.id);
           return opts.id;
         }
         const spaceId =
@@ -201,12 +228,16 @@ export const useSessionsStore = create<SessionsState>()(
               : undefined,
           enabledSkillIds: opts?.enabledSkillIds,
           assistantPrompts: opts?.assistantPrompts,
+          taskBudget: opts?.taskBudget,
+          modelProfileId: opts?.modelProfileId,
+          modelReasoning: opts?.modelReasoning,
+          appOrigin: opts?.appOrigin,
         };
         const prev = get().activeId;
-        if (prev) parkProject(prev);
+        if (prev && !opts?.background) parkProject(prev);
         set((s) => ({
           sessions: [session, ...s.sessions],
-          activeId: id,
+          activeId: opts?.background ? s.activeId : id,
           messagesById: {
             ...s.messagesById,
             ...(prev
@@ -215,8 +246,10 @@ export const useSessionsStore = create<SessionsState>()(
             [id]: opts?.initialMessages || [],
           },
         }));
-        restoreProject(id, opts?.initialMessages || []);
-        setLiveBoundId(id);
+        if (!opts?.background) {
+          restoreProject(id, opts?.initialMessages || []);
+          setLiveBoundId(id);
+        }
         return id;
       };
 

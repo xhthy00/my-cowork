@@ -201,6 +201,18 @@ describe("session store", () => {
     expect(queue[0]).toEqual({ call_id: "c_8f2a", tool: "pptx.gen", args: { path: "~/Desktop/a.pptx" } });
   });
 
+  it("keeps an app operation title when replaying and resolving its confirmation", () => {
+    const request = { call_id: "app-write", tool: "industry__cn_one__save", tool_title: "保存记录", args: { value: "业务内容" } };
+    useSessionStore.getState().beginRun();
+    useSessionStore.getState().handleEvent({ type: "tool.confirm_request", payload: request });
+    expect(useSessionStore.getState().messages[0].confirm?.tool_title).toBe("保存记录");
+    useSessionStore.setState({ confirmQueue: [], messages: [] });
+    useSessionStore.getState().recoverPendingConfirms();
+    expect(useSessionStore.getState().messages[0].confirm?.tool_title).toBe("保存记录");
+    useSessionStore.getState().resolveConfirm(request.call_id, false);
+    expect(useSessionStore.getState().messages[0].confirm).toMatchObject({ tool_title: "保存记录", status: "denied" });
+  });
+
   it("recoverPendingConfirms re-queues unresolved confirm from trace", () => {
     useSessionStore.getState().beginRun();
     useSessionStore.getState().handleEvent({

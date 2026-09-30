@@ -3,6 +3,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { leaveIndustryPage } from "./industryNavigation";
 
 import type { SessionPreviewTab } from "./preview";
 
@@ -13,7 +14,7 @@ export type AgentsSection = "skills" | "sub-agents" | "memory";
 export type BrowserSection = "agent" | "cdp" | "extension" | "cookies";
 
 export function migratePageTabState(persisted: unknown): unknown {
-  const state = persisted as Partial<PageTabState> & { agentsSection?: string };
+  const state = persisted as Omit<Partial<PageTabState>, "agentsSection"> & { agentsSection?: string };
   if (state?.agentsSection === "models") {
     return { ...state, agentsSection: "skills" };
   }
@@ -48,7 +49,7 @@ interface PageTabState {
 
 export const usePageTabStore = create<PageTabState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       workspaceView: "hub",
       hubTab: "home",
       homeSection: "spaces",
@@ -58,8 +59,14 @@ export const usePageTabStore = create<PageTabState>()(
       projectHistoryCollapsed: false,
       sidePanelVisible: true,
       previewOpen: false,
-      setWorkspaceView: (workspaceView) => set({ workspaceView }),
-      setHubTab: (hubTab) => set({ hubTab, workspaceView: "hub" }),
+      setWorkspaceView: (workspaceView) => {
+        if (get().workspaceView === "hub" && get().hubTab === "workbench" && workspaceView !== "hub" && !leaveIndustryPage()) return;
+        set({ workspaceView });
+      },
+      setHubTab: (hubTab) => {
+        if (get().workspaceView === "hub" && get().hubTab === "workbench" && hubTab !== "workbench" && !leaveIndustryPage()) return;
+        set({ hubTab, workspaceView: "hub" });
+      },
       setHomeSection: (homeSection) => set({ homeSection }),
       setAgentsSection: (agentsSection) => set({ agentsSection }),
       setBrowserSection: (browserSection) => set({ browserSection }),

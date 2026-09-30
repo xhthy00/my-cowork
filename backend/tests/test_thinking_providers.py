@@ -73,31 +73,31 @@ class TestStreamChunkTimeout:
         assert _resolve_stream_chunk_timeout(90.0, "minimax-m3") == 90.0
 
     def test_create_openai_compat_passes_minimax_timeout(self, monkeypatch):
-        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        monkeypatch.setattr(openai_compat, "ReasoningChatOpenAI", _CaptureChatOpenAI)
         model = openai_compat.create_openai_compat("MiniMax-M3", "k")
         assert model.kwargs["stream_chunk_timeout"] == _REASONING_STREAM_CHUNK_TIMEOUT_S
 
     def test_create_openai_compat_omits_timeout_for_gpt4o(self, monkeypatch):
-        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        monkeypatch.setattr(openai_compat, "ReasoningChatOpenAI", _CaptureChatOpenAI)
         model = openai_compat.create_openai_compat("gpt-4o", "k")
         assert "stream_chunk_timeout" not in model.kwargs
 
 
 class TestMaxTokens:
     def test_omits_max_tokens_by_default(self, monkeypatch):
-        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        monkeypatch.setattr(openai_compat, "ReasoningChatOpenAI", _CaptureChatOpenAI)
         model = openai_compat.create_openai_compat("MiniMax-M3", "k")
         assert "max_tokens" not in model.kwargs
 
     def test_passes_explicit_positive_max_tokens(self, monkeypatch):
-        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        monkeypatch.setattr(openai_compat, "ReasoningChatOpenAI", _CaptureChatOpenAI)
         model = openai_compat.create_openai_compat(
             "MiniMax-M3", "k", max_tokens=32768
         )
         assert model.kwargs["max_tokens"] == 32768
 
     def test_omits_non_positive_max_tokens(self, monkeypatch):
-        monkeypatch.setattr(openai_compat, "ChatOpenAI", _CaptureChatOpenAI)
+        monkeypatch.setattr(openai_compat, "ReasoningChatOpenAI", _CaptureChatOpenAI)
         for value in (0, -1, None):
             model = openai_compat.create_openai_compat(
                 "MiniMax-M3", "k", max_tokens=value

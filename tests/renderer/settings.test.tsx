@@ -27,21 +27,42 @@ function resetStore() {
 describe("Settings", () => {
   let originalFetch: typeof fetch;
 
+  it("does not save a shared connection when the model draft is invalid", async () => {
+    vi.mocked(window.api.getModels).mockResolvedValue({ profiles: [], activeId: null, connections: [{ id: "connection1", name: "Anthropic", provider: "anthropic", presetId: "anthropic" }] });
+    render(<Settings />);
+    window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }));
+    await userEvent.click(await screen.findByRole("button", { name: "添加模型到 Anthropic" }));
+    const field = await screen.findByLabelText("模型 ID");
+    fireEvent.change(field, { target: { value: "" } });
+    await userEvent.click(screen.getByRole("button", { name: "保存模型", exact: true }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("请填写模型 ID");
+    expect(window.api.upsertConnection).not.toHaveBeenCalled();
+    expect(window.api.upsertModel).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     window.localStorage.removeItem("my-cowork-settings");
     resetStore();
     originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn(async (_url, init) => ({
+      ok: true,
+      json: async () => String(_url).includes("/api/admin/whitelist")
+        ? (init?.body ? JSON.parse(String(init.body)) : { paths: ["~/Desktop", "~/Documents", "~/Downloads"], workspace_paths: [] })
+        : { tasks: [], runs: [] },
+    })) as unknown as typeof fetch;
     window.api = {
       getBackendUrl: vi.fn().mockResolvedValue(BACKEND_URL),
       restartBackend: vi.fn().mockResolvedValue(BACKEND_URL),
       getKey: vi.fn().mockResolvedValue(null),
       setKey: vi.fn().mockResolvedValue(undefined),
       getModels: vi.fn().mockResolvedValue({ profiles: [], activeId: null }),
+      getModelCatalog: vi.fn().mockResolvedValue({ models: [], updatedAt: "test" }),
+      upsertConnection: vi.fn().mockResolvedValue({ profiles: [], activeId: null, connections: [{ id: "connection1", name: "Anthropic", provider: "anthropic" }] }),
       upsertModel: vi.fn().mockResolvedValue({
         profiles: [
           {
             id: "m1",
+            connectionId: "connection1",
             name: "Anthropic",
             provider: "anthropic",
             model: "claude-sonnet-4-20250514",
@@ -104,6 +125,26 @@ describe("Settings", () => {
     ]);
   });
 
+  it("keeps saved permissions unchanged when the server rejects a save", async () => {
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "隐私 / 白名单" }));
+    await userEvent.type(screen.getByPlaceholderText("例如 ~/Projects"), "~/Private");
+    await userEvent.click(screen.getByRole("button", { name: "+ 添加目录…" }));
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({ detail: "目录权限保存失败" }) } as Response);
+    await userEvent.click(screen.getByRole("button", { name: "保存白名单" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("目录权限保存失败");
+    expect(useSettingsStore.getState().whitelist).not.toContain("~/Private");
+  });
+
+  it("loads saved directories from the backend instead of stale local state", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ paths: ["C:/Chosen"], workspace_paths: ["C:/Bound"] }) } as Response);
+    render(<Settings />);
+    await userEvent.click(screen.getByRole("button", { name: "隐私 / 白名单" }));
+    expect(await screen.findByText("C:/Chosen")).toBeInTheDocument();
+    expect(screen.getByText("C:/Bound")).toBeInTheDocument();
+    expect(screen.queryByText("~/Desktop")).not.toBeInTheDocument();
+  });
+
   it("updates zustand whitelist after editing and saving", async () => {
     render(<Settings />);
 
@@ -125,23 +166,21 @@ describe("Settings", () => {
     );
   });
 
-  it("validates then upserts a model via 保存", async () => {
+  it("saves a model under a shared connection without activating it", async () => {
+    vi.mocked(window.api.getModels).mockResolvedValue({ profiles: [], activeId: null, connections: [{ id: "connection1", name: "Anthropic", provider: "anthropic", presetId: "anthropic" }] });
     render(<Settings />);
-
-    await userEvent.clear(screen.getByLabelText("API 密钥"));
-    await userEvent.type(screen.getByLabelText("API 密钥"), "sk-test-key");
-    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    await userEvent.click(await screen.findByRole("button", { name: "添加模型到 Anthropic" }));
+    await userEvent.click(screen.getByRole("button", { name: "保存模型" }));
 
     await waitFor(() => {
-      expect(window.api.validateModel).toHaveBeenCalled();
+      expect(window.api.upsertConnection).not.toHaveBeenCalled();
       expect(window.api.upsertModel).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "Anthropic",
+          name: "claude-sonnet-4-20250514",
           provider: "anthropic",
           model: "claude-sonnet-4-20250514",
-          apiKey: "sk-test-key",
-          activate: true,
-          isValid: true,
+          connectionId: "connection1",
+          activate: false,
           presetId: "anthropic",
         }),
       );
@@ -219,14 +258,15 @@ describe("Settings", () => {
     });
   });
 
-  it("opens API / 模型 when navigating to models", async () => {
+  it("opens 模型配置/上下文 when navigating to models", async () => {
     render(<Settings />);
     await userEvent.click(screen.getByRole("button", { name: "通用" }));
     expect(screen.getByRole("switch", { name: "保持唤醒" })).toBeInTheDocument();
 
     window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }));
 
-    expect(await screen.findByLabelText("API 密钥")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "连接与模型" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "模型配置/上下文" })).toHaveClass("active");
   });
 
   it("shows 下载 when an update is available", async () => {

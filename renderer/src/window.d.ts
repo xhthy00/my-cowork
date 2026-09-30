@@ -1,29 +1,5 @@
-export type ModelProvider =
-  | "anthropic"
-  | "openai_compat"
-  | "openrouter"
-  | "ollama"
-  | "lmstudio"
-  | "vllm";
-
-export type ModelCategory = "cloud_byok" | "local";
-
-export interface ModelProfile {
-  id: string;
-  name: string;
-  provider: ModelProvider;
-  model: string;
-  baseUrl?: string;
-  isValid?: boolean;
-  lastValidatedAt?: string;
-  category?: ModelCategory;
-  presetId?: string;
-}
-
-export interface ModelsState {
-  profiles: ModelProfile[];
-  activeId: string | null;
-}
+import type { ModelProvider, ModelCategory, ModelConnection, ModelProfile, ModelsState } from "../../electron/models_store";
+export type { ModelProvider, ModelCategory, ModelConnection, ModelProfile, ModelsState, ReasoningSelection } from "../../electron/models_store";
 
 export interface ModelValidateResult {
   ok: boolean;
@@ -57,21 +33,48 @@ export interface UpdaterStatus {
   message?: string;
 }
 
+export interface IndustryStatus {
+  busy: boolean;
+  phase: string;
+  appId?: string;
+  message?: string;
+  detail?: string;
+  active?: number;
+  tasks?: string[];
+  generation?: string;
+}
+
 export interface ElectronAPI {
   getBackendUrl(): Promise<string>;
+  backendRequest(id: string, request: { url: string; method?: string; headers?: Record<string, string>; body?: Uint8Array }): Promise<{ status: number; statusText: string; headers: Record<string, string> }>;
+  backendRead(id: string): Promise<{ done: boolean; value?: Uint8Array }>;
+  backendCancel(id: string): Promise<void>;
   restartBackend(): Promise<string>;
+  industryStatus(): Promise<IndustryStatus>;
+  industryCancel(): Promise<void>;
+  onIndustryStatus(callback: (status: IndustryStatus) => void): () => void;
   industryList(): Promise<{
+    lifecycle?: IndustryStatus;
+    operation?: { id: string; phase: string; app_id: string; error?: string; retained?: string };
     apps: Array<{
       id: string;
-      version: string;
+      version: string | null;
+      generation?: string;
+      dev_revision?: string;
+      dev_url?: string;
+      candidate?: { version: string };
+      recovery?: { snapshot: { created_at: string } };
       previous_version?: string | null;
       enabled: boolean;
       status: string;
       error?: string;
-      manifest: { name: string; description: string; ui: { entry: string }; agent_tools?: Array<{ name: string; title: string; description: string; access: "read" | "write" }> };
+      manifest: { name: string; description: string; ui: { entry: string }; capabilities?: { host_api: string[] }; agent_tools?: Array<{ name: string; title: string; description: string; access: "read" | "write" }> };
     }>;
   }>;
   industryInspect(filePath: string): Promise<{
+    skill_names?: string[];
+    current_version?: string | null;
+    previous_tools?: Array<{ name: string; title: string; access: string }>;
     sha256: string;
     file_count: number;
     expanded_bytes: number;
@@ -83,11 +86,17 @@ export interface ElectronAPI {
     version: string;
     requires_restart: boolean;
   }>;
-  industryRequest(appId: string, method: string, requestPath: string, body?: unknown): Promise<unknown>;
-  industryManage(appId: string, action: "disable" | "enable" | "rollback"): Promise<unknown>;
+  industryRequest(appId: string, method: string, requestPath: string, body?: unknown, generation?: string): Promise<unknown>;
+  industryManage(appId: string, action: "disable" | "enable" | "rollback" | "remove" | "retry"): Promise<unknown>;
   getKey(account: string): Promise<string | null>;
   setKey(account: string, value: string): Promise<void>;
+  getModelCatalog(): Promise<import("../../electron/model_capabilities").ModelCatalog>;
+  refreshModelCatalog(): Promise<import("../../electron/model_capabilities").ModelCatalog>;
+  onModelCatalogChanged?(cb: () => void): () => void;
   getModels(): Promise<ModelsState>;
+  upsertConnection(input: ModelConnection & { apiKey?: string }): Promise<ModelsState>;
+  removeConnection(id: string): Promise<ModelsState>;
+  setCompactionRatio(ratio: number): Promise<ModelsState>;
   upsertModel(input: {
     id?: string;
     name: string;
@@ -100,10 +109,16 @@ export interface ElectronAPI {
     lastValidatedAt?: string;
     category?: ModelCategory;
     presetId?: string;
+    connectionId?: string;
+    capabilityId?: string;
+    reasoningAdapter?: string;
+    reasoning?: ModelProfile["reasoning"];
+    contextWindow?: number;
   }): Promise<ModelsState>;
   removeModel(id: string): Promise<ModelsState>;
   setActiveModel(id: string): Promise<ModelsState>;
   validateModel?(input: {
+    profileId?: string;
     provider: ModelProvider;
     model: string;
     apiKey?: string;
@@ -146,7 +161,13 @@ export interface ElectronAPI {
   removeCdpBrowser?(id: string): Promise<{ success: boolean; error?: string }>;
   onCdpPoolChanged?(cb: (browsers: CdpBrowserInfo[]) => void): () => void;
   onBackendReady?(cb: (url: string) => void): () => void;
+  onBackendStarting?(cb: () => void): () => void;
   onBackendFailed?(cb: (message: string) => void): () => void;
+  onBackendNeedsModel?(cb: () => void): () => void;
+  getBackendStatus?(): Promise<{
+    state: "starting" | "ready" | "needs-model" | "failed";
+    error: string;
+  }>;
   getUpdaterStatus?(): Promise<UpdaterStatus>;
   checkForUpdates?(): Promise<UpdaterStatus>;
   downloadUpdate?(): Promise<UpdaterStatus>;

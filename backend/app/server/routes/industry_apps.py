@@ -39,11 +39,7 @@ async def apps_inspect(request: Request) -> dict:
 
 @router.post("/api/industry-apps/install")
 async def apps_install(request: Request) -> dict:
-    expected = request.headers.get("x-package-sha256", "")
-    try:
-        return install_zip(await _zip_body(request), expected)
-    except AppPackageError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raise HTTPException(status_code=409, detail="请使用桌面应用管理菜单完成安装和安全切换")
 
 
 @router.post("/api/industry-apps/{app_id}/disable")

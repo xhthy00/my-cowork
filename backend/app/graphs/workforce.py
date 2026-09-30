@@ -14,7 +14,7 @@ from app.graphs.coordinator import coordinate
 from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail, ready_subtasks, wants_document
 from app.graphs.single_agent import run_with_floor_retries
 from app.graphs.state import WorkforceState
-from app.runtime.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope, todo_subtask_scope
+from app.task_support.todo_context import automation_checkpoint_scope, get_todo_runtime, todo_agent_scope, todo_subtask_scope
 from app.runtime.v2.assemble import format_bound_knowledge_block, render_agent_prompt
 from app.runtime.v2.critic import (
     analyze_task,
@@ -22,8 +22,9 @@ from app.runtime.v2.critic import (
     finalize_worker_result,
     needs_research,
 )
-from app.runtime.v2.office_gate import office_skills_scope
-from app.runtime.v2.compact import compact_session_history
+from app.guardrails.office_gate import office_skills_scope
+from app.runtime.v2.compact import compact_session_history, compression_trigger
+from app.llm.token_counter import count_tokens
 from app.runtime.v2.session import (
     load_compaction, load_thread, save_compaction, write_compaction_transcript,
 )
@@ -64,10 +65,10 @@ def compile_workforce_graph(
             return ""
         old_state = load_compaction(session_id)
         visible, new_state = await compact_session_history(
-            canonical, old_state, llm=planner_llm, threshold=12_000,
+            canonical, old_state, llm=planner_llm, threshold=max(1, compression_trigger() - count_tokens([HumanMessage(content=str(state.get("user_text") or ""))])),
         )
         if new_state is not None and (
-            old_state is None or new_state["boundary_index"] != old_state.get("boundary_index")
+            new_state is not old_state
         ):
             new_state["transcript_path"] = write_compaction_transcript(
                 session_id, canonical, int(new_state["boundary_index"]),

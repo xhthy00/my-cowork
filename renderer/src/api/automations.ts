@@ -1,3 +1,5 @@
+import { apiFetch as fetch } from "@/api/backend";
+import { backendUnavailableMessage } from "@/lib/backendStatus";
 export type Schedule = {
   kind: "cron" | "once" | "interval";
   cron?: string | null;
@@ -52,7 +54,7 @@ export type RunEvent = Record<string, unknown> & { type?: string };
 
 export async function automationApi<T>(path: string, init?: RequestInit): Promise<T> {
   const base = await window.api.getBackendUrl();
-  if (!base) throw new Error("后端尚未连接");
+  if (!base) throw new Error(await backendUnavailableMessage());
   const response = await fetch(`${base}/api/automations${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },

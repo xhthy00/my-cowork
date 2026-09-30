@@ -1,260 +1,258 @@
-import { Check, ChevronDown, Key, Server } from "lucide-react";
-import { useMemo, useState } from "react";
-
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
-  DropdownMenuSubContent,
   DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { navigateToModelsConfig, useModels } from "@/hooks/useModels";
-import { resolvePresetId } from "@/lib/modelPresets";
+import { navigateToModelsConfig, type useModels } from "@/hooks/useModels";
 import {
-  getModelImage,
-  isDarkAppearance,
-  needsInvertModelImage,
-} from "@/lib/modelProviderImages";
-import { cn } from "@/lib/utils";
-import type { ModelProfile } from "@/window";
+  capabilityFor,
+  EFFORT_LABELS,
+  reasoningAdapter,
+  type ModelCatalog,
+} from "../../../../electron/model_capabilities";
+import type { ReasoningSelection } from "@/window";
 
-/** Matches Eigent ModelSelect trigger shell. */
-const modelTriggerShellClass = cn(
-  "rounded-xl px-2 py-1 inline-flex min-w-0 max-w-[min(100%,280px)] items-center gap-1.5",
-  "bg-ds-bg-neutral-default-default text-ds-text-neutral-default-default",
-);
-
-/** Vendor name + concrete model id, e.g. `Minimax (MiniMax-M3)`. */
-function formatModelLabel(profile: ModelProfile): string {
-  const model = profile.model?.trim();
-  if (!model || model === profile.name) return profile.name;
-  return `${profile.name} (${model})`;
-}
-
-function VendorIcon({
-  profile,
-  size = "sm",
+export default function ChatModelSelect({
+  modelState,
+  catalog,
+  value,
+  onChange,
+  onModelChange,
+  error,
+  running,
 }: {
-  profile: ModelProfile;
-  size?: "sm" | "xs";
+  modelState: ReturnType<typeof useModels>;
+  catalog: ModelCatalog;
+  value: ReasoningSelection;
+  onChange: (value: ReasoningSelection) => void;
+  onModelChange?: (id: string) => void;
+  error?: string;
+  running?: boolean;
 }) {
-  const appearance = isDarkAppearance() ? "dark" : "light";
-  const logoId = resolvePresetId(profile);
-  const logo = getModelImage(logoId);
-  const box = size === "xs" ? "h-3.5 w-3.5" : "h-4 w-4";
-  if (logo) {
-    return (
-      <img
-        src={logo}
-        alt=""
-        className={cn(box, "shrink-0")}
-        style={
-          needsInvertModelImage(logoId, appearance)
-            ? { filter: "invert(1)" }
-            : undefined
-        }
-      />
-    );
-  }
-  if (
-    profile.category === "local" ||
-    profile.provider === "ollama" ||
-    profile.provider === "lmstudio" ||
-    profile.provider === "vllm"
-  ) {
-    return <Server className={cn(box, "shrink-0 text-ds-text-neutral-muted-default")} />;
-  }
-  return <Key className={cn(box, "shrink-0 text-ds-text-neutral-muted-default")} />;
-}
-
-function ProfileRow({
-  profile,
-  preferred,
-  onSelect,
-}: {
-  profile: ModelProfile;
-  preferred: boolean;
-  onSelect: () => void;
-}) {
-  const configured = profile.isValid !== false;
-  const label = formatModelLabel(profile);
-  return (
-    <DropdownMenuItem
-      className="flex items-center justify-between gap-2"
-      onClick={onSelect}
-      title={label}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <VendorIcon profile={profile} />
-        <span
-          className={cn(
-            "truncate text-body-sm",
-            configured
-              ? "text-ds-text-neutral-default-default"
-              : "text-ds-text-neutral-muted-default",
-          )}
-        >
-          {label}
-        </span>
-      </div>
-      <div className="flex items-center gap-1">
-        {!configured && (
-          <div className="h-2 w-2 rounded-full bg-ds-text-neutral-default-default opacity-10" />
-        )}
-        {preferred && (
-          <Check className="h-4 w-4 text-ds-text-success-default-default" />
-        )}
-        {configured && !preferred && (
-          <div className="h-2 w-2 rounded-full bg-ds-text-success-default-default" />
-        )}
-      </div>
-    </DropdownMenuItem>
-  );
-}
-
-export default function ChatModelSelect() {
-  const { models, active, setActive, switching, status } = useModels();
+  const { models, active, setActive } = modelState;
   const [open, setOpen] = useState(false);
-
-  const custom = useMemo(
-    () =>
-      models.profiles.filter(
-        (p) =>
-          p.category !== "local" &&
-          p.provider !== "ollama" &&
-          p.provider !== "lmstudio" &&
-          p.provider !== "vllm",
-      ),
-    [models.profiles],
+  const [budget, setBudget] = useState("");
+  const cap = active ? capabilityFor(active, catalog) : undefined;
+  const adapter = active ? reasoningAdapter(active, cap) : "default";
+  const available = adapter !== "default" && cap?.reasoning !== false;
+  const efforts = available
+    ? cap?.options.find((o) => o.type === "effort")?.values
+    : undefined;
+  const toggle = available && cap?.options.some((o) => o.type === "toggle");
+  const budgetOption = available
+    ? cap?.options.find((o) => o.type === "budget_tokens")
+    : undefined;
+  const adjustable = Boolean(efforts?.length || budgetOption);
+  const parts: string[] = [];
+  if (error) parts.push("检查选项");
+  else {
+    if (value.effort) parts.push(EFFORT_LABELS[value.effort] ?? value.effort);
+    if (value.budgetTokens !== undefined)
+      parts.push(`${value.budgetTokens.toLocaleString()} tokens`);
+    if (!parts.length && adjustable) parts.push("默认");
+  }
+  const label = [active?.name || active?.model || "选择模型", ...parts].join(
+    " · ",
   );
-  const local = useMemo(
-    () =>
-      models.profiles.filter(
-        (p) =>
-          p.category === "local" ||
-          p.provider === "ollama" ||
-          p.provider === "lmstudio" ||
-          p.provider === "vllm",
-      ),
-    [models.profiles],
-  );
-
-  const triggerName = active ? formatModelLabel(active) : "选择默认模型";
-
-  if (models.profiles.length === 0) {
+  const triggerClass =
+    "inline-flex min-w-0 max-w-[260px] items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-ds-text-neutral-muted-default hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-border-neutral-strong-default";
+  if (!models.profiles.length)
     return (
       <button
         type="button"
-        className={cn(
-          modelTriggerShellClass,
-          "cursor-pointer border-0 text-left hover:bg-ds-bg-neutral-subtle-default",
-        )}
+        className={triggerClass}
         onClick={navigateToModelsConfig}
-        aria-label="去配置模型"
       >
-        <span className="min-w-0 truncate text-body-xs font-medium">
-          去配置模型
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" strokeWidth={2} />
+        配置模型
       </button>
     );
+  function choose(next: ReasoningSelection) {
+    onChange(next);
   }
-
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setBudget(value.budgetTokens?.toString() ?? "");
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          disabled={switching}
-          title={status || triggerName}
-          aria-label={triggerName}
-          aria-haspopup="menu"
-          className={cn(
-            modelTriggerShellClass,
-            "min-w-0 cursor-pointer border-0 text-left",
-            "duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] justify-between font-medium transition-[background-color,box-shadow,opacity]",
-            "hover:bg-ds-bg-neutral-subtle-default active:bg-ds-bg-neutral-subtle-default data-[state=open]:bg-ds-bg-neutral-subtle-default",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-border-neutral-strong-default focus-visible:ring-offset-2",
-            "disabled:pointer-events-none disabled:opacity-50",
-            open && "min-w-[min(100%,200px)]",
-          )}
+          className={triggerClass}
+          aria-label={label}
+          title={running ? "更改将用于下一次发送" : label}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-            {active && <VendorIcon profile={active} size="xs" />}
-            <span className="min-w-0 flex-1 truncate text-left text-body-xs text-ds-text-neutral-default-default">
-              {triggerName}
-            </span>
-          </span>
-          <ChevronDown
-            className="h-3.5 w-3.5 shrink-0 opacity-80"
-            aria-hidden
-            strokeWidth={2}
-          />
+          <span className="truncate">{label}</span>
+          <ChevronDown size={12} className="shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         side="top"
-        sideOffset={4}
-        className="w-[240px]"
+        sideOffset={8}
+        className="w-[280px] max-w-[calc(100vw-32px)] p-1.5"
+        aria-label="模型与思考"
       >
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="flex w-full min-w-0 items-center justify-start gap-2">
-            <Key className="h-4 w-4 shrink-0 text-ds-text-neutral-default-default" />
-            <span className="min-w-0 flex-1 text-left text-body-sm">自定义模型</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-[300px] w-[240px] overflow-y-auto">
-            {custom.length === 0 ? (
-              <DropdownMenuItem onClick={navigateToModelsConfig}>
-                <span className="text-body-sm text-ds-text-neutral-muted-default">
-                  去配置…
+        <DropdownMenuRadioGroup
+          value={active?.id ?? ""}
+          onValueChange={(id) => {
+            if (id !== active?.id) {
+              void setActive(id);
+              onModelChange?.(id);
+            }
+          }}
+          aria-label="模型"
+        >
+          {models.profiles.map((p) => {
+            const duplicate = models.profiles.some(
+              (other) => other.id !== p.id && other.name === p.name,
+            );
+            return (
+              <DropdownMenuRadioItem
+                key={p.id}
+                value={p.id}
+                onSelect={(e) => e.preventDefault()}
+                className="rounded-lg py-2"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate">{p.name || p.model}</span>
+                  {duplicate && (
+                    <span className="block truncate text-body-xs text-ds-text-neutral-muted-default">
+                      {models.connections?.find((c) => c.id === p.connectionId)
+                        ?.name || p.model}
+                    </span>
+                  )}
                 </span>
-              </DropdownMenuItem>
-            ) : (
-              custom.map((p) => (
-                <ProfileRow
-                  key={p.id}
-                  profile={p}
-                  preferred={models.activeId === p.id}
-                  onSelect={() => {
-                    void setActive(p.id);
-                    setOpen(false);
-                  }}
-                />
-              ))
+                {p.isValid === false && (
+                  <span className="ml-auto text-body-xs text-ds-text-neutral-muted-default">
+                    待检查
+                  </span>
+                )}
+              </DropdownMenuRadioItem>
+            );
+          })}
+        </DropdownMenuRadioGroup>
+        {(adjustable || Object.keys(value).length > 0 || error) && (
+          <>
+            <DropdownMenuSeparator />
+            {error && (
+              <p
+                role="alert"
+                className="px-2 py-1 text-body-xs text-ds-text-danger-default-default"
+              >
+                {error}，请选择服务默认或重新选择。
+              </p>
             )}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="flex w-full min-w-0 items-center justify-start gap-2">
-            <Server className="h-4 w-4 shrink-0 text-ds-text-neutral-default-default" />
-            <span className="min-w-0 flex-1 text-left text-body-sm">本地模型</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-[300px] w-[240px] overflow-y-auto">
-            {local.length === 0 ? (
-              <DropdownMenuItem onClick={navigateToModelsConfig}>
-                <span className="text-body-sm text-ds-text-neutral-muted-default">
-                  去配置…
-                </span>
-              </DropdownMenuItem>
-            ) : (
-              local.map((p) => (
-                <ProfileRow
-                  key={p.id}
-                  profile={p}
-                  preferred={models.activeId === p.id}
-                  onSelect={() => {
-                    void setActive(p.id);
-                    setOpen(false);
-                  }}
-                />
-              ))
+            <DropdownMenuLabel className="text-body-xs font-normal text-ds-text-neutral-muted-default">
+              思考设置
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={
+                Object.values(value).every((v) => v === undefined)
+                  ? "default"
+                  : "custom"
+              }
+              onValueChange={() => choose({})}
+            >
+              <DropdownMenuRadioItem
+                value="default"
+                onSelect={(e) => e.preventDefault()}
+                className="rounded-lg"
+              >
+                服务默认
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            {efforts?.length ? (
+              <DropdownMenuRadioGroup
+                aria-label="思考强度"
+                value={value.effort ?? ""}
+                onValueChange={(effort) =>
+                  choose({
+                    ...value,
+                    effort,
+                    enabled: undefined,
+                    ...(["google", "openrouter"].includes(adapter)
+                      ? { budgetTokens: undefined }
+                      : {}),
+                  })
+                }
+              >
+                {efforts.map((effort) => (
+                  <DropdownMenuRadioItem
+                    key={effort}
+                    value={effort}
+                    onSelect={(e) => e.preventDefault()}
+                    className="rounded-lg"
+                  >
+                    {EFFORT_LABELS[effort] ?? effort}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            ) : null}
+            {budgetOption && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>思考预算</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56 p-3">
+                  <label className="text-body-xs">
+                    预算（tokens）
+                    <input
+                      aria-label="思考预算"
+                      type="number"
+                      min={budgetOption.min ?? 0}
+                      max={budgetOption.max}
+                      value={budget}
+                      placeholder="服务默认"
+                      onChange={(e) => setBudget(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="mt-2 w-full rounded-lg border border-ds-border-neutral-subtle-default bg-transparent px-2 py-1.5"
+                    />
+                  </label>
+                  <DropdownMenuItem
+                    className="mt-2 justify-center"
+                    onSelect={() =>
+                      choose({
+                        ...value,
+                        budgetTokens: budget ? Number(budget) : undefined,
+                        ...(budget
+                          ? { enabled: toggle ? true : undefined }
+                          : {}),
+                        ...(["google", "openrouter"].includes(adapter)
+                          ? { effort: undefined }
+                          : {}),
+                      })
+                    }
+                  >
+                    应用预算
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             )}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={navigateToModelsConfig}
+          className="text-ds-text-neutral-muted-default"
+        >
+          管理模型
+        </DropdownMenuItem>
+        {running && (
+          <p className="px-2 py-1 text-body-xs text-ds-text-neutral-muted-default">
+            更改用于下一次发送
+          </p>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

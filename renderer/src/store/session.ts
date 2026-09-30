@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 import { createStore, type StoreApi } from "zustand";
 
 import type { SSEvent } from "../api/sse";
@@ -35,8 +36,9 @@ export interface Message {
   confirm?: {
     call_id: string;
     tool: string;
+    tool_title?: string;
     args: Record<string, unknown>;
-    status: "pending" | "allowed" | "denied";
+    status: "pending" | "allowed" | "denied" | "expired";
     responded_at?: number;
   };
   humanQuestion?: {
@@ -85,6 +87,7 @@ export interface TraceEdge {
 export interface ConfirmRequest {
   call_id: string;
   tool: string;
+  tool_title?: string;
   args: Record<string, unknown>;
 }
 
@@ -109,7 +112,9 @@ export interface SessionState {
   taskElapsedMs: number;
   /** Live token budget from SSE ``budget.update`` (tiktoken estimate). */
   budgetTokens: number;
-  budgetMaxTokens: number;
+  budgetMaxTokens: number | null;
+  budgetPaused: boolean;
+  budgetRequiredTokens: number;
   budgetSteps: number;
   /** Token breakdown from budget.update (if the backend provides it). */
   inputTokens: number;
@@ -215,6 +220,7 @@ function unresolvedConfirmFromTrace(
   return {
     call_id: callId,
     tool: String(ev.payload.tool ?? ""),
+    ...(typeof ev.payload.tool_title === "string" && ev.payload.tool_title ? { tool_title: ev.payload.tool_title } : {}),
     args: (ev.payload.args as Record<string, unknown>) ?? {},
   };
 }
@@ -693,6 +699,8 @@ export function createSessionStore(
   taskStartedAt: null,
   taskElapsedMs: 0,
   budgetTokens: 0,
+      budgetPaused: false,
+      budgetRequiredTokens: 1,
   budgetMaxTokens: 200_000,
   budgetSteps: 0,
   inputTokens: 0,
@@ -842,6 +850,8 @@ export function createSessionStore(
       taskStartedAt: null,
       taskElapsedMs: 0,
       budgetTokens: 0,
+      budgetPaused: false,
+      budgetRequiredTokens: 1,
       budgetMaxTokens: 200_000,
       budgetSteps: 0,
       inputTokens: 0,
@@ -862,7 +872,9 @@ export function createSessionStore(
         taskStartedAt: Date.now(),
         taskElapsedMs: 0,
         budgetTokens: 0,
-        budgetMaxTokens: state.budgetMaxTokens || 200_000,
+      budgetPaused: false,
+      budgetRequiredTokens: 1,
+        budgetMaxTokens: state.budgetMaxTokens,
         budgetSteps: 0,
         inputTokens: 0,
         outputTokens: 0,
@@ -887,6 +899,9 @@ export function createSessionStore(
 
   handleEvent: (event, projectId) => {
     const payload = event.payload ?? {};
+    if (event.type === "tool.confirm_resolved") {
+      get().resolveConfirm(String(payload.call_id ?? ""), payload.ok === true);
+    }
 
     if (event.type === "human.answered") {
       get().answerHumanQuestion(
@@ -955,7 +970,9 @@ export function createSessionStore(
           taskStartedAt: state.taskStartedAt ?? Date.now(),
           taskElapsedMs: state.taskStartedAt ? state.taskElapsedMs : 0,
           budgetTokens: 0,
-          budgetMaxTokens: state.budgetMaxTokens || 200_000,
+      budgetPaused: false,
+      budgetRequiredTokens: 1,
+          budgetMaxTokens: state.budgetMaxTokens,
           budgetSteps: 0,
           inputTokens: 0,
           outputTokens: 0,
@@ -1028,11 +1045,13 @@ export function createSessionStore(
             },
           }];
         }
-      } else if (event.type === "budget.update" || event.type === "budget.exhausted") {
+      } else if (["budget.update", "budget.exhausted", "budget.paused", "budget.resumed"].includes(event.type)) {
         updates.budgetTokens = Number(payload.tokens ?? state.budgetTokens);
-        updates.budgetMaxTokens = Number(
-          payload.max_tokens ?? state.budgetMaxTokens,
-        );
+        updates.budgetMaxTokens = payload.max_tokens === null ? null : Number(payload.max_tokens ?? state.budgetMaxTokens);
+        if (event.type === "budget.paused" || event.type === "budget.resumed") {
+          updates.budgetPaused = event.type === "budget.paused";
+          updates.budgetRequiredTokens = Number(payload.required_tokens ?? 1);
+        }
         if (payload.steps != null) {
           updates.budgetSteps = Number(payload.steps);
         }
@@ -1054,7 +1073,7 @@ export function createSessionStore(
         const tool = String(payload.tool ?? "");
         const args = (payload.args as Record<string, unknown>) ?? {};
         const callId = String(payload.call_id ?? "");
-        const request = { call_id: callId, tool, args };
+        const request = { call_id: callId, tool, args, ...(typeof payload.tool_title === "string" && payload.tool_title ? { tool_title: payload.tool_title } : {}) };
         if (callId) {
           if (tool && state.alwaysAllowTools.includes(tool)) {
             // Silent approve: do not enqueue (avoids card flash). Only show UI if POST fails.
@@ -1091,7 +1110,7 @@ export function createSessionStore(
                   role: "assistant" as const,
                   content: "",
                   createdAt: Date.now(),
-                  confirm: { call_id: callId, tool, args, status: "pending" as const },
+                  confirm: { ...request, status: "pending" as const },
                 },
               ];
             }
@@ -1166,8 +1185,10 @@ export function createSessionStore(
         updates.messages = (updates.messages ?? state.messages).map((m) =>
           m.humanQuestion?.status === "pending"
             ? { ...m, humanQuestion: { ...m.humanQuestion, status: "cancelled" as const } }
+            : m.confirm?.status === "pending" ? { ...m, confirm: { ...m.confirm, status: "expired" as const } }
             : m,
         );
+        updates.confirmQueue = [];
         const started = state.taskStartedAt;
         const elapsed =
           (started ? Date.now() - started : 0) + state.taskElapsedMs;
@@ -1183,6 +1204,7 @@ export function createSessionStore(
           updates.messages = replaceLastAssistantContent(msgs, card);
         }
         if (payload.status === "cancelled") {
+          updates.budgetPaused = false;
           updates.runStatus = "done";
           flushArtifactsToMessages(
             { ...state, messages: updates.messages ?? state.messages },
@@ -1197,6 +1219,7 @@ export function createSessionStore(
             );
           }
         } else if (payload.status === "error") {
+          updates.budgetPaused = false;
           updates.runStatus = "error";
           flushArtifactsToMessages(
             { ...state, messages: updates.messages ?? state.messages },
@@ -1207,6 +1230,7 @@ export function createSessionStore(
             `任务失败：${String(payload.error ?? "未知错误")}`,
           );
         } else if (payload.status === "ok") {
+          updates.budgetPaused = false;
           updates.runStatus = "done";
           flushArtifactsToMessages(
             { ...state, messages: updates.messages ?? state.messages },

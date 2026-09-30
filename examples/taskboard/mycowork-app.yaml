@@ -6,6 +6,7 @@ description: 带独立页面与 SQLite 数据的本地任务管理应用
 min_host_version: 0.0.9
 sdk_version: 1
 kind: python-web
+skills: [skills/risk-analysis, skills/weekly-report]
 platforms: [darwin-arm64, darwin-x64, win-x64]
 backend:
   entry: mcapp_cn_example_taskboard.plugin:register
@@ -17,10 +18,14 @@ ui:
 data:
   scope: workspace
 capabilities:
-  host_api: []
+  host_api: [ai, files, navigation, ui]
   network_domains: []
 agent_tools:
   - name: list_tasks
     title: 查询任务
     description: 查询任务管理样例中的任务及完成状态。
     access: read
+  - name: create_subtask
+    title: 创建子任务
+    description: 在指定父任务下创建一条子任务。
+    access: write

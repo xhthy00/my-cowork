@@ -11,21 +11,22 @@ from app.graphs.routing import wants_document, wants_file_document
 from app.graphs.state import SupervisorState
 from app.llm.token_counter import count_tokens
 from app.runtime.agent_stream import _emit_step_delta
-from app.runtime.budget_context import context_window_limit
+from app.llm.budget_context import context_window_limit
 from app.runtime.v2.assemble import assemble_system_messages
-from app.runtime.v2.compact import COMPACTION_CAP_TOKENS, compact_session_history
+from app.runtime.v2.compact import compression_trigger, compact_session_history
 from app.runtime.v2.critic import (
     floor_analysis,
     issues_need_fetch,
     issues_need_search,
 )
 from app.runtime.v2.loop import inject_forced_fetch, inject_forced_search, run_act_loop
-from app.runtime.v2.office_gate import office_skills_scope
+from app.guardrails.office_gate import office_skills_scope
 from app.runtime.v2.session import (
     load_compaction, load_thread, save_compaction, save_thread,
     write_compaction_transcript,
 )
-from app.runtime.todo_context import get_todo_runtime
+from app.task_support.todo_context import get_todo_runtime
+from app.task_support.app_context import app_task_scope, scoped_tools
 from app.runtime.v2.synthesize import synthesize_answer
 
 _FLOOR_RETRIES = 3
@@ -53,6 +54,11 @@ async def run_with_floor_retries(
     act_max_steps: int | None = None,
 ) -> list:
     """Act loop, then gate retries with forced search/fetch (LLM critic is optional later)."""
+    tools = scoped_tools(tools or [])
+    if app_task_scope.get():
+        # Business actions declare their tools and artifact format explicitly;
+        # generic web/Office retries must not reinterpret that contract.
+        return await run_act_loop(model, tools, messages, max_steps=act_max_steps or 40)
     allow_files = wants_document(user_text)
     tool_names = {
         str(getattr(t, "name", "") or "") for t in (tools or []) if getattr(t, "name", None)
@@ -150,7 +156,7 @@ def compile_single_agent_graph(
         compaction_state = None
         if not resume_run and session_id:
             previous_state = load_compaction(session_id)
-            trigger = min(int(context_window_limit() * 0.8), COMPACTION_CAP_TOKENS)
+            trigger = compression_trigger()
             history_budget = max(
                 1, trigger - count_tokens([*prefix, HumanMessage(content=user_text)]),
             )
@@ -159,7 +165,7 @@ def compile_single_agent_graph(
             )
             if compaction_state is not None:
                 boundary = int(compaction_state["boundary_index"])
-                if previous_state is None or boundary != previous_state.get("boundary_index"):
+                if compaction_state is not previous_state:
                     compaction_state["transcript_path"] = write_compaction_transcript(
                         session_id, canonical, boundary,
                     )
@@ -186,7 +192,7 @@ def compile_single_agent_graph(
             result = await run_with_floor_retries(
                 model, tools or [], assembled, user_text
             )
-        floor = floor_analysis(user_text, result)
+        floor = None if app_task_scope.get() else floor_analysis(user_text, result)
         final = None
         if _search_gap(floor):
             from app.runtime.context import last_ai_text

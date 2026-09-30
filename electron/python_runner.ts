@@ -1,6 +1,6 @@
 import { ChildProcess, spawn, spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { get } from "http";
+import { get, type ClientRequest } from "http";
 import * as path from "path";
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -16,17 +16,18 @@ export interface RunnerOptions {
   dev?: boolean;
   healthTimeoutMs?: number;
   env?: Record<string, string>;
+  signal?: AbortSignal;
 }
 
 // ── constants ───────────────────────────────────────────────────────────────
 
 const PORT_REGEX = /127\.0\.0\.1:(\d+)/;
 const HEALTH_POLL_MS = 100;
-const DEFAULT_HEALTH_TIMEOUT_MS = 15_000;
+const DEFAULT_HEALTH_TIMEOUT_MS = 90_000;
 
 // ── runner ───────────────────────────────────────────────────────────────────
 
-function resolvePackagedBackend(): { cmd: string; args: string[]; cwd: string } {
+export function resolvePackagedBackend(): { cmd: string; args: string[]; cwd: string } {
   // One-dir build (preferred): resources/python_runtime/python.exe.
   // Skips per-launch temp extraction of one-file; cold start ~1-3s vs 10-30s.
   const onedirExe = path.join(process.resourcesPath, "python_runtime", "python.exe");
@@ -76,6 +77,8 @@ function injectPackagedBrowserEnv(env: Record<string, string | undefined>): void
 }
 
 export function start(options: RunnerOptions): Promise<BackendInfo> {
+  const cancelled = () => Object.assign(new Error("Backend startup cancelled"), { name: "AbortError" });
+  if (options.signal?.aborted) return Promise.reject(cancelled());
   const env = { ...process.env, ...options.env };
   env.PYTHONUTF8 = env.PYTHONUTF8 || "1";
   env.PYTHONIOENCODING = env.PYTHONIOENCODING || "utf-8";
@@ -84,11 +87,15 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
     injectPackagedSkillEnv(env);
     injectPackagedBrowserEnv(env);
   }
-  const appModule = env.MY_COWORK_UVICORN_APP || "app.main:app";
+  env.MY_COWORK_PARENT_PIPE = "1";
   const packaged = options.dev ? null : resolvePackagedBackend();
-  const cmd = options.dev ? "uv" : packaged!.cmd;
+  const cmd = options.dev ? path.join(options.cwd, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python") : packaged!.cmd;
+  // A single owned process must hold the run lock. A reloader would start a
+  // replacement behind the lifecycle coordinator while data is being restored.
   const args = options.dev
-    ? ["run", "uvicorn", appModule, "--port", "0", "--reload", "--reload-dir", path.join(options.cwd, "app")]
+    ? (env.MY_COWORK_UVICORN_APP
+      ? ["-m", "uvicorn", env.MY_COWORK_UVICORN_APP, "--port", "0"]
+      : ["-m", "app.main", "--port", "0"])
     : packaged!.args;
 
   if (packaged && !existsSync(packaged.cmd)) {
@@ -105,43 +112,88 @@ export function start(options: RunnerOptions): Promise<BackendInfo> {
   (proc as ChildProcess & { backendProcessGroup?: boolean }).backendProcessGroup =
     Boolean(options.dev && process.platform !== "win32");
 
+  const startedAt = Date.now();
+  console.info("[backend] starting Python");
   return new Promise<BackendInfo>((resolve, reject) => {
-    let resolved = false;
+    let settled = false;
+    let port: number | undefined;
     let stderrBuf = "";
+    let stage = "waiting for Python to announce a port";
+    let request: ClientRequest | undefined;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutMs = options.healthTimeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS;
+    const deadline = setTimeout(() => finish(new Error(
+      `Backend startup timed out after ${timeoutMs} ms (${stage})`,
+    )), timeoutMs);
 
-    const onData = (chunk: Buffer) => {
-      const text = chunk.toString();
-      const m = text.match(PORT_REGEX);
-      if (m && !resolved) {
-        resolved = true;
-        const port = parseInt(m[1], 10);
-        waitForHealth(
-          port,
-          proc,
-          options.healthTimeoutMs || DEFAULT_HEALTH_TIMEOUT_MS,
-          resolve,
-          reject,
-        );
+    function finish(error?: Error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      clearTimeout(pollTimer);
+      options.signal?.removeEventListener("abort", onAbort);
+      request?.destroy();
+      if (error) {
+        stop(proc);
+        reject(error);
+      } else {
+        console.info(`[backend] ready after ${Date.now() - startedAt} ms`);
+        resolve({ port: port!, url: `http://127.0.0.1:${port}`, process: proc });
+      }
+    }
+
+    function onAbort() { finish(cancelled()); }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+
+    function poll() {
+      if (settled) return;
+      let responded = false;
+      const retry = () => {
+        if (!settled) pollTimer = setTimeout(poll, HEALTH_POLL_MS);
+      };
+      const pending = get(`http://127.0.0.1:${port}/health`, (res) => {
+        responded = true;
+        res.resume();
+        if (settled) return;
+        if (res.statusCode === 200) finish();
+        else retry();
+      });
+      request = pending;
+      pending.once("error", () => { if (!responded) retry(); });
+      pending.setTimeout(1000, () => pending.destroy(new Error("Health request timed out")));
+    }
+
+    // A port may span chunks; only parse complete log lines.
+    const tails = { stdout: "", stderr: "" };
+    const onData = (chunk: Buffer, stream: keyof typeof tails) => {
+      if (settled) return;
+      const lines = (tails[stream] + chunk.toString()).split(/\r?\n/);
+      tails[stream] = lines.pop()!.slice(-4000);
+      for (const line of lines) {
+        if (line.startsWith("[startup]")) {
+          stage = line;
+          console.info(line);
+        }
+        const match = line.match(PORT_REGEX);
+        if (match && port === undefined) {
+          port = Number(match[1]);
+          stage = "waiting for application initialization and health";
+          console.info(`[backend] port announced after ${Date.now() - startedAt} ms`);
+          poll();
+        }
       }
     };
-
-    proc.stdout.on("data", onData);
+    proc.stdout.on("data", (chunk: Buffer) => onData(chunk, "stdout"));
     proc.stderr.on("data", (chunk: Buffer) => {
-      stderrBuf += chunk.toString();
-      onData(chunk);
+      if (!settled) stderrBuf = (stderrBuf + chunk.toString()).slice(-4000);
+      onData(chunk, "stderr");
     });
-
-    proc.on("error", (err) => {
-      if (!resolved) reject(err);
-    });
-
+    proc.on("error", (err) => finish(err));
     proc.on("exit", (code) => {
-      if (!resolved) {
-        const detail = stderrBuf.trim();
-        const suffix = detail ? `\n${detail.slice(-2000)}` : "";
-        reject(new Error(`Python process exited with code ${code}${suffix}`));
-      }
+      const detail = stderrBuf.trim();
+      finish(new Error(`Python process exited with code ${code}${detail ? `\n${detail.slice(-2000)}` : ""}`));
     });
+    if (options.signal?.aborted) onAbort();
   });
 }
 
@@ -152,7 +204,7 @@ export function stop(proc: ChildProcess | null | undefined): void {
   try {
     if (process.platform === "win32") {
       spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
-        stdio: "ignore",
+        stdio: "ignore", windowsHide: true,
       });
     } else if ((proc as ChildProcess & { backendProcessGroup?: boolean }).backendProcessGroup) {
       process.kill(-pid, "SIGTERM");
@@ -173,37 +225,24 @@ export function stop(proc: ChildProcess | null | undefined): void {
   }
 }
 
-// ── health polling ───────────────────────────────────────────────────────────
+export async function stopAndWait(proc: ChildProcess | null | undefined): Promise<void> {
+  if (!proc || proc.exitCode != null || proc.signalCode != null) return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("无法确认后端已经退出，已停止更新")), 10_000);
+    proc.once("exit", () => { clearTimeout(timeout); resolve(); });
+    proc.stdin?.end();
+    stop(proc);
+  });
+}
 
-function waitForHealth(
-  port: number,
-  proc: ChildProcess,
-  timeoutMs: number,
-  resolve: (info: BackendInfo) => void,
-  reject: (err: Error) => void,
-) {
-  const url = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + timeoutMs;
-
-  function poll() {
-    if (Date.now() > deadline) {
-      return reject(
-        new Error(`Backend health check timed out after ${timeoutMs} ms`),
-      );
-    }
-
-    const req = get(`${url}/health`, (res) => {
-      if (res.statusCode === 200) {
-        resolve({ port, url, process: proc });
-        return;
-      }
-      setTimeout(poll, HEALTH_POLL_MS);
-    });
-
-    req.on("error", () => {
-      setTimeout(poll, HEALTH_POLL_MS);
-    });
-  }
-
-  poll();
+export function startMaintenance(options: RunnerOptions): ChildProcess {
+  const packaged = options.dev ? null : resolvePackagedBackend();
+  const cmd = options.dev
+    ? path.join(options.cwd, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python")
+    : packaged!.cmd;
+  return spawn(cmd, options.dev ? ["-m", "app.main", "--industry-maintenance"] : ["--industry-maintenance"], {
+    cwd: packaged?.cwd || options.cwd,
+    env: { ...process.env, ...options.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+    windowsHide: true,
+  });
 }

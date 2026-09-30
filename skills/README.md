@@ -1,11 +1,16 @@
 # Skills
 
-## User skills (`skills/`)
+## User skills (`~/.my-cowork/skills`)
 
-Install custom skills here (or under `~/.my-cowork/skills`). Each skill is a
-folder with `SKILL.md` (Eigent format) or `skill.yaml`.
+Install custom skills in the user data directory, by default `~/.my-cowork/skills`.
+Each skill is a folder with `SKILL.md` (Eigent format) or `skill.yaml`.
+Imported ZIPs are saved there and appear under **您的技能**.
 
-Imported zips land in this directory and appear under **您的技能**.
+`MY_COWORK_DATA_DIR` changes the data directory; `MY_COWORK_SKILLS_ROOT` can
+explicitly set the skills directory. Existing skills in the old repository or
+installation location are copied during startup without deleting their originals.
+The installer includes only `_templates/` and this README from the repository's
+`skills/` directory. See [storage and migration](../docs/使用/文件权限与本地存储.md).
 
 ## 内置技能（`resources/example-skills/`）
 

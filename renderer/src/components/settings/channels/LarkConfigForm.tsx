@@ -1,8 +1,10 @@
+import { apiFetch as fetch } from "@/api/backend";
 import { Check, Copy, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { SettingsField } from "@/components/settings/SettingsField";
+import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 import { channelApi } from "@/lib/channelApi";
 import { cn } from "@/lib/utils";
 import type {
@@ -57,6 +59,8 @@ export default function LarkConfigForm({
   const hasExistingUsers = users.length > 0;
   const credsLocked = hasExistingUsers;
 
+  const backendEpoch = useBackendEpoch();
+
   const loadPairings = useCallback(async () => {
     const list = await channelApi.getPairings();
     setPairings(list.filter((p) => p.platform_type === "lark"));
@@ -70,7 +74,7 @@ export default function LarkConfigForm({
   useEffect(() => {
     void loadPairings().catch(() => undefined);
     void loadUsers().catch(() => undefined);
-  }, [loadPairings, loadUsers]);
+  }, [loadPairings, loadUsers, backendEpoch]);
 
   useEffect(() => {
     if (!window.api?.getKey) return;
@@ -112,7 +116,7 @@ export default function LarkConfigForm({
         // ignore
       }
     })();
-  }, []);
+  }, [backendEpoch]);
 
   useEffect(() => {
     return channelApi.subscribe((ev) => {

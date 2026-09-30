@@ -12,7 +12,7 @@ describe("lightweightValidate", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("succeeds when /models returns ok", async () => {
+  it("probes the chosen model with a completion, not just the model list", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: async () => "",
@@ -26,7 +26,7 @@ describe("lightweightValidate", () => {
       baseUrl: "https://openrouter.ai/api/v1",
     });
     expect(r.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith("https://openrouter.ai/api/v1/chat/completions", expect.objectContaining({ method: "POST", body: expect.stringContaining("openai/gpt-4o-mini") }));
     vi.unstubAllGlobals();
   });
 });

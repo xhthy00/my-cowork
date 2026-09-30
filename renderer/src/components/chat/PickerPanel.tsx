@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Adapted from eigent: ChatBox/BottomBox/PickerPanel.tsx
  * Floating connector/skill list above the chat input; toggles @/# tokens.
@@ -39,6 +40,7 @@ export interface PickerGroup {
 export { connectorNameToToken };
 
 export function skillNameToToken(name: string): string {
+  if (name.startsWith("app:")) return `#${name}`;
   const cleaned = name
     .replace(/[\\/*?:"<>|\s]+/g, "-")
     .replace(/-+/g, "-")
@@ -262,8 +264,8 @@ export function SkillPickerPanel({
         .filter((s) => s.enabled)
         .map((s) => ({
           id: s.id,
-          name: s.name,
-          token: skillNameToToken(s.name),
+          name: s.appOrigin ? `${s.name} · ${s.appOrigin.name}` : s.name,
+          token: skillNameToToken(s.appOrigin ? s.id : s.name),
         })),
     [skills],
   );

@@ -987,11 +987,6 @@ dev = [
     { name = "import-linter" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "freezegun" },
     { name = "respx" },
 ]
 
@@ -1020,6 +1015,7 @@ requires-dist = [
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "python-pptx", specifier = ">=1.0.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.23.1" },
     { name = "sqlalchemy", specifier = ">=2.0.51" },
     { name = "sqlite-vec", specifier = ">=0.1.9" },
     { name = "structlog", specifier = ">=24.4.0" },
@@ -1028,12 +1024,6 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 provides-extras = ["dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "freezegun", specifier = ">=1.5.5" },
-    { name = "respx", specifier = ">=0.23.1" },
-]
 
 [[package]]
 name = "openai"

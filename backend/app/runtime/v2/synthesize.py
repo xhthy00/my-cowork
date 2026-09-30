@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any
 
+from app.llm.context_limits import ContextPreparationError
 from app.agents.factory import load_prompt
 from app.agents.sanitize import strip_model_junk
 from app.runtime.context import (
@@ -298,6 +299,8 @@ async def synthesize_answer(
         if text and text != last_turn and not hasattr(llm, "astream"):
             _emit_step_delta("\n" + text)
         return text or fallback
+    except ContextPreparationError:
+        raise
     except Exception:
         return fallback
 

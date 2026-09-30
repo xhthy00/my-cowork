@@ -31,6 +31,19 @@ def create_model(
     return factory(model=model, api_key=api_key, **kwargs)
 
 
+def create_configured_model(config):
+    from app.llm.budget_callback import instrument_model_for_budget
+    from app.llm.context_limits import ModelInputBudgetCallback
+    from app.llm.reasoning import reasoning_kwargs
+    model = create_model(
+        config.provider, config.model, config.api_key,
+        base_url=config.base_url, max_tokens=config.output_limit,
+        thinking=False, request_options=reasoning_kwargs(config),
+    )
+    model.callbacks = [*(getattr(model, "callbacks", None) or []), ModelInputBudgetCallback(config)]
+    return instrument_model_for_budget(model)
+
+
 def local_embed(text: str, dim: int = 64) -> list[float]:
     """Deterministic bag-of-hash embedding (offline / tests / no API key)."""
     vec = [0.0] * dim

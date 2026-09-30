@@ -27,15 +27,15 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 
 单智能体主页：一只牛同事，适合直接交代一件事。
 
-![单智能体主页](./docs/screenshots/home-single-agent.png)
+![单智能体主页](docs/screenshots/home-single-agent.png)
 
 多智能体主页：一整个牛团队，适合拆解、并行、多格式一起交付。
 
-![多智能体主页](./docs/screenshots/home-multi-agent.png)
+![多智能体主页](docs/screenshots/home-multi-agent.png)
 
 工作区：对话、任务列表、交付文件卡片和右侧文档预览同一屏完成。
 
-![工作区对话与文档预览](./docs/screenshots/workspace.png)
+![工作区对话与文档预览](docs/screenshots/workspace.png)
 
 ---
 
@@ -47,14 +47,14 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
   - **多智能体（Workforce）**：Planner 拆任务 → 你确认子任务 → Coordinator 按依赖并行委派文档 / 浏览 / 开发工人，失败可重规划。
 - **办公助手目录**：按场景预加载 Skill，一键开始写周报、公文、表单、仪表盘、财务模型或合同审查。
 - **Skills + SkillHub**：本机技能可开关、可授权给指定智能体；也可从 SkillHub 浏览、安装套件。
-- **自带模型面板**：Anthropic / OpenAI / OpenRouter / DeepSeek / 通义 / Moonshot / MiniMax，以及 Ollama、LM Studio、vLLM 本地模型。Key 存在系统钥匙串，校验通过才保存。
+- **自带模型面板**：Anthropic / OpenAI / OpenRouter / DeepSeek / 通义 / Moonshot / MiniMax，以及 Ollama、LM Studio、vLLM 本地模型。Key 校验通过后使用系统加密保存；安全存储不可用时明确报错。
 - **连接器与浏览器**：MCP 连接日常工具；内置 Playwright 浏览器支持打开、读取、点击、输入、选择、上传、等待和截图。安装包自带 Chromium；从源码开发时运行 `backend/.venv/bin/python -m playwright install chromium`。
 - **记忆、定时、调度**：长期记忆写入本机 SQLite；带 `schedule` 的 Skill 由本机 APScheduler 触发（应用保持运行才会执行）。
 - **可选远程入口**：飞书机器人经 Cloudflare Tunnel 把本机 `/webhook/lark` 暴露为 HTTPS（关机则不可达）。
 
 ### 办公助手
 
-![文档类办公助手](./docs/screenshots/assistants-docs.png)
+![文档类办公助手](docs/screenshots/assistants-docs.png)
 
 | 分类 | 助手 | 典型产出 |
 | --- | --- | --- |
@@ -66,9 +66,9 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 
 公文写作按机关常用稿面（标题、正文字体、行距等）排版，套红发文对照 GB/T 9704-2012。法务与公文均为**辅助撰写 / 质检**，不构成正式发文或法律意见。
 
-![表格类办公助手](./docs/screenshots/assistants-tables.png)
+![表格类办公助手](docs/screenshots/assistants-tables.png)
 
-![法务与通用办公助手](./docs/screenshots/assistants-legal.png)
+![法务与通用办公助手](docs/screenshots/assistants-legal.png)
 
 文档生成优先走捆绑的 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) 二进制（`officecli`），本机预览同样走 OfficeCLI watch；不可用时再降级到内置 `docx_gen` / `xlsx_gen` / `pptx_gen` 和简易预览。
 
@@ -76,11 +76,11 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 
 本机技能可开关，SkillHub 按办公效率、内容创作、开发、数据、设计、知识管理等分类推荐套件。
 
-![技能与 SkillHub](./docs/screenshots/skills.png)
+![技能与 SkillHub](docs/screenshots/skills.png)
 
 模型页支持云厂商与本地推理；OpenRouter / Ollama 等在注入后端时归一为 OpenAI 兼容协议。
 
-![模型配置](./docs/screenshots/models.png)
+![模型配置](docs/screenshots/models.png)
 
 ---
 
@@ -103,7 +103,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
          可选：Cloudflare Tunnel → 飞书事件订阅
 ```
 
-后端按 harness 九层划分，跨层依赖只允许向下（`import-linter` 在 CI 里卡）：
+后端以 harness 分层组织职责；具体依赖约束见 `backend/.importlinter`，CI 已配置分层检查。当前模块入口与旧设计差异见[当前架构](docs/开发/当前架构.md)。
 
 | 层 | 目录 | 职责 |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 | L2 模型 | `llm/` | Provider 网关、token 计数 |
 | L1 沙箱 | `sandbox/` | 路径白名单、出网策略 |
 
-密钥不写进 `config.toml`：Electron 用系统钥匙串（macOS Keychain / Windows Credential Manager）保管，启动 Python 时注入环境变量。
+密钥不写进 `config.toml`，启动 Python 时通过环境变量注入。Electron 使用系统支持的加密存储；不可用时明确报错。旧明文在安全副本验证成功后清除。实现与边界见[文件权限与本地存储](docs/使用/文件权限与本地存储.md)。
 
 ---
 
@@ -232,7 +232,7 @@ macOS Gatekeeper 若拦截：系统设置 → 隐私与安全性 → 仍要打�
 xattr -dr com.apple.quarantine /Applications/MyCowork.app
 ```
 
-更完整的安装与飞书远程步骤见 [docs/部署手册.md](docs/部署手册.md)。
+更完整的安装与飞书远程步骤见 [部署手册](docs/使用/部署手册.md)。
 
 ---
 
@@ -248,14 +248,14 @@ xattr -dr com.apple.quarantine /Applications/MyCowork.app
 4. **确认闸门**：写文件、执行命令、生成文档会弹窗。请核对路径后再允许。同一次任务里后续 `officecli` 调用可自动放行。
 5. **定时**：Skill 的 `skill.yaml` 里写 `schedule` 即可注册；客户端需保持运行。
 
-添加 Skill 的约定见 [docs/开发指南.md](docs/开发指南.md) 与 [skills/README.md](skills/README.md)。
+添加 Skill 的约定见 [开发指南](docs/开发/开发指南.md) 与 [skills/README.md](skills/README.md)。
 
 ---
 
 ## 安全边界
 
 - **本地优先、单租户**：不做云托管、多租户、计费或 SSO。
-- **路径白名单**：默认含用户主目录，可在设置中收紧；禁止 `../` 穿越。
+- **路径白名单**：允许主动绑定的工作目录及设置中显式添加的目录；不默认开放用户主目录。该检查不等同于操作系统级 shell 隔离。
 - **高危命令硬拒**：例如针对根目录的破坏性 `rm -rf /`。
 - **远程通道收紧**：含写盘 / `exec` / 文档生成的 Skill 不能经飞书远程触发；webhook 需配置校验 token 与来源 IP。
 - **不做**：桌面 GUI Computer Use、自训练模型、24 小时无人值守（关机则定时与 webhook 都停）。
@@ -268,22 +268,27 @@ xattr -dr com.apple.quarantine /Applications/MyCowork.app
 backend/                 Python 后端（harness 分层）
 electron/                Electron 主进程
 renderer/                React 界面
-skills/                  用户 / 工作区技能
+skills/                  模板与说明；用户技能位于用户数据目录
 resources/example-skills 内置技能（公文、法务、officecli 配方等）
 resources/bin/           fetch:officecli 下载的平台二进制（不入库）
 build/                   electron-builder 配置与应用图标
 scripts/                 开发、打包、拉取依赖
-docs/                    开发 / 部署文档与本 README 截图
+docs/使用/               部署、模型设置、上下文和本地存储
+docs/开发/               架构、开发指南、规范和实现说明
+docs/历史/               原始方案与开发计划
+docs/screenshots/        README 图片
 ```
 
-设计文档：[落地方案.md](落地方案.md) · 任务拆分：[开发计划.md](开发计划.md)
+历史设计：[落地方案.md](docs/历史/落地方案.md) · 历史任务拆分：[开发计划.md](docs/历史/开发计划.md)
 
 ---
 
 ## 相关文档
 
-- [开发指南](docs/开发指南.md) — 本地开发、测试、Skill / MCP / 办公助手
-- [部署手册](docs/部署手册.md) — 安装、首次配置、飞书 Tunnel、安全提示
+- [文档索引](docs/README.md) — 全部文档一览及各自的现行 / 历史状态
+- [开发指南](docs/开发/开发指南.md) — 本地开发、测试、Skill / MCP / 办公助手
+- [部署手册](docs/使用/部署手册.md) — 安装、首次配置、飞书 Tunnel、安全提示
+- [模型配置与上下文](docs/使用/模型配置与上下文.md) — 多模型、思考选项、上下文窗口与中文压缩命令
 
 ---
 

@@ -159,7 +159,7 @@ class ConfirmHub:
         except Exception:
             pass
 
-    async def request(self, call_id: str, tool: str, args: dict[str, Any]) -> bool:
+    async def request(self, call_id: str, tool: str, args: dict[str, Any], *, tool_title: str | None = None) -> bool:
         """Emit a confirmation request and await user resolution.
 
         Returns ``True`` if the user approves, ``False`` if they reject.
@@ -192,7 +192,8 @@ class ConfirmHub:
         future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._futures[call_id] = future
         from app.observability.trace import _runtime_task_id
-        self._pending_meta[call_id] = {"tool": tool, "args": args, "task_id": _runtime_task_id() or ""}
+        title = {"tool_title": tool_title} if tool_title else {}
+        self._pending_meta[call_id] = {"tool": tool, "args": args, "task_id": _runtime_task_id() or "", **title}
 
         self._audit_log(
             kind="confirm_request",
@@ -205,16 +206,18 @@ class ConfirmHub:
             "call_id": call_id,
             "tool": tool,
             "args": args,
-            "payload": {"call_id": call_id, "tool": tool, "args": args},
+            **title,
+            "payload": {"call_id": call_id, "tool": tool, "args": args, **title},
         }
         try:
-            from app.runtime.todo_context import get_todo_runtime
+            from app.task_support.todo_context import get_todo_runtime
 
             todo = get_todo_runtime()
             if todo is not None and getattr(todo, "task_id", None):
                 tid = str(todo.task_id)
                 confirm_event["task_id"] = tid
                 confirm_event["payload"] = {**confirm_event["payload"], "task_id": tid}
+                self._pending_meta[call_id]['task_id'] = tid
         except Exception:
             pass
         self._emit(confirm_event)
@@ -228,6 +231,7 @@ class ConfirmHub:
             )
         finally:
             self._futures.pop(call_id, None)
+            self._pending_meta.pop(call_id, None)
         if ok and is_officecli and automation_policy is None:
             self._officecli_auto_ok = True
         return ok
@@ -235,6 +239,10 @@ class ConfirmHub:
     def clear_officecli_auto(self) -> None:
         """Reset per-task officecli auto-approve (call at task start)."""
         self._officecli_auto_ok = False
+
+    def pending(self, task_id: str) -> list[dict[str, Any]]:
+        return [{"call_id": call_id, **meta} for call_id, meta in self._pending_meta.items()
+                if meta.get("task_id") == task_id and call_id in self._futures and not self._futures[call_id].done()]
 
     def resolve(self, call_id: str, ok: bool) -> bool:
         """Resolve a pending confirmation request.
@@ -254,6 +262,7 @@ class ConfirmHub:
         if future is None or future.done():
             return False
         future.set_result(ok)
+        self._emit({'type': 'tool.confirm_resolved', 'task_id': meta.get('task_id', ''), 'call_id': call_id, 'ok': ok})
         return True
 
     async def request_plan(
