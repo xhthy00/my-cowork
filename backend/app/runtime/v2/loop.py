@@ -25,8 +25,7 @@ from app.runtime.context import is_user_facing_answer, looks_like_process_narrat
 from app.runtime.v2.office import office_bypass_refuse, paths_from_text, validate_office_file
 from app.runtime.v2.critic import collect_evidence, fetch_candidates
 from app.tools.mcp.manager import filter_mcp_tools, get_enabled_mcp
-from app.task_support.todo_context import get_automation_checkpoint_key, get_todo_runtime
-from app.llm.budget_context import get_budget_runtime
+from app.runtime.todo_context import get_automation_checkpoint_key, get_todo_runtime
 
 _DEFAULT_MAX_STEPS = 40
 _MAX_RESEARCH_SEARCHES = 8
@@ -51,9 +50,8 @@ _FILE_REFUSE = (
 
 
 def _tool_map(tools: list[BaseTool] | None) -> dict[str, BaseTool]:
-    from app.task_support.app_context import scoped_tools
     out: dict[str, BaseTool] = {}
-    for tool in scoped_tools(tools or []):
+    for tool in tools or []:
         name = getattr(tool, "name", None) or ""
         if name:
             out[str(name)] = tool
@@ -80,14 +78,7 @@ async def _invoke_tool(
     name: str = "",
     call_id: str = "",
 ) -> str:
-    budget_runtime = get_budget_runtime()
-    if budget_runtime is not None:
-        await budget_runtime.admit(None, 1)
     tool_name = name or str(getattr(tool, "name", "") or "")
-    from app.task_support.app_context import app_task_scope
-    scope = app_task_scope.get()
-    if scope and getattr(tool, 'name', '') not in scope.tools:
-        return '[ERROR] Tool is outside the task scope'
     cid = call_id or tool_name
     runtime = get_todo_runtime()
     if (runtime is not None and runtime.source == "schedule"
@@ -237,7 +228,7 @@ def _emit_tool_event(
 ) -> None:
     from datetime import datetime, timezone
 
-    from app.task_support.todo_context import get_todo_runtime, get_current_subtask_id
+    from app.runtime.todo_context import get_current_subtask_id, get_todo_runtime
 
     rt = get_todo_runtime()
     if rt is None or rt.bus is None or not name:
@@ -280,17 +271,17 @@ def _as_ai_message(acc: Any, pieces: list[str]) -> AIMessage:
     from ``astream`` — that keeps only the final delta and drops tool_calls.
     """
     if type(acc) is AIMessage:
-        cleaned = acc.content if isinstance(acc.content, list) else strip_model_junk(str(acc.content or ""))
+        cleaned = strip_model_junk(str(acc.content or ""))
         if cleaned != acc.content:
-            return acc.model_copy(update={"content": cleaned})
+            return AIMessage(content=cleaned, tool_calls=list(acc.tool_calls or []))
         return acc
     streamed = "".join(pieces)
     text = ""
     if acc is not None:
         _, text = _message_content_text(acc)
-    content = acc.content if isinstance(getattr(acc, "content", None), list) else strip_model_junk(text or streamed)
+    content = strip_model_junk(text or streamed)
     tool_calls = _tool_calls_of(acc) if acc is not None else []
-    return AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=getattr(acc, "additional_kwargs", {}) or {}, response_metadata=getattr(acc, "response_metadata", {}) or {})
+    return AIMessage(content=content, tool_calls=tool_calls)
 
 
 def _tool_call_chunk_progress(chunk: Any) -> tuple[str, int]:
@@ -310,14 +301,6 @@ def _tool_call_chunk_progress(chunk: Any) -> tuple[str, int]:
         if args:
             chars += len(args if isinstance(args, str) else json.dumps(args, ensure_ascii=False))
     return name, chars
-
-
-def _stamp_model(message: AIMessage) -> AIMessage:
-    from app.llm.model_config import current_model_config
-    config = current_model_config()
-    if config:
-        message.response_metadata.setdefault("request_model", [config.provider, config.model, config.base_url])
-    return message
 
 
 async def _invoke_model(model: Any, messages: list[Any]) -> AIMessage:
@@ -363,13 +346,15 @@ async def _invoke_model(model: Any, messages: list[Any]) -> AIMessage:
             _emit_llm_progress(tool=tool_name or "tool", chars=tool_chars)
         if reasoning_open:
             _emit_step_delta("</think>\n")
-        return _stamp_model(_as_ai_message(acc, pieces))
+        return _as_ai_message(acc, pieces)
 
     result = await model.ainvoke(messages)
     if isinstance(result, AIMessage):
-        cleaned = result.content if isinstance(result.content, list) else strip_model_junk(str(result.content or ""))
+        cleaned = strip_model_junk(str(result.content or ""))
         if cleaned != result.content:
-            result = result.model_copy(update={"content": cleaned})
+            result = AIMessage(
+                content=cleaned, tool_calls=list(result.tool_calls or [])
+            )
         reasoning, text = _message_content_text(result)
         if reasoning:
             _emit_step_delta("<think>")
@@ -377,7 +362,7 @@ async def _invoke_model(model: Any, messages: list[Any]) -> AIMessage:
             _emit_step_delta("</think>\n")
         if text and _should_emit_user_text(result):
             _emit_step_delta(text)
-        return _stamp_model(result)
+        return result
     text = strip_model_junk(str(getattr(result, "content", None) or result))
     out = AIMessage(content=text)
     if _should_emit_user_text(out):
@@ -512,16 +497,10 @@ async def run_act_loop(
     allow_file_writes: bool = True,
 ) -> list[Any]:
     """Run model ↔ tools until the model stops calling tools (ChatAgent-style)."""
-    from app.task_support.app_context import scoped_tools
-    tools = scoped_tools(filter_mcp_tools(list(tools or []), get_enabled_mcp()))
+    tools = filter_mcp_tools(list(tools or []), get_enabled_mcp())
     mapping = _tool_map(tools)
     bound = model.bind_tools(tools) if tools and hasattr(model, "bind_tools") else model
     working = list(messages)
-    loop_compaction = None
-    from app.llm.token_counter import count_tokens
-    from app.llm.model_config import current_model_config
-    from langchain_core.utils.function_calling import convert_to_openai_tool
-    tool_tokens = count_tokens(json.dumps([convert_to_openai_tool(t) for t in tools], ensure_ascii=False)) if tools and current_model_config() else 0
     runtime = get_todo_runtime()
     checkpoint_key = get_automation_checkpoint_key() or (
         runtime.session_id if runtime is not None and runtime.source == "schedule" else None
@@ -571,25 +550,7 @@ async def run_act_loop(
             pending_calls = []
             ai = next((message for message in reversed(working) if _tool_calls_of(message)), None)
         else:
-            from app.llm.context_limits import ContextPreparationError
-            from app.llm.model_config import current_model_config
-            from app.llm.token_counter import count_tokens
-            from app.runtime.v2.compact import compact_session_history
-            config = current_model_config()
-            model_view = working
-            if config is not None:
-                prefix = [m for m in working if getattr(m, "type", "") == "system"]
-                body = [m for m in working if getattr(m, "type", "") != "system"]
-                fixed = count_tokens(prefix) + tool_tokens
-                latest = next((m for m in reversed(body) if getattr(m, "type", "") == "human" and not str(m.content).startswith("[Instruction]")), None)
-                if fixed + count_tokens([latest] if latest else []) > config.input_budget:
-                    raise ContextPreparationError("当前输入或系统提示超过模型上下文预算，请缩短输入或选择更大窗口")
-                view, loop_compaction = await compact_session_history(body, loop_compaction, llm=model, threshold=max(1, config.compression_trigger - fixed))
-                model_view = [*prefix, *view]
-                if count_tokens(model_view) + tool_tokens > config.input_budget:
-                    raise ContextPreparationError("压缩后仍超过模型上下文预算，请压缩会话或选择更大窗口")
-            from app.llm.fallback import FallbackChatModel
-            payload = prepare_model_messages(ensure_tool_responses(model_view), preserve_native_blocks=isinstance(bound, FallbackChatModel))
+            payload = prepare_model_messages(ensure_tool_responses(working))
             ai = await _invoke_model(bound, payload)
             working.append(ai)
             _checkpoint()
@@ -620,7 +581,7 @@ async def run_act_loop(
                 )
                 _checkpoint()
                 continue
-            from app.guardrails.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
+            from app.runtime.v2.office_gate import OFFICE_WRITE_REFUSE, office_writes_blocked
 
             if office_writes_blocked() and _is_file_write_call(name, args):
                 working.append(

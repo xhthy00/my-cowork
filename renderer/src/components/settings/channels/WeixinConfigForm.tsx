@@ -1,10 +1,8 @@
-import { apiFetch as fetch } from "@/api/backend";
 import { Check, Copy, RefreshCw, Trash2, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 import { channelApi } from "@/lib/channelApi";
 import type {
   ChannelPairing,
@@ -58,8 +56,6 @@ export default function WeixinConfigForm({
     }
   }, [pluginStatus, loginState]);
 
-  const backendEpoch = useBackendEpoch();
-
   const loadPairings = useCallback(async () => {
     const list = await channelApi.getPairings();
     setPairings(list.filter((p) => p.platform_type === "weixin"));
@@ -73,7 +69,7 @@ export default function WeixinConfigForm({
   useEffect(() => {
     void loadPairings().catch(() => undefined);
     void loadUsers().catch(() => undefined);
-  }, [loadPairings, loadUsers, backendEpoch]);
+  }, [loadPairings, loadUsers]);
 
   useEffect(() => {
     void (async () => {
@@ -96,7 +92,7 @@ export default function WeixinConfigForm({
         // ignore
       }
     })();
-  }, [backendEpoch]);
+  }, []);
 
   useEffect(() => {
     return channelApi.subscribe((ev) => {

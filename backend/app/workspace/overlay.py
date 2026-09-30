@@ -158,7 +158,7 @@ def get_overlay_store() -> OverlayStore:
 
 def maybe_record_write(absolute_path: Path) -> None:
     """Hook for fs.write — record overlay when runtime is copy/worktree."""
-    from app.task_support.workspace_context import get_workspace_runtime
+    from app.runtime.workspace_context import get_workspace_runtime
 
     rt = get_workspace_runtime()
     if rt is None or not should_record_overlay(rt.workdir_mode):

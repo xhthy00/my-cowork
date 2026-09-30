@@ -1,5 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
-import { backendUnavailableMessage } from "@/lib/backendStatus";
 import { getProjectRuntime } from "../store/projectRuntime";
 
 /** Eigent human-reply equivalent: answer the active question, not a new chat turn. */
@@ -12,7 +10,7 @@ export async function submitHumanReply(
   const value = answer.trim();
   if (!value) throw new Error("请输入回复内容");
   const backendUrl = (await window.api.getBackendUrl())?.trim();
-  if (!backendUrl) throw new Error(await backendUnavailableMessage());
+  if (!backendUrl) throw new Error("后端未连接");
   const response = await fetch(
     `${backendUrl}/api/chat/${encodeURIComponent(taskId)}/human-reply`,
     {

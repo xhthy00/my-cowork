@@ -27,15 +27,15 @@ MyCowork is an office agent that runs on your own computer. Describe a task; the
 
 Single-agent home: one cow coworker, best when you just want to get one thing done.
 
-![Single-agent home](docs/screenshots/home-single-agent.png)
+![Single-agent home](./docs/screenshots/home-single-agent.png)
 
 Multi-agent home: a whole cow team, better for decomposition, parallelism, and mixed-format delivery.
 
-![Multi-agent home](docs/screenshots/home-multi-agent.png)
+![Multi-agent home](./docs/screenshots/home-multi-agent.png)
 
 Workspace: chat, task list, deliverable cards, and a live document preview on one screen.
 
-![Workspace chat and document preview](docs/screenshots/workspace.png)
+![Workspace chat and document preview](./docs/screenshots/workspace.png)
 
 ---
 
@@ -47,14 +47,14 @@ Workspace: chat, task list, deliverable cards, and a live document preview on on
   - **Multi-agent (Workforce)**: a planner splits the work → you confirm subtasks → a coordinator fans out document / browser / developer workers by dependency, and can replan on failure.
 - **Office assistant catalog**: scene-specific skills are preloaded so you can start weekly reports, official documents, forms, dashboards, financial models, or contract review in one click.
 - **Skills + SkillHub**: toggle local skills, grant them to specific agents, or browse and install suites from SkillHub.
-- **Built-in model panel**: Anthropic, OpenAI, OpenRouter, DeepSeek, Tongyi, Moonshot, MiniMax, plus local Ollama, LM Studio, and vLLM. Keys are saved after successful validation using OS-backed encryption; saving fails explicitly when secure storage is unavailable.
+- **Built-in model panel**: Anthropic, OpenAI, OpenRouter, DeepSeek, Tongyi, Moonshot, MiniMax, plus local Ollama, LM Studio, and vLLM. Keys live in the OS keychain and are saved only after a successful validate.
 - **Connectors and browser**: MCP for everyday tools; built-in Playwright actions for navigation, reading, clicking, typing, selecting, uploading, waiting, and screenshots. Installers include Chromium; source checkouts need `backend/.venv/bin/python -m playwright install chromium`.
 - **Memory, timers, scheduling**: long-term memory in local SQLite; skills with a `schedule` are registered with on-device APScheduler (the app must stay running).
 - **Optional remote entry**: a Lark/Feishu bot can expose local `/webhook/lark` over HTTPS via Cloudflare Tunnel (unreachable when the machine is off).
 
 ### Office assistants
 
-![Document assistants](docs/screenshots/assistants-docs.png)
+![Document assistants](./docs/screenshots/assistants-docs.png)
 
 | Category | Assistants | Typical output |
 | --- | --- | --- |
@@ -66,9 +66,9 @@ Workspace: chat, task list, deliverable cards, and a live document preview on on
 
 Official-document writing follows common agency manuscript layout (title and body fonts, line spacing, and so on). Red-header issuance follows GB/T 9704-2012. Legal and official-document modes are **drafting / QA aids only** — not formal issuance or legal advice.
 
-![Spreadsheet assistants](docs/screenshots/assistants-tables.png)
+![Spreadsheet assistants](./docs/screenshots/assistants-tables.png)
 
-![Legal and general office assistants](docs/screenshots/assistants-legal.png)
+![Legal and general office assistants](./docs/screenshots/assistants-legal.png)
 
 Document generation prefers the bundled [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) binary (`officecli`). Local preview uses OfficeCLI watch as well; if it is unavailable, the app falls back to built-in `docx_gen` / `xlsx_gen` / `pptx_gen` and a simpler preview.
 
@@ -76,11 +76,11 @@ Document generation prefers the bundled [OfficeCLI](https://github.com/iOfficeAI
 
 Local skills can be toggled. SkillHub recommends suites by office productivity, content, engineering, data, design, knowledge management, and more.
 
-![Skills and SkillHub](docs/screenshots/skills.png)
+![Skills and SkillHub](./docs/screenshots/skills.png)
 
 The models page supports cloud vendors and local inference. OpenRouter, Ollama, and similar providers are normalized to the OpenAI-compatible protocol when injected into the backend.
 
-![Model configuration](docs/screenshots/models.png)
+![Model configuration](./docs/screenshots/models.png)
 
 ---
 
@@ -103,7 +103,7 @@ Fat desktop client: Electron starts a local Python (FastAPI) process. The render
          Optional: Cloudflare Tunnel → Lark event subscription
 ```
 
-The backend organizes responsibilities into harness layers. Dependency contracts are defined in `backend/.importlinter`, and CI is configured to check them. See the [current architecture guide](docs/开发/当前架构.md) (Chinese) for code entry points and differences from the original design.
+The backend is split into nine harness layers. Dependencies may only point downward (`import-linter` enforces this in CI):
 
 | Layer | Package | Role |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ The backend organizes responsibilities into harness layers. Dependency contracts
 | L2 Models | `llm/` | Provider gateway, token counting |
 | L1 Sandbox | `sandbox/` | Path allowlist, egress policy |
 
-Keys are not written to `config.toml` and are injected as environment variables when Python starts. Electron uses OS-backed encryption and reports an error when it is unavailable. Legacy plaintext is removed only after the encrypted copy is verified. See [file permissions and local storage](docs/使用/文件权限与本地存储.md) (Chinese) for boundaries and migration behavior.
+Keys are not written to `config.toml`. Electron stores them in the OS keychain (macOS Keychain / Windows Credential Manager) and injects them as env vars when starting Python.
 
 ---
 
@@ -203,7 +203,7 @@ If macOS Gatekeeper blocks the app: System Settings → Privacy & Security → O
 xattr -dr com.apple.quarantine /Applications/MyCowork.app
 ```
 
-Full install and Lark remote steps: [部署手册](docs/使用/部署手册.md) (Chinese).
+Full install and Lark remote steps: [docs/部署手册.md](docs/部署手册.md) (Chinese).
 
 ---
 
@@ -219,14 +219,14 @@ Full install and Lark remote steps: [部署手册](docs/使用/部署手册.md) 
 4. **Confirmations**: writes, shell commands, and document generation pop a gate. Check the path before allowing. Later `officecli` calls in the same task may be auto-approved.
 5. **Schedules**: add `schedule` in a skill’s `skill.yaml` to register; the client must stay running.
 
-Skill conventions: [开发指南](docs/开发/开发指南.md) (Chinese) and [skills/README.md](skills/README.md).
+Skill conventions: [docs/开发指南.md](docs/开发指南.md) (Chinese) and [skills/README.md](skills/README.md).
 
 ---
 
 ## Safety
 
 - **Local-first, single-tenant**: no cloud hosting, multi-tenancy, billing, or SSO.
-- **Path allowlist**: permits explicitly bound workspaces and directories added in settings. The home directory is not granted by default. This is not OS-level shell isolation.
+- **Path allowlist**: includes the home directory by default; tighten it in settings. `../` escape is rejected.
 - **Dangerous commands denied**: e.g. destructive `rm -rf /` against the filesystem root.
 - **Remote channel is tighter**: skills that write disk, `exec`, or generate documents cannot be triggered via Lark; webhooks need a verify token and source IPs.
 - **Out of scope**: desktop GUI Computer Use, training your own models, 24/7 unattended operation (timers and webhooks stop when the app is quit).
@@ -239,26 +239,22 @@ Skill conventions: [开发指南](docs/开发/开发指南.md) (Chinese) and [sk
 backend/                 Python backend (harness layers)
 electron/                Electron main process
 renderer/                React UI
-skills/                  Templates and docs; user skills live in the user data directory
+skills/                  User / workspace skills
 resources/example-skills Bundled skills (official docs, legal, officecli recipes, …)
 resources/bin/           Platform binaries from fetch:officecli (not committed)
 build/                   electron-builder config and app icon
 scripts/                 Dev, packaging, dependency fetch
-docs/使用/               Usage and configuration
-docs/开发/               Architecture and development
-docs/历史/               Historical plans and designs
-docs/screenshots/        README images
+docs/                    Dev/deploy docs and README screenshots
 ```
 
-Historical design notes: [落地方案.md](docs/历史/落地方案.md) · task plan: [开发计划.md](docs/历史/开发计划.md) (both Chinese).
+Design notes: [落地方案.md](落地方案.md) · task plan: [开发计划.md](开发计划.md) (both Chinese).
 
 ---
 
 ## Further docs
 
-- [文档索引](docs/README.md) — index of all docs with current / historical status (Chinese)
-- [开发指南](docs/开发/开发指南.md) — local development, tests, skills / MCP / office assistants (Chinese)
-- [部署手册](docs/使用/部署手册.md) — install, first-run setup, Lark tunnel, safety notes (Chinese)
+- [开发指南](docs/开发指南.md) — local development, tests, skills / MCP / office assistants (Chinese)
+- [部署手册](docs/部署手册.md) — install, first-run setup, Lark tunnel, safety notes (Chinese)
 
 ---
 

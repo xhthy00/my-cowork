@@ -30,9 +30,6 @@ function warn(msg: string): void {
 }
 
 export function getAppHome(): string {
-  if (process.env.MY_COWORK_DATA_DIR) {
-    return path.resolve(process.env.MY_COWORK_DATA_DIR);
-  }
   return path.join(os.homedir(), APP_DIR_NAME);
 }
 

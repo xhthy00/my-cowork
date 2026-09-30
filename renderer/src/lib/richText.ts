@@ -44,7 +44,7 @@ export function trimUrlTail(raw: string): string {
 }
 
 const URL_AT_START = /^(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/i;
-const SKILL_AT_START = /^#(app:[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+:[a-z][a-z0-9_-]{0,63}|[a-zA-Z0-9_-]+)/;
+const SKILL_AT_START = /^#([a-zA-Z0-9_-]+)/;
 const CONNECTOR_AT_START = /^@([A-Za-z0-9_-]+)/;
 
 /** True when `@` here begins a connector token rather than an email tail (`me@host`). */
@@ -107,13 +107,6 @@ export function tokenizeRichPlainText(text: string): RichSegment[] {
   }
 
   return out;
-}
-
-/** Explicit package mentions on this turn; display titles never identify a skill. */
-export function appSkillIdsInText(text: string): string[] {
-  return [...new Set(tokenizeRichPlainText(text)
-    .filter(segment => segment.type === "skill" && segment.text.startsWith("#app:"))
-    .map(segment => segment.text.slice(1)))];
 }
 
 export function escapeHtml(s: string): string {

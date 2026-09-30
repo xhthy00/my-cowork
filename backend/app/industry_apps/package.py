@@ -46,7 +46,6 @@ class BackendSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     entry: str
     requires_python: str = ">=3.11,<3.13"
-    health_entry: str | None = None
 
 
 class UiSpec(BaseModel):
@@ -61,8 +60,6 @@ class DataSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     scope: Literal["workspace", "global"] = "workspace"
     migration_entry: str | None = None
-    version: int | None = Field(default=None, ge=1, strict=True)
-    upgrade_from: list[int | Literal["legacy"]] = Field(default_factory=list)
 
 
 class Capabilities(BaseModel):
@@ -81,7 +78,7 @@ class AgentToolSpec(BaseModel):
 
 class AppManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[1, 2]
+    schema_version: Literal[1]
     id: str
     name: str = Field(min_length=1, max_length=80)
     version: str
@@ -124,12 +121,6 @@ class AppManifest(BaseModel):
             raise ValueError(f"backend.entry must use {prefix}")
         if self.ui.entry != "frontend/dist/index.html":
             raise ValueError("ui.entry must be frontend/dist/index.html in v1")
-        if self.backend.health_entry:
-            health = self.backend.health_entry.split(":")
-            if len(health) != 2 or not health[1].isidentifier() or not all(p.isidentifier() for p in health[0].split(".")):
-                raise ValueError("backend.health_entry must be module:function")
-            if health[0] != prefix and not health[0].startswith(prefix + "."):
-                raise ValueError(f"backend.health_entry must use {prefix}")
         if self.data.migration_entry:
             migration = self.data.migration_entry.split(":")
             if len(migration) != 2 or not migration[1].isidentifier():
@@ -140,7 +131,7 @@ class AppManifest(BaseModel):
             raise ValueError("v1 supports Python >=3.11,<3.13")
         if not ((3, 11) <= sys.version_info[:2] < (3, 13)):
             raise ValueError("host Python is outside the v1 supported range")
-        host_version = os.environ.get("MY_COWORK_APP_VERSION", "0.1.1")
+        host_version = os.environ.get("MY_COWORK_APP_VERSION", "0.0.9")
         if _VERSION.fullmatch(host_version):
             if tuple(map(int, host_version.split("."))) < tuple(map(int, self.min_host_version.split("."))):
                 raise ValueError(f"application requires MyCowork {self.min_host_version}")
@@ -150,16 +141,12 @@ class AppManifest(BaseModel):
             raise ValueError("application does not support this platform")
         if self.capabilities.network_domains:
             raise ValueError("v1 does not support network_domains")
-        if set(self.capabilities.host_api) - {'ai', 'files', 'navigation', 'ui'}:
-            raise ValueError("unsupported host_api capability")
-        if self.schema_version == 1 and (self.data.migration_entry or self.data.version is not None or self.data.upgrade_from or self.backend.health_entry):
-            raise ValueError("data migrations and health checks require schema_version 2")
-        if self.schema_version == 2 and (self.data.version is None or not self.backend.health_entry):
-            raise ValueError("v2 requires data.version and backend.health_entry")
-        if any(isinstance(v, int) and (isinstance(v, bool) or v < 1) for v in self.data.upgrade_from):
-            raise ValueError("upgrade_from requires positive versions or legacy")
-        from app.skills.bundled import validate_skill_paths
-        validate_skill_paths(self.skills)
+        if self.capabilities.host_api:
+            raise ValueError("host_api capabilities are not yet available")
+        if self.data.migration_entry:
+            raise ValueError("data migrations are not yet available")
+        if self.skills:
+            raise ValueError("bundled skills are not yet available")
         return self
 
 
@@ -169,7 +156,6 @@ class Inspection:
     sha256: str
     files: tuple[str, ...]
     expanded_bytes: int
-    skill_names: tuple[str, ...] = ()
 
     def public(self) -> dict[str, Any]:
         return {
@@ -177,7 +163,6 @@ class Inspection:
             "sha256": self.sha256,
             "file_count": len(self.files),
             "expanded_bytes": self.expanded_bytes,
-            "skill_names": list(self.skill_names),
             "trusted_code": True,
             "requires_restart": True,
         }
@@ -199,7 +184,7 @@ def _safe_name(info: zipfile.ZipInfo) -> str:
         # A final slash is permitted for directory entries.
         if not (info.is_dir() and all(part not in {"", ".", ".."} for part in name[:-1].split("/"))):
             raise AppPackageError(f"invalid ZIP path: {name!r}")
-    if path.is_absolute() or ".." in path.parts or any(":" in part or part.endswith((".", " ")) for part in path.parts):
+    if path.is_absolute() or ".." in path.parts or ":" in path.parts[0]:
         raise AppPackageError(f"invalid ZIP path: {name!r}")
     mode = info.external_attr >> 16
     if mode and stat.S_IFMT(mode) not in {0, stat.S_IFREG, stat.S_IFDIR}:
@@ -260,18 +245,6 @@ def inspect_zip(raw: bytes) -> Inspection:
         if "checksums.sha256" not in files:
             raise AppPackageError("checksums.sha256 is required")
         manifest = _read_manifest(zf)
-        from app.skills.bundled import parse_package_skill, MAX_SKILL_BYTES
-        skill_names = []
-        for directory in manifest.skills:
-            entries = [f'{directory}/{name}' for name in ('SKILL.md', 'skill.yaml') if f'{directory}/{name}' in files]
-            if len(entries) != 1:
-                raise AppPackageError(f'skill {directory} requires exactly one entry')
-            try:
-                if zf.getinfo(entries[0]).file_size > MAX_SKILL_BYTES:
-                    raise ValueError('skill entry exceeds 64 KiB')
-                skill_names.append(parse_package_skill(zf.read(entries[0]), entries[0], manifest.model_dump()).name)
-            except (ValueError, yaml.YAMLError) as exc:
-                raise AppPackageError(f'invalid skill {directory}: {exc}') from exc
         expected_package = f"backend/mcapp_{manifest.id.replace('.', '_')}/__init__.py"
         if expected_package not in files:
             raise AppPackageError(f"missing {expected_package}")
@@ -302,80 +275,59 @@ def inspect_zip(raw: bytes) -> Inspection:
             sha256=hashlib.sha256(raw).hexdigest(),
             files=tuple(sorted(files)),
             expanded_bytes=expanded,
-            skill_names=tuple(skill_names),
         )
 
 
+def _registry_path(root: Path) -> Path:
+    return root / "registry.json"
+
+
 def _load_registry(root: Path) -> dict[str, Any]:
-    from .registry import read
-    return read(root)
+    path = _registry_path(root)
+    if not path.is_file():
+        return {"schema_version": 1, "apps": {}}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("apps"), dict):
+        raise AppPackageError("application registry is invalid")
+    return data
 
 
 def _save_registry(root: Path, registry: dict[str, Any]) -> None:
-    from .registry import write
-    write(root, "registry", registry)
+    root.mkdir(parents=True, exist_ok=True)
+    path = _registry_path(root)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=root, delete=False) as tmp:
+        json.dump(registry, tmp, ensure_ascii=False, indent=2)
+        tmp.write("\n")
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, path)
 
 
 def list_installed(root: Path | None = None) -> list[dict[str, Any]]:
-    registry = _load_registry(app_root(root))
-    return [{"id": app_id, **{key: value for key, value in entry.items() if key != "recovery_operation"},
-             "needs_recovery": bool(entry.get("recovery_operation"))}
-            for app_id, entry in sorted(registry["apps"].items())]
-
-
-def check_upgrade(manifest: AppManifest, old: dict) -> None:
-    previous = old.get("version")
-    if previous and tuple(map(int, manifest.version.split("."))) < tuple(map(int, previous.split("."))):
-        raise AppPackageError("较低版本不能作为普通更新，请使用恢复上次更新")
-    source = old.get("data_version", "legacy")
-    target = manifest.data.version if manifest.schema_version == 2 else "legacy"
-    if source != target:
-        if source not in manifest.data.upgrade_from or not manifest.data.migration_entry:
-            raise AppPackageError("新版未声明如何迁移当前数据，请联系插件作者")
-
-
-def inspect_update(raw: bytes, root: Path | None = None) -> dict:
-    result = inspect_zip(raw)
-    old = _load_registry(app_root(root))["apps"].get(result.manifest.id, {})
-    if old.get("version") or (app_root(root) / "data" / result.manifest.id).exists():
-        check_upgrade(result.manifest, old)
-    return {**result.public(), "current_version": old.get("version"),
-            "previous_tools": old.get("manifest", {}).get("agent_tools", [])}
+    base = app_root(root)
+    with _lock:
+        registry = _load_registry(base)
+        return [
+            {"id": app_id, **entry}
+            for app_id, entry in sorted(registry["apps"].items())
+        ]
 
 
 def install_zip(raw: bytes, expected_sha256: str, root: Path | None = None) -> dict[str, Any]:
-    from .locks import FileLock
-    # Validate before creating even the registry or lock directory.
-    inspection = inspect_zip(raw)
-    if inspection.sha256 != expected_sha256:
-        raise AppPackageError("ZIP changed after inspection")
-    base = app_root(root)
-    with FileLock(base, "operation"):
-        return stage_zip(raw, expected_sha256, base)
-
-
-def stage_zip(raw: bytes, expected_sha256: str, base: Path) -> dict[str, Any]:
-    from .snapshots import managed
     inspection = inspect_zip(raw)
     if inspection.sha256 != expected_sha256:
         raise AppPackageError("ZIP changed after inspection")
     manifest = inspection.manifest
-    registry = _load_registry(base)
-    old = registry["apps"].get(manifest.id, {})
-    if old.get('dev_revision'):
-        raise AppPackageError('同版本开发源码不能切换为正式包，请使用 package-test 独立环境')
-    if old.get("recovery_operation"):
-        raise AppPackageError("请先恢复未完成的数据操作，再更新此应用")
-    if old.get("version") or managed(base, "data", manifest.id).exists():
-        check_upgrade(manifest, old)
-    destination = managed(base, "packages", manifest.id, manifest.version)
-    if destination.exists():
-        checksum = destination / ".package-sha256"
-        if not checksum.exists() or checksum.read_text() != inspection.sha256:
-            raise AppPackageError("同版本的包内容不同，不能覆盖；请使用新的版本号")
-    else:
+    base = app_root(root)
+    destination = base / "packages" / manifest.id / manifest.version
+    with _lock:
+        registry = _load_registry(base)
+        if destination.exists():
+            raise AppPackageError("this application version is already installed")
         destination.parent.mkdir(parents=True, exist_ok=True)
         stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=destination.parent))
+        installed = False
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as zf:
                 for name in inspection.files:
@@ -383,20 +335,24 @@ def stage_zip(raw: bytes, expected_sha256: str, base: Path) -> dict[str, Any]:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(name) as source, target.open("wb") as sink:
                         shutil.copyfileobj(source, sink)
-                        sink.flush()
-                        os.fsync(sink.fileno())
-            (stage / ".package-sha256").write_text(inspection.sha256)
             os.replace(stage, destination)
-        finally:
+            installed = True
+            old = registry["apps"].get(manifest.id, {})
+            registry["apps"][manifest.id] = {
+                "manifest": manifest.model_dump(),
+                "version": manifest.version,
+                "previous_version": old.get("version"),
+                "enabled": True,
+                "status": "pending_restart",
+                "sha256": inspection.sha256,
+            }
+            _save_registry(base, registry)
+        except Exception:
             if stage.exists():
                 shutil.rmtree(stage)
-    if old.get("version") == manifest.version and old.get("sha256") == inspection.sha256:
-        return {"id": manifest.id, "version": manifest.version, "requires_restart": False}
-    candidate = {"manifest": manifest.model_dump(), "version": manifest.version, "sha256": inspection.sha256}
-    entry = dict(old) if old else {"manifest": manifest.model_dump(), "version": None, "enabled": False, "status": "pending_activation", "data_version": "legacy"}
-    entry["candidate"] = candidate
-    registry["apps"][manifest.id] = entry
-    _save_registry(base, registry)
+            if installed and destination.exists():
+                shutil.rmtree(destination)
+            raise
     return {"id": manifest.id, "version": manifest.version, "requires_restart": True}
 
 
@@ -416,8 +372,55 @@ def set_app_status(app_id: str, status: str, root: Path | None = None, error: st
 
 
 def disable_app(app_id: str, root: Path | None = None) -> dict[str, Any]:
-    raise AppPackageError("请使用桌面应用管理菜单，安全停止后端后应用变更")
+    base = app_root(root)
+    with _lock:
+        registry = _load_registry(base)
+        entry = registry["apps"].get(app_id)
+        if entry is None:
+            raise AppPackageError("application not found")
+        entry["enabled"] = False
+        entry["status"] = "pending_restart"
+        _save_registry(base, registry)
+    return {"id": app_id, "requires_restart": True}
 
 
-enable_app = disable_app
-rollback_app = disable_app
+def enable_app(app_id: str, root: Path | None = None) -> dict[str, Any]:
+    base = app_root(root)
+    with _lock:
+        registry = _load_registry(base)
+        entry = registry["apps"].get(app_id)
+        if entry is None:
+            raise AppPackageError("application not found")
+        entry["enabled"] = True
+        entry["status"] = "pending_restart"
+        _save_registry(base, registry)
+    return {"id": app_id, "requires_restart": True}
+
+
+def rollback_app(app_id: str, root: Path | None = None) -> dict[str, Any]:
+    base = app_root(root)
+    with _lock:
+        registry = _load_registry(base)
+        entry = registry["apps"].get(app_id)
+        if entry is None:
+            raise AppPackageError("application not found")
+        previous = entry.get("previous_version")
+        if not previous:
+            raise AppPackageError("no previous version is available")
+        manifest_path = base / "packages" / app_id / previous / "mycowork-app.yaml"
+        try:
+            manifest = AppManifest.model_validate(yaml.safe_load(manifest_path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            raise AppPackageError(f"previous version is invalid: {exc}") from exc
+        if manifest.id != app_id or manifest.version != previous:
+            raise AppPackageError("previous version does not match registry")
+        entry.update(
+            manifest=manifest.model_dump(),
+            version=previous,
+            previous_version=None,
+            enabled=True,
+            status="pending_restart",
+        )
+        entry.pop("error", None)
+        _save_registry(base, registry)
+    return {"id": app_id, "version": previous, "requires_restart": True}

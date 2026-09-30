@@ -65,25 +65,6 @@ class TestTaskManagerSubmit:
 
 class TestTaskManagerHandle:
     @pytest.mark.asyncio
-    async def test_closed_event_stream_releases_busy_session(self, monkeypatch):
-        import app.orchestrator.task_manager as manager_module
-        async def run(task, graph, bus, **kwargs):
-            event = {"type": "graph.start", "task_id": task.task_id}
-            bus.emit(event)
-            yield event
-            await asyncio.Event().wait()
-        monkeypatch.setattr(manager_module, "run_graph", run)
-        tm = TaskManager(graph=None, tools=[], bus=TraceBus())
-        request = TaskRequest(text="hello", task_id="closed", session_id="session")
-        tm.prepare_task(request)
-        events = tm._execute("closed", request)
-        assert (await anext(events))["type"] == "graph.start"
-        assert tm.session_busy("session")
-        await events.aclose()
-        assert not tm.session_busy("session")
-        assert tm.status("closed") == "CANCELLED"
-
-    @pytest.mark.asyncio
     async def test_handle_yields_events_and_ends_done(self):
         tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
         req = TaskRequest(text="hello", task_id="t-handle")

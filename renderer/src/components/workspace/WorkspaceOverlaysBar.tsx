@@ -1,4 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
 /**
  * Pending overlay Apply/Discard for copy/worktree Projects.
  * Adapted from eigent WorkspaceProjectPicker overlay actions.

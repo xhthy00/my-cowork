@@ -45,11 +45,6 @@ describe("formatContextUsedLabel", () => {
 });
 
 describe("resolveContextUsage", () => {
-  it("uses compacted occupancy instead of full history, independently of cost caps", () => {
-    const value = resolveContextUsage({ messages: [{ content: "旧对话".repeat(10000) }], contextTokens: 100, draft: "hello", budgetMaxTokens: 1000000 });
-    expect(value.used).toBe(102);
-    expect(value.limit).toBe(DEFAULT_CONTEXT_LIMIT);
-  });
   it("shows zero occupancy for an empty conversation", () => {
     const empty = resolveContextUsage({ messages: [] });
     expect(empty.limit).toBe(DEFAULT_CONTEXT_LIMIT);

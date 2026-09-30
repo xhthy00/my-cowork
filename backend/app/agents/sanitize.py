@@ -214,7 +214,7 @@ def _content_str(message: Any) -> str:
     return str(getattr(message, "content", "") or "")
 
 
-def prepare_model_messages(messages: list[AnyMessage], *, preserve_native_blocks: bool = False) -> list[AnyMessage]:
+def prepare_model_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
     """Make the thread acceptable to strict OpenAI-compat APIs (MiniMax 2013).
 
     MiniMax rejects empty assistant ``content`` on tool-call turns, ``system``
@@ -222,9 +222,6 @@ def prepare_model_messages(messages: list[AnyMessage], *, preserve_native_blocks
     """
     if not messages:
         return []
-    if not preserve_native_blocks:
-        from app.llm.model_config import compatible_model_messages, current_model_config
-        messages = compatible_model_messages(messages, current_model_config())
     lead: list[str] = []
     rest_start = 0
     for i, msg in enumerate(messages):

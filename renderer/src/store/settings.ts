@@ -27,7 +27,7 @@ export interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      whitelist: [],
+      whitelist: ["~/Desktop", "~/Documents", "~/Downloads"],
       apiKey: "",
       appearance: "system",
       fontSize: DEFAULT_FONT_SIZE_LEVEL,

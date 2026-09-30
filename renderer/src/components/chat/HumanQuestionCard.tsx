@@ -53,9 +53,8 @@ function Choice({
   );
 }
 
-export default function HumanQuestionCard({ question, text, projectId: boundProjectId }: { question: Question; text: string; projectId?: string }) {
-  const activeId = useSessionsStore((s) => s.activeId);
-  const projectId = boundProjectId || activeId;
+export default function HumanQuestionCard({ question, text }: { question: Question; text: string }) {
+  const projectId = useSessionsStore((s) => s.activeId);
   const formId = useId();
   const fieldRefs = useRef<Record<number, HTMLFieldSetElement | null>>({});
   const [selected, setSelected] = useState<Record<number, string[]>>({});

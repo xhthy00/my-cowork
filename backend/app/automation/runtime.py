@@ -53,7 +53,6 @@ class AutomationRunner:
             automation_store=self.store,
         )
         final_seen = False
-        budget_waiting = False
         artifacts: set[str] = set(run.artifacts)
         def current_grants() -> list[dict[str, str]]:
             current = self.store.get(task.id)
@@ -77,13 +76,11 @@ class AutomationRunner:
             async for event in self.task_manager.handle(req):
                 self.store.append_event(run.run_id, event)
                 kind = str(event.get("type") or "")
-                if kind in {"budget.paused", "budget.resumed"}:
-                    budget_waiting = kind == "budget.paused"
-                if kind in {"human.ask", "tool.confirm_request", "to_sub_tasks", "budget.paused"}:
+                if kind in {"human.ask", "tool.confirm_request", "to_sub_tasks"}:
                     run.status = "waiting_user"
                     self.store.update_run(run)
                     self._emit("automation.needs_input", task, run)
-                elif run.status == "waiting_user" and not budget_waiting and kind in {"human.answered", "tool.result", "graph.start", "graph.step", "budget.resumed"}:
+                elif run.status == "waiting_user" and kind in {"human.answered", "tool.result", "graph.start", "graph.step"}:
                     run.status = "running"
                     self.store.update_run(run)
                 if kind == "artifact.file":

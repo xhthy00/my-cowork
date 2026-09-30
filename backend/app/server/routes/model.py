@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
@@ -19,7 +19,6 @@ class ValidateBody(BaseModel):
     model: str
     api_key: str = ""
     base_url: str | None = None
-    profile_id: str | None = None
 
 
 class ValidateResult(BaseModel):
@@ -29,7 +28,7 @@ class ValidateResult(BaseModel):
 
 
 @router.post("/api/model/validate", response_model=ValidateResult)
-async def validate_model(body: ValidateBody, request: Request = None) -> dict[str, Any]:
+async def validate_model(body: ValidateBody) -> dict[str, Any]:
     """Probe a provider with a short completion (Eigent-style validate)."""
     started = time.perf_counter()
     provider = body.provider.strip()
@@ -44,22 +43,14 @@ async def validate_model(body: ValidateBody, request: Request = None) -> dict[st
         }
 
     kwargs: dict[str, Any] = {}
-    if body.base_url:
+    if body.base_url and provider == "openai_compat":
         kwargs["base_url"] = body.base_url
 
     try:
-        if body.profile_id and request is not None:
-            config = request.app.state.task_manager.model_registry.resolve(body.profile_id)
-            llm = gateway.create_configured_model(config)
-        else:
-            llm = gateway.create_model(provider, model, body.api_key, thinking=False, **kwargs)
+        llm = gateway.create_model(provider, model, body.api_key, **kwargs)
         await llm.ainvoke([HumanMessage(content="ping")])
         ms = int((time.perf_counter() - started) * 1000)
         return {"ok": True, "error": None, "latency_ms": ms}
     except Exception as exc:  # noqa: BLE001 — surface provider errors to UI
         ms = int((time.perf_counter() - started) * 1000)
-        detail = str(exc)
-        for key in (body.api_key, locals().get("config").api_key if locals().get("config") else ""):
-            if key:
-                detail = detail.replace(key, "[密钥已隐藏]")
-        return {"ok": False, "error": detail[:500], "latency_ms": ms}
+        return {"ok": False, "error": str(exc)[:500], "latency_ms": ms}

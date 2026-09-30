@@ -35,7 +35,6 @@ export async function lightweightValidate(input: ValidateInput): Promise<Validat
       const host = trimSlash(input.baseUrl || "https://api.anthropic.com");
       const res = await fetch(`${host}/v1/messages`, {
         method: "POST",
-        signal: AbortSignal.timeout(30000),
         headers: {
           "content-type": "application/json",
           "x-api-key": key,
@@ -43,7 +42,7 @@ export async function lightweightValidate(input: ValidateInput): Promise<Validat
         },
         body: JSON.stringify({
           model,
-          max_tokens: 32,
+          max_tokens: 1,
           messages: [{ role: "user", content: "ping" }],
         }),
       });
@@ -58,7 +57,7 @@ export async function lightweightValidate(input: ValidateInput): Promise<Validat
       return { ok: true, latency_ms: Date.now() - started };
     }
 
-    // Probe the selected model; listing models does not prove it can generate.
+    // OpenAI-compatible / local: prefer GET /models; fall back to tiny chat completion.
     const base = trimSlash(input.baseUrl || "https://api.openai.com/v1");
     const headers: Record<string, string> = {};
     if (key) headers.Authorization = `Bearer ${key}`;
@@ -67,6 +66,13 @@ export async function lightweightValidate(input: ValidateInput): Promise<Validat
       headers["X-Title"] = "my-cowork";
     }
 
+    const modelsUrl = base.endsWith("/v1") ? `${base}/models` : `${base}/models`;
+    const listRes = await fetch(modelsUrl, { headers });
+    if (listRes.ok) {
+      return { ok: true, latency_ms: Date.now() - started };
+    }
+
+    // Some local servers need a completion probe (and a dummy key).
     const chatRes = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: {
@@ -76,7 +82,7 @@ export async function lightweightValidate(input: ValidateInput): Promise<Validat
       },
       body: JSON.stringify({
         model,
-        max_tokens: 32,
+        max_tokens: 1,
         messages: [{ role: "user", content: "ping" }],
       }),
     });

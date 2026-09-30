@@ -531,27 +531,6 @@ html.electron .titlebar {
 }
 .msg.user .bubble code { background: var(--ds-bg-neutral-subtle-default); color: inherit; }
 
-.app-details > summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  list-style: none;
-  cursor: pointer;
-}
-.app-details > summary::-webkit-details-marker { display: none; }
-.app-details > summary:focus-visible {
-  outline: 2px solid var(--ds-ring-neutral-subtle-default);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.app-details > summary::after {
-  content: "展开";
-  margin-left: auto;
-  color: var(--ds-text-neutral-muted-default);
-  font-size: calc(11px * var(--ui-font-scale, 1));
-}
-.app-details[open] > summary::after { content: "收起"; }
-
 .think-block {
   margin: 0 0 10px;
   border: 1px solid var(--border-subtle);

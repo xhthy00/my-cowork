@@ -5,7 +5,7 @@ L7c Graph execution runtime: checkpointing, budget, compression.
 execute a compiled LangGraph.
 """
 
-from app.llm.budget import Budget
+from app.runtime.budget import Budget
 from app.runtime.checkpointer import get_checkpointer
 from app.runtime.graph_runner import run_graph
 

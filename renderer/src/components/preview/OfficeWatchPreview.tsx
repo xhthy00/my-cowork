@@ -1,4 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
 /**
  * OfficeCLI watch preview — adapted from AionUi OfficeWatchViewer (simplified).
  * Electron uses <webview> (bypasses parent CSP); browser falls back to <iframe>.

@@ -1,4 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
 /**
  * Adapted from eigent: ChatBox/TaskBox/PlanTaskBox
  * (FoldedView surface + SubtaskEditor rows + BottomBox confirm CTA).

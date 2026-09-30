@@ -150,7 +150,6 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
   const taskStartedAt = useSessionStore((s) => s.taskStartedAt);
   const taskElapsedMs = useSessionStore((s) => s.taskElapsedMs);
   const budgetTokens = useSessionStore((s) => s.budgetTokens);
-  const budgetPaused = useSessionStore((s) => s.budgetPaused);
   const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
   const confirmQueue = useSessionStore((s) => s.confirmQueue);
   const trace = useSessionStore((s) => s.trace);
@@ -265,7 +264,7 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
   if (runStatus !== "running" && steps.length === 0 && elapsedMs < 1000) return null;
 
   const timeLabel = formatSplittingElapsed(elapsedMs);
-  const running = runStatus === "running" && !budgetPaused;
+  const running = runStatus === "running";
   const tokenLabel =
     budgetTokens > 0
       ? `${formatTokenCount(budgetTokens)} tokens`
@@ -273,9 +272,9 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
         ? "0 tokens"
         : null;
   const tokenTitle =
-    budgetMaxTokens !== null && budgetMaxTokens > 0
+    budgetMaxTokens > 0
       ? `本轮累计约 ${formatTokenCount(budgetTokens)} / ${formatTokenCount(budgetMaxTokens)} tokens（估算）`
-      : "任务预算无上限";
+      : undefined;
 
   return (
     <div
@@ -302,9 +301,7 @@ export default function WorkLogAccordion({ className }: { className?: string }) 
           className="min-w-0 flex-1 text-body-sm font-medium text-ds-text-neutral-muted-default"
           title={running ? tokenTitle : undefined}
         >
-          {budgetPaused ? (
-            <>已暂停 · 等待增加预算{tokenLabel ? ` · ${tokenLabel}` : ""}</>
-          ) : running ? (
+          {running ? (
             <ShinyText
               text={`已工作 ${timeLabel}${tokenLabel ? ` · ${tokenLabel}` : ""}`}
               speed={2.2}

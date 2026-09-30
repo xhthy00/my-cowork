@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from app.llm.context_limits import ContextPreparationError
-
 import json
 import re
 from dataclasses import dataclass, field
@@ -278,13 +276,13 @@ def _tool_names(messages: list[Any]) -> set[str]:
 
 
 def _wants_file(user_text: str) -> bool:
-    from app.task_support.documents import wants_file_document
+    from app.graphs.routing import wants_file_document
 
     return wants_file_document(user_text)
 
 
 def _file_written(messages: list[Any], user_text: str = "") -> bool:
-    from app.task_support.documents import (
+    from app.graphs.routing import (
         wants_document,
         wants_html_file,
         wants_markdown_file,
@@ -369,7 +367,7 @@ def heuristic_critic(
     if plan_only:
         missing.append("Write the complete user-facing answer, not a plan.")
     if need_doc and not doc_ok:
-        from app.task_support.documents import wants_document, wants_markdown_file
+        from app.graphs.routing import wants_document, wants_markdown_file
 
         if wants_markdown_file(user_text) and not wants_document(user_text):
             missing.append("Write a .md file with fs_write.")
@@ -514,8 +512,6 @@ async def _invoke_analysis_llm(llm: Any, prompt: str) -> str | None:
                 ]
             )
             return str(getattr(msg, "content", None) or msg)
-    except ContextPreparationError:
-        raise
     except Exception:
         return None
     return None

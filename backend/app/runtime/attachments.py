@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 _ATTACHMENT_RE = re.compile(r"\[附件:\s*([^\]]+)\]")
 
@@ -28,8 +29,9 @@ def is_absolute_fs_path(path: str) -> bool:
 def stage_attachments_for_task(
     text: str,
     workdir: Path,
+    guard: Any | None = None,
 ) -> str:
-    """Copy selected attachments into ``workdir/attachments`` and rewrite text.
+    """Whitelist attachment parents, copy into ``workdir/attachments``, rewrite text.
 
     Filename-only markers cannot be located; a system note is appended so the
     agent does not probe ``/``.
@@ -57,9 +59,20 @@ def stage_attachments_for_task(
             missing.append(raw)
             continue
 
+        if guard is not None:
+            try:
+                guard.add_whitelist(str(src.parent))
+            except Exception:
+                pass
+
         dest = staged_dir / src.name
         if dest.resolve() != src:
             shutil.copy2(src, dest)
+        if guard is not None:
+            try:
+                guard.add_whitelist(str(staged_dir))
+            except Exception:
+                pass
         replacements[raw] = str(dest.resolve())
 
     new_text = text

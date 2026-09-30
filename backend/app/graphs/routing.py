@@ -1,37 +1,444 @@
-"""Workforce dependency-ready fan-out and compatibility document helpers."""
+"""Workforce routing: dependency-ready fan-out and document helpers."""
 
 from __future__ import annotations
+
+import re
+from collections.abc import Iterable
 from typing import Any
+
 from langgraph.types import Send
+
 from app.agents.workers import WORKER_IDS
-from app.task_support.documents import (
-    _msg_role,
-    _msg_content,
-    _msg_name,
-    _latest_user_text,
-    _asks_office_too,
-    _intent_text,
-    wants_markdown_file,
-    wants_web_app,
-    wants_html_file,
-    wants_unspecified_document,
-    wants_file_document,
-    wants_document,
-    markdown_only,
-    wants_pptx,
-    _iter_tool_calls,
-    _args_blob,
-    _msg_tool_call_id,
-    _result_failed,
-    _has_office_ext,
-    has_office_deliverable,
-    document_tools_succeeded,
-    _is_plausible_office_fs_path,
-    extract_claimed_office_paths,
-)
 
 MAX_ROUNDS = 16
 MAX_RETRIES = 3
+
+_DOC_TOOL_NAMES = frozenset(
+    {
+        "pptx_gen",
+        "docx_gen",
+        "xlsx_gen",
+        "pdf_gen",
+        "pptx.gen",
+        "docx.gen",
+        "xlsx.gen",
+        "pdf.gen",
+        "fs.write",
+    }
+)
+_BASH_TOOL_NAMES = frozenset({"bash", "exec.bash"})
+_OFFICECLI_WRITE_RE = re.compile(
+    r"\bofficecli(?:\.exe)?\s+(create|add|set|batch|save|close|remove|move|swap)\b",
+    re.IGNORECASE,
+)
+_OFFICE_EXTS = (".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls", ".pdf")
+_PPTX_EXTS = (".pptx", ".ppt")
+_RESULT_FAIL_MARKERS = (
+    "rejected",
+    "operation rejected",
+    "error",
+    "failed",
+    "traceback",
+    "参数无效",
+    "生成失败",
+)
+
+# Generation intent only — mentioning 文档/docx as an input (解读/附件) must NOT match.
+# Keep 函 out of nouns (matches 函数). Prefer 公函/函件.
+_DOC_VERB = (
+    r"(?:重新生成|再生成|重新写|重新做|再写一份|再出一份|再做一份|"
+    r"生成|创建|撰写|起草|写出|导出|输出|制作|"
+    r"做一份|做成|出一份|写一份|帮我做|帮我写|形成|转成|转为)"
+)
+_DOC_NOUN = (
+    r"(?:pptx?|docx?|xlsx|xls|pdf|excel|幻灯片|演示文稿|"
+    r"word|Word文档|"
+    r"公文|公函|函件|"
+    r"请示|通知|纪要|通报|决定|决议|公告|通告|批复|议案|"
+    r"估算表|明细表|预算表|测算表|台账|估算)"
+)
+_DOC_GEN_RE = re.compile(
+    _DOC_VERB
+    + r".{0,32}"
+    + _DOC_NOUN
+    + r"|"
+    + _DOC_NOUN
+    + r".{0,16}"
+    + r"(?:重新生成|再生成|生成|创建|撰写|起草|导出|输出|制作)",
+    re.IGNORECASE,
+)
+_DOC_SKILL_RE = re.compile(
+    r"(?:#\s*|\{\{)?\s*"
+    r"(?:official-document-writing|officecli(?:-docx|-pptx|-xlsx|-pitch-deck|-word-form)?)"
+    r"\s*(?:\}\})?",
+    re.IGNORECASE,
+)
+_GEN_HINTS = (
+    "生成",
+    "撰写",
+    "起草",
+    "写一份",
+    "做一份",
+    "制作",
+    "导出",
+    "写出",
+    "形成",
+    "转成",
+    "转为",
+    "做成",
+)
+
+
+def _msg_role(msg: Any) -> str:
+    if isinstance(msg, dict):
+        return str(msg.get("type") or msg.get("role") or "")
+    return str(getattr(msg, "type", None) or getattr(msg, "role", None) or "")
+
+
+def _msg_content(msg: Any) -> str:
+    if isinstance(msg, dict):
+        return str(msg.get("content") or "")
+    return str(getattr(msg, "content", None) or "")
+
+
+def _msg_name(msg: Any) -> str:
+    if isinstance(msg, dict):
+        return str(msg.get("name") or "")
+    return str(getattr(msg, "name", None) or "")
+
+
+def _latest_user_text(state: dict[str, Any]) -> str:
+    messages = state.get("messages") or []
+    for msg in reversed(messages):
+        role = _msg_role(msg)
+        content = _msg_content(msg)
+        if role in ("human", "user") and content:
+            return content
+    for msg in messages:
+        content = _msg_content(msg)
+        if content:
+            return content
+    return str(state.get("user_text") or "")
+
+
+_MD_FILE_RE = re.compile(
+    r"(?:markdown|\.md\b|md\s*文档|md文档|md\s*文件|md格式|"
+    r"markdown\s*(?:文档|文件)|生成\s*md|写成?\s*md|做成?\s*md|形成\s*md|"
+    r"输出\s*md|转成\s*md|转为\s*md|只要\s*md|指定.{0,12}md|"
+    r"帮我生成md)",
+    re.IGNORECASE,
+)
+_HTML_FILE_RE = re.compile(
+    r"(?:\.html?\b|\bhtml\b|html\s*(?:文档|文件|报告|页面|页)|"
+    r"生成\s*html|写成?\s*html|输出\s*html|整合成?\s*.{0,12}html)",
+    re.IGNORECASE,
+)
+# Build/write a web page or browser game — not "这个网页讲了什么".
+_WEB_APP_RE = re.compile(
+    r"(?:"
+    r"(?:开发|做|写|实现|制作|创建|帮我做|帮我写|帮我开发|做一个|写一个|帮我实现)"
+    r".{0,40}"
+    r"(?:网页游戏|web\s*网页游戏|web\s*游戏|小游戏|网页|网站|"
+    r"web\s*(?:page|app|game)|html5?\s*游戏|canvas)"
+    r"|"
+    r"(?:help\s+me\s+)?(?:develop|build|create|make)\s+"
+    r"(?:an?\s+)?(?:.{0,40}?)(?:web\s+game|html5?\s+game|website|web\s+app|web\s+page)"
+    r")",
+    re.IGNORECASE,
+)
+_OFFICE_FORMAT_RE = re.compile(
+    r"\b(?:docx?|xlsx|pptx?|pdf|word)\b|word\s*版|word\s*文档|excel|"
+    r"幻灯片|演示文稿|公文|请示|\.docx\b|\.pptx\b|\.xlsx\b",
+    re.IGNORECASE,
+)
+
+
+def _asks_office_too(user_text: str) -> bool:
+    """True when Markdown was requested *and* the user also asked for Office.
+
+    Ignore Word/docx mentions in pasted article bodies (``转成md`` then later
+    the word ``Word`` must not flip the task into officecli).
+    """
+    q = (user_text or "").strip()
+    if not q:
+        return False
+    if _DOC_SKILL_RE.search(q):
+        return True
+    if re.search(r"word\s*版", q, re.IGNORECASE):
+        return True
+    return bool(
+        re.search(
+            r"(?:再出一份|再生成一份|再生成|同时(?:生成|导出|输出)?|以及|还要|也要).{0,16}"
+            r"(?:word|docx|pptx?|xlsx|excel|ppt|幻灯片)",
+            q,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _intent_text(user_text: str) -> str:
+    """Drop injected workspace constraints so 'docx' in the hint cannot flip format."""
+    q = user_text or ""
+    cut = q.find("[工作空间约束]")
+    return (q[:cut] if cut >= 0 else q).strip()
+
+
+def wants_markdown_file(user_text: str) -> bool:
+    """True when the user asked for Markdown / .md, not Word."""
+    q = _intent_text(user_text)
+    return bool(q and _MD_FILE_RE.search(q))
+
+
+def wants_web_app(user_text: str) -> bool:
+    """True when the user asked to build a web page, site, or browser game."""
+    q = _intent_text(user_text)
+    return bool(q and _WEB_APP_RE.search(q))
+
+
+def wants_html_file(user_text: str) -> bool:
+    """True when the user asked for an HTML page / .html file / web game."""
+    q = _intent_text(user_text)
+    return bool(q and (_HTML_FILE_RE.search(q) or wants_web_app(q)))
+
+
+_UNSPECIFIED_DOC_RE = re.compile(
+    _DOC_VERB
+    + r".{0,32}"
+    + r"(?:报告|文档|方案|白皮书|论文|paper|report)"
+    + r"|"
+    + r"(?:报告|文档|方案|白皮书|论文|paper|report)"
+    + r".{0,16}"
+    + r"(?:重新生成|再生成|生成|创建|撰写|起草|导出|输出|制作)",
+    re.IGNORECASE,
+)
+
+
+def wants_unspecified_document(user_text: str) -> bool:
+    """Eigent Document Agent: document/report/paper with no format → HTML file."""
+    q = _intent_text(user_text)
+    if not q or wants_markdown_file(q) or wants_html_file(q) or wants_document(q):
+        return False
+    return bool(_UNSPECIFIED_DOC_RE.search(q))
+
+
+def wants_file_document(user_text: str) -> bool:
+    """Any file artifact: office, markdown, HTML, or unspecified HTML report."""
+    return (
+        wants_document(user_text)
+        or wants_markdown_file(user_text)
+        or wants_html_file(user_text)
+        or wants_unspecified_document(user_text)
+    )
+
+
+def wants_document(user_text: str) -> bool:
+    """True when the user asked to *generate* an office document (not merely mention one)."""
+    q = _intent_text(user_text)
+    if not q:
+        return False
+    if wants_markdown_file(q) and not _asks_office_too(q):
+        return False
+    if _DOC_GEN_RE.search(q):
+        return True
+    if _DOC_SKILL_RE.search(q):
+        return True
+    if _OFFICE_FORMAT_RE.search(q) and any(v in q for v in _GEN_HINTS):
+        return True
+    if re.search(r"word\s*版", q, re.IGNORECASE):
+        return True
+    return any(
+        k in q
+        for k in (
+            "做成 ppt",
+            "做成ppt",
+            "做一份 ppt",
+            "出一份 ppt",
+            "做PPT",
+            "做 ppt",
+            "生成图文",
+        )
+    )
+
+
+def markdown_only(user_text: str) -> bool:
+    """User asked for .md and did not also ask for Word/PPT/Excel."""
+    return wants_markdown_file(user_text) and not wants_document(user_text)
+
+
+def wants_pptx(user_text: str) -> bool:
+    q = _intent_text(user_text)
+    if not q:
+        return False
+    ql = q.lower()
+    return any(k in ql for k in ("pptx", "ppt", "幻灯片", "演示文稿")) or "做ppt" in ql.replace(
+        " ", ""
+    )
+
+
+def _iter_tool_calls(msg: Any) -> list[dict[str, Any]]:
+    raw = getattr(msg, "tool_calls", None)
+    if not raw and isinstance(msg, dict):
+        raw = msg.get("tool_calls")
+    if not raw:
+        additional = getattr(msg, "additional_kwargs", None) or {}
+        if isinstance(additional, dict):
+            raw = additional.get("tool_calls")
+    if not raw:
+        return []
+    out: list[dict[str, Any]] = []
+    for call in raw:
+        if isinstance(call, dict):
+            name = str(call.get("name") or "")
+            args = call.get("args") or call.get("arguments") or {}
+            fn = call.get("function")
+            if not name and isinstance(fn, dict):
+                name = str(fn.get("name") or "")
+                args = fn.get("arguments") or args
+            out.append(
+                {
+                    "id": str(call.get("id") or ""),
+                    "name": name,
+                    "args": args,
+                }
+            )
+            continue
+        out.append(
+            {
+                "id": str(getattr(call, "id", "") or ""),
+                "name": str(getattr(call, "name", "") or ""),
+                "args": getattr(call, "args", {}) or {},
+            }
+        )
+    return out
+
+
+def _args_blob(args: Any) -> str:
+    if isinstance(args, dict):
+        return " ".join(
+            str(args.get(key) or "")
+            for key in ("cmd", "command", "path", "out_path", "name")
+        )
+    return str(args or "")
+
+
+def _msg_tool_call_id(msg: Any) -> str:
+    if isinstance(msg, dict):
+        return str(msg.get("tool_call_id") or "")
+    return str(getattr(msg, "tool_call_id", None) or "")
+
+
+def _result_failed(content: str) -> bool:
+    low = content.lower()
+    # JSON `"error": null` is a successful officecli payload, not a failure.
+    stripped = re.sub(r'"error"\s*:\s*(null|"")', " ", low)
+    return any(marker in stripped for marker in _RESULT_FAIL_MARKERS)
+
+
+def _has_office_ext(text: str, *, require_pptx: bool = False) -> bool:
+    low = (text or "").lower()
+    exts = _PPTX_EXTS if require_pptx else _OFFICE_EXTS
+    return any(ext in low for ext in exts)
+
+
+def has_office_deliverable(
+    paths: Iterable[str] | None,
+    *,
+    require_pptx: bool = False,
+) -> bool:
+    """True when *paths* includes a newly written office file."""
+    if not paths:
+        return False
+    for path in paths:
+        low = str(path).lower()
+        if require_pptx:
+            if low.endswith(_PPTX_EXTS):
+                return True
+        elif low.endswith(_OFFICE_EXTS):
+            return True
+    return False
+
+
+def document_tools_succeeded(state: dict[str, Any], *, require_pptx: bool = False) -> bool:
+    """True when this run actually wrote an office file (not merely load_skill)."""
+    messages = list(state.get("messages") or [])
+    cmd_by_id: dict[str, str] = {}
+    for msg in messages:
+        for call in _iter_tool_calls(msg):
+            cid = call.get("id") or ""
+            if cid:
+                cmd_by_id[str(cid)] = _args_blob(call.get("args"))
+
+    allowed = (
+        frozenset({"pptx_gen", "pptx.gen"})
+        if require_pptx
+        else _DOC_TOOL_NAMES
+    )
+    for msg in messages:
+        name = _msg_name(msg)
+        role = _msg_role(msg)
+        content = _msg_content(msg).strip()
+        if not content:
+            continue
+        is_tool = role in ("tool", "ToolMessage") or bool(_msg_tool_call_id(msg))
+        cmd = cmd_by_id.get(_msg_tool_call_id(msg), "")
+        is_write_tool = name in allowed
+        is_officecli_bash = name in _BASH_TOOL_NAMES and (
+            "officecli" in cmd.lower() or "officecli" in content.lower()
+        )
+        if not is_write_tool and not (is_tool and is_officecli_bash):
+            continue
+        if _result_failed(content):
+            continue
+        if require_pptx and content.lower().rstrip().endswith(".pdf"):
+            continue
+        if is_officecli_bash and (
+            not _OFFICECLI_WRITE_RE.search(cmd)
+            or not _has_office_ext(cmd, require_pptx=require_pptx)
+        ):
+            continue
+        if name == "fs.write" and not _has_office_ext(content, require_pptx=require_pptx):
+            continue
+        return True
+    return False
+
+
+_CLAIMED_OFFICE_RE = re.compile(
+    r"(?:^|[\s`'\"=:：(\[])"
+    r"(?P<path>(?:~|/|[A-Za-z]:\\)[^\s`*'\"<>|\]]+?\.(?:docx?|pptx?|xlsx|xls|pdf))",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _is_plausible_office_fs_path(raw: str) -> bool:
+    """Reject URL remnants such as ``https://www.doc`` → ``//www.doc``."""
+    p = (raw or "").strip()
+    if not p:
+        return False
+    lower = p.lower()
+    if lower.startswith(("http://", "https://", "ftp://")):
+        return False
+    unix = p.replace("\\", "/")
+    if unix.startswith("//"):
+        return False
+    name = unix.rsplit("/", 1)[-1]
+    stem = name.rsplit(".", 1)[0].lower()
+    if stem in {"www", "http", "https"} or stem.startswith("www."):
+        return False
+    return True
+
+
+def extract_claimed_office_paths(text: str) -> list[str]:
+    """Absolute office paths the model listed in a user-facing reply."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for match in _CLAIMED_OFFICE_RE.finditer(text or ""):
+        raw = match.group("path").rstrip(".,;:)")
+        if not raw or raw in seen or not _is_plausible_office_fs_path(raw):
+            continue
+        seen.add(raw)
+        out.append(raw)
+    return out
+
 
 def ready_subtasks(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return waiting tasks whose dependencies are all completed."""

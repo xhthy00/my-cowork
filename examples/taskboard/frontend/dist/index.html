@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>任务管理样例</title>
     <link rel="stylesheet" href="./style.css" />
-    <script type="module" src="./app.js"></script>
+    <script src="./app.js" defer></script>
   </head>
   <body>
     <main class="app">
       <header>
+        <p class="eyebrow">MYCOWORK · 行业应用样例</p>
         <h1>任务管理</h1>
-        <p>管理任务，选中内容后分析风险、生成周报或拆分子任务。</p>
+        <p>任务保存在此应用的独立 SQLite 数据目录中。</p>
       </header>
       <form id="new-task">
         <label for="title">新任务</label>
@@ -21,18 +22,6 @@
         </div>
       </form>
       <p id="status" role="status"></p>
-      <section aria-label="业务 AI" class="ai-actions">
-        <p>选中任务后，AI 将只处理这些业务内容。</p>
-        <div class="row">
-          <button id="analyze" type="button">分析风险</button>
-          <button id="report" type="button">生成周报</button>
-          <button id="split" type="button">拆分子任务</button>
-          <button id="pick" type="button">附加文本文件</button>
-        </div>
-        <p id="attachments"></p>
-        <p id="ai-status" role="status"></p>
-        <button id="open-ai" type="button" hidden>查看 AI 详情</button>
-      </section>
       <ul id="tasks" aria-label="任务列表"></ul>
     </main>
   </body>

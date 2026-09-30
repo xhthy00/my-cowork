@@ -100,9 +100,6 @@ mac:
       to: resources/example-skills
     - from: skills
       to: skills
-      filter:
-        - "_templates/**/*"
-        - "README.md"
 win:
   icon: build/icon.ico
   signAndEditExecutable: false
@@ -127,9 +124,6 @@ win:
       to: resources/example-skills
     - from: skills
       to: skills
-      filter:
-        - "_templates/**/*"
-        - "README.md"
     - from: build/icon.ico
       to: icon.ico
 nsis:

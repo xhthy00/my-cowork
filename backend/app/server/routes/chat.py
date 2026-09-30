@@ -32,10 +32,6 @@ class BoundKnowledgeBase(BaseModel):
     source: str = "ima"
 
 
-class TaskBudgetBody(BaseModel):
-    max_tokens: int | None = Field(..., gt=0, le=9_007_199_254_740_991, strict=True)
-
-
 class ChatRequest(BaseModel):
     """Request body for POST /api/chat."""
 
@@ -53,9 +49,6 @@ class ChatRequest(BaseModel):
     enabled_skill_ids: list[str] | None = None
     knowledge_bases: list[BoundKnowledgeBase] | None = None
     session_id: str | None = None
-    model_profile_id: str | None = None
-    reasoning: dict | None = None
-    task_budget: TaskBudgetBody | None = None
 
 
 class WorkforceStartBody(BaseModel):
@@ -76,8 +69,11 @@ class HumanReplyBody(BaseModel):
     answer: str = Field(..., min_length=1)
 
 
-def _task_request(req: ChatRequest) -> TaskRequest:
-    return TaskRequest(
+async def _event_stream(
+    task_manager: Any, req: ChatRequest
+) -> AsyncIterator[str]:
+    """Yield SSE formatted lines from the task manager event stream."""
+    task_req = TaskRequest(
         text=req.text,
         task_id=req.task_id or str(uuid.uuid4()),
         session_mode=req.session_mode,
@@ -92,12 +88,7 @@ def _task_request(req: ChatRequest) -> TaskRequest:
         enabled_skill_ids=req.enabled_skill_ids,
         knowledge_bases=[row.model_dump() for row in (req.knowledge_bases or [])] or None,
         session_id=req.session_id or req.project_id,
-        model_profile_id=req.model_profile_id,
-        reasoning=req.reasoning,
-        task_budget=req.task_budget.model_dump() if req.task_budget is not None else None,
     )
-async def _event_stream(task_manager: Any, req: ChatRequest, task_req: TaskRequest | None = None) -> AsyncIterator[str]:
-    task_req = task_req or _task_request(req)
     task_id = task_req.task_id or "stream"
     _active_tasks[task_id] = True
     try:
@@ -121,42 +112,10 @@ async def _event_stream(task_manager: Any, req: ChatRequest, task_req: TaskReque
 async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
     """Submit a chat request and stream trace events via SSE."""
     task_manager = request.app.state.task_manager
-    task_req = _task_request(body)
-    try:
-        if hasattr(task_manager, "prepare_task"):
-            task_manager.prepare_task(task_req)
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from None
     return StreamingResponse(
-        _event_stream(task_manager, body, task_req),
+        _event_stream(task_manager, body),
         media_type="text/event-stream",
     )
-
-
-@router.get("/api/budget/settings")
-async def budget_settings(request: Request) -> dict:
-    return request.app.state.task_manager.budget_settings()
-
-
-@router.get("/api/budget/paused")
-async def paused_budgets(request: Request) -> dict:
-    return {"tasks": request.app.state.task_manager.paused_budgets()}
-
-
-@router.put("/api/budget/settings")
-async def save_budget_settings(request: Request, body: TaskBudgetBody) -> dict:
-    settings = body.model_dump()
-    request.app.state.task_manager.set_budget_settings(settings)
-    return settings
-
-
-@router.post("/api/chat/{task_id}/budget/resume")
-async def resume_budget(task_id: str, request: Request, body: TaskBudgetBody) -> dict:
-    try:
-        request.app.state.task_manager.resume_budget(task_id, body.max_tokens)
-    except (ValueError, KeyError) as exc:
-        raise HTTPException(409, str(exc)) from None
-    return {"ok": True}
 
 
 @router.post("/api/workforce/start")

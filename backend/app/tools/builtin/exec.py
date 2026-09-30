@@ -11,14 +11,14 @@ from langchain_core.tools import BaseTool, tool
 
 from app.guardrails.approval import ConfirmHub
 from app.guardrails.command_filter import CommandFilter
-from app.guardrails.office_policy import office_bypass_refuse
-from app.guardrails.office_gate import (
+from app.runtime.v2.office import office_bypass_refuse
+from app.runtime.v2.office_gate import (
     OFFICE_WRITE_REFUSE,
     is_office_write_command,
     office_writes_blocked,
 )
 from app.sandbox.path_guard import PathGuard, PathGuardError, resolve_tool_path
-from app.task_support.workspace_context import get_workspace_runtime
+from app.runtime.workspace_context import get_workspace_runtime
 from app.tools.builtin.terminal_venv import (
     ensure_agent_venv,
     wrap_cmd_with_activate,

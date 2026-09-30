@@ -12,7 +12,7 @@ LLM_HEARTBEAT_S = 2.0
 
 
 def _emit_runtime_event(event_type: str, **fields: Any) -> None:
-    from app.task_support.todo_context import get_todo_runtime
+    from app.runtime.todo_context import get_todo_runtime
 
     rt = get_todo_runtime()
     if rt is None or rt.bus is None:

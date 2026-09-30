@@ -1,5 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
-import { backendUnavailableMessage } from "@/lib/backendStatus";
 /**
  * Builtin office assistants list — scene catalog with categories + prompt chips.
  */
@@ -7,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useBackendEpoch } from "@/hooks/useBackendEpoch";
 import { usePageTabStore } from "@/store/pageTab";
 import { useSessionsStore } from "@/store/sessions";
 
@@ -43,26 +40,24 @@ export default function AssistantsView() {
   const [error, setError] = useState("");
   const createSession = useSessionsStore((s) => s.createSession);
   const setWorkspaceView = usePageTabStore((s) => s.setWorkspaceView);
-  const backendEpoch = useBackendEpoch();
 
   useEffect(() => {
     void (async () => {
       try {
         const backendUrl = await window.api.getBackendUrl();
         if (!backendUrl) {
-          setError(await backendUnavailableMessage());
+          setError("后端未连接");
           return;
         }
         const data = await fetch(`${backendUrl}/api/assistants`).then((r) =>
           r.json(),
         );
         setItems(Array.isArray(data.assistants) ? data.assistants : []);
-        setError("");
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [backendEpoch]);
+  }, []);
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, AssistantItem[]>();

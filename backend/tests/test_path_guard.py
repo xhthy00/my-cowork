@@ -1,6 +1,4 @@
 from pathlib import Path
-import os
-import subprocess
 
 import pytest
 
@@ -50,22 +48,19 @@ class TestPathGuard:
         outside = tmp_path / "outside"
         outside.mkdir()
         symlink = allowed / "link"
-        if os.name == "nt":
-            subprocess.run(["cmd", "/c", "mklink", "/J", str(symlink), str(outside)], check=True, capture_output=True)
-        else:
-            symlink.symlink_to(outside, target_is_directory=True)
+        symlink.symlink_to(outside)
         guard = PathGuard([str(allowed)])
 
         with pytest.raises(PathGuardError):
             guard.check_path(str(symlink / "file.txt"))
 
-    def test_instances_have_independent_whitelists(self, tmp_path):
-        guard_a = PathGuard([str(tmp_path / "a")])
-        guard_b = PathGuard([str(tmp_path / "b")])
+    def test_instances_have_independent_whitelists(self):
+        guard_a = PathGuard(["/tmp/a"])
+        guard_b = PathGuard(["/tmp/b"])
 
-        guard_a.check_path(str(tmp_path / "a" / "file.txt"))
+        guard_a.check_path("/tmp/a/file.txt")
         with pytest.raises(PathGuardError):
-            guard_b.check_path(str(tmp_path / "a" / "file.txt"))
+            guard_b.check_path("/tmp/a/file.txt")
 
     def test_desktop_alias_allowed_when_home_whitelisted(self):
         guard = PathGuard([str(Path.home())])

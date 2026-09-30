@@ -64,22 +64,6 @@ describe("ChatConfirmCard", () => {
     expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
   });
 
-  it("uses the app's operation title and keeps write arguments visible", async () => {
-    useSessionStore.getState().handleEvent({ type: "tool.confirm_request", payload: {
-      call_id: "app-write", tool: "industry__cn_example_taskboard__create_subtask", tool_title: "创建子任务",
-      args: { parent_id: 1, title: "核对交付材料", 业务范围: { selection: [1] } },
-    } });
-    render(<ChatConfirmCard confirm={useSessionStore.getState().messages[0].confirm!} />);
-    expect(screen.getByText("创建子任务")).toBeInTheDocument();
-    expect(screen.getByText(/核对交付材料/).closest("details")).toBeNull();
-    expect(screen.getByText("操作参数")).toBeInTheDocument();
-    const scope = screen.getByText(/"selection"/).closest("details")!;
-    expect(scope).not.toHaveAttribute("open");
-    await userEvent.click(screen.getByText("业务范围"));
-    expect(scope).toHaveAttribute("open");
-    expect(screen.queryByText("命令", { exact: true })).toBeNull();
-  });
-
   it("POSTs ok=true when allow is clicked", async () => {
     useSessionStore.getState().enqueueConfirm({
       call_id: "c1",

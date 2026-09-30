@@ -35,20 +35,15 @@ describe("industry app asset resolver", () => {
     try {
       const directory = path.join(root, "packages", "cn.example.taskboard", "1.0.0", "frontend", "dist");
       fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(root, "registry.json"), JSON.stringify(registry));
       fs.writeFileSync(path.join(directory, "index.html"), "<h1>Taskboard</h1>");
-      const response = await serveAppAsset("mycowork-app://cn.example.taskboard/index.html", root, registry);
+      const response = await serveAppAsset("mycowork-app://cn.example.taskboard/index.html", root);
       expect(response.status).toBe(200);
       expect(await response.text()).toContain("Taskboard");
       expect(response.headers.get("Content-Security-Policy")).toContain("connect-src 'none'");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it("rejects old-generation assets after an atomic runtime switch", () => {
-    const current = { ...registry, generation: "new-runtime" };
-    expect(resolveAppAsset("mycowork-app://cn.example.taskboard/old-runtime/app.js", current, os.tmpdir())).toBeNull();
-    expect(resolveAppAsset("mycowork-app://cn.example.taskboard/new-runtime/app.js", current, os.tmpdir())).toContain("1.0.0");
   });
 });
 

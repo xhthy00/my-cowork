@@ -1,4 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
 /**
  * Adapted from eigent: Workspace composer + Session ChatBox.
  * Empty: welcome hero · title · composer · Recent runs
@@ -43,8 +42,6 @@ import {
   parseUserAttachments,
 } from "../lib/userAttachments";
 import { SessionMode } from "../types/workforce";
-import { useIndustryNavigation } from "../store/industryNavigation";
-import { useAppTasks } from "../api/industryAI";
 
 /** Adapted from eigent / Claude-style artifact card: type badge + name + ext. */
 function ArtifactChip({ artifact }: { artifact: FileArtifact }) {
@@ -442,8 +439,6 @@ function bindChatHandlers(
 }
 
 export default function ChatView() {
-  const appOrigin = useSessionsStore(state => state.sessions.find(project => project.id === state.activeId)?.appOrigin);
-  const appTask = useAppTasks(state => appOrigin ? state.records[appOrigin.taskId] : undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
@@ -721,15 +716,7 @@ export default function ChatView() {
   return (
     <section className="main relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="chat-header">
-        {appOrigin && <Button size="sm" variant="ghost" onClick={() => {
-          useIndustryNavigation.setState(state => ({ activeId: appOrigin.appId, routes: { ...state.routes, [appOrigin.appId]: appOrigin.route } }));
-          usePageTabStore.getState().setHubTab("workbench");
-        }}>返回{appOrigin.appName}</Button>}
-        <div className="tags min-w-0 flex-1">
-          {!!appTask?.loaded_skills?.length && <span className="truncate text-xs text-ds-text-neutral-muted-default" title={appTask.loaded_skills.map(skill => `${skill.name}（${skill.version}）`).join("、")}>
-            本次载入技能：{appTask.loaded_skills.map(skill => skill.name).join("、")}
-          </span>}
-        </div>
+        <div className="tags flex-1" />
         <Button
           size="icon"
           variant={previewOpen ? "secondary" : "ghost"}

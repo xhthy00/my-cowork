@@ -8,7 +8,7 @@ from pathlib import Path
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.task_support.notes_context import get_notes_runtime
+from app.runtime.notes_context import get_notes_runtime
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_\-.]+$")
 

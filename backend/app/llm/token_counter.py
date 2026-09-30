@@ -1,6 +1,5 @@
 """Token counting via tiktoken for budget tracking (with offline fallback)."""
 
-import json
 from typing import Union
 
 from langchain_core.messages import BaseMessage
@@ -41,12 +40,6 @@ def _texts(content: _MsgInput) -> list[str]:
                             texts.append(part["text"])
                         elif isinstance(part, str):
                             texts.append(part)
-                calls = getattr(item, "tool_calls", None)
-                if calls:
-                    texts.append(json.dumps(calls, ensure_ascii=False))
-                reasoning = item.additional_kwargs.get("reasoning_content")
-                if isinstance(reasoning, str):
-                    texts.append(reasoning)
             elif isinstance(item, str):
                 texts.append(item)
         return texts

@@ -4,14 +4,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
-import pytest
-
-
-@pytest.fixture(autouse=True)
-def isolated_industry_registry(tmp_path, monkeypatch):
-    # Registry initialization is now a write; assembly tests must never import
-    # or migrate the developer's installed industry apps.
-    monkeypatch.setenv("MY_COWORK_INDUSTRY_APPS_ROOT", str(tmp_path / "industry-apps"))
 
 
 class FakeChatModel(BaseChatModel):

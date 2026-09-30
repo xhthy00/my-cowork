@@ -1,557 +1,666 @@
-import { apiFetch as fetch } from "@/api/backend";
-import { useEffect, useRef, useState } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  EyeOff,
+  Key,
+  Loader2,
+  RefreshCw,
+  Server,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import type { ModelConnection, ModelProfile, ModelsState } from "@/window";
 import {
-  capabilityFor,
-  runtimeCapability,
-  type ModelCatalog,
-} from "../../../../electron/model_capabilities";
+  ConfigModelCard,
+  type ConfigCardRingStatus,
+} from "@/components/settings/ConfigModelCard";
+import { SettingsField } from "@/components/settings/SettingsField";
 import {
-  ConnectionEditor,
-  ModelEditor,
-  Feedback,
-  type Notice,
-} from "./ModelConfigEditor";
-import "./model-config.css";
+  BYOK_PRESETS,
+  LOCAL_PRESETS,
+  findPreset,
+  modelListUrl,
+  profileForPreset as matchProfile,
+  type ModelPreset,
+} from "@/lib/modelPresets";
+import {
+  getModelImage,
+  isDarkAppearance,
+  needsInvertModelImage,
+} from "@/lib/modelProviderImages";
+import { cn } from "@/lib/utils";
+import type { ModelProfile, ModelsState } from "@/window";
 
-type Editor =
-  | { kind: "connection"; connection?: ModelConnection }
-  | { kind: "model"; connection: ModelConnection; model?: ModelProfile };
+type SidebarTab = `byok-${string}` | `local-${string}`;
 
-export default function ModelsPanel() {
-  const [models, setModels] = useState<ModelsState>({
-    profiles: [],
-    activeId: null,
-  });
-  const [catalog, setCatalog] = useState<ModelCatalog>({
-    models: [],
-    updatedAt: "",
-  });
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [editor, setEditor] = useState<Editor>();
-  const [busy, setBusy] = useState(false);
-  const [ratio, setRatio] = useState("80");
-  const [ratioNotice, setRatioNotice] = useState<Notice>();
-  const [rowNotice, setRowNotice] = useState<{ id: string; notice: Notice }>();
-  const [keyStates, setKeyStates] = useState<Record<string, boolean | null>>(
-    {},
-  );
-  const ratioDirty =
-    Number(ratio) !==
-    Number(((models.compactionRatio ?? 0.8) * 100).toFixed(6));
+function profileForPreset(
+  models: ModelsState,
+  preset: ModelPreset,
+): ModelProfile | undefined {
+  return matchProfile(models.profiles, preset) as ModelProfile | undefined;
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    void window.api
-      .getModels()
-      .then((s) => {
-        if (cancelled) return;
-        setModels(s);
-        setRatio(String(Number(((s.compactionRatio ?? 0.8) * 100).toFixed(6))));
-      })
-      .catch((e) => {
-        if (!cancelled) setLoadError(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    const readCatalog = () =>
-      void window.api
-        .getModelCatalog?.()
-        .then((c) => {
-          if (!cancelled) setCatalog(c);
-        })
-        .catch((e) => {
-          // Offline fallback; maintenance is not part of this screen.
-        });
-    readCatalog();
-    const unsubscribe = window.api.onModelCatalogChanged?.(readCatalog);
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    // Account references can exist before keys are saved. Retain only presence.
-    void Promise.all(
-      (models.connections ?? []).map(async (c) => {
-        try {
-          return [
-            c.id,
-            c.keyAccount
-              ? Boolean(await window.api.getKey(c.keyAccount))
-              : false,
-          ] as const;
-        } catch {
-          return [c.id, null] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (!cancelled) setKeyStates(Object.fromEntries(entries));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [models.connections]);
-
-  function publish(next: ModelsState) {
-    setModels(next);
-    window.dispatchEvent(new Event("my-cowork:models-changed"));
+function StatusDot({
+  tone,
+}: {
+  tone: "success" | "error" | "muted" | null;
+}) {
+  if (!tone) {
+    return (
+      <div className="m-1 h-2 w-2 shrink-0 rounded-full bg-ds-text-neutral-default-default opacity-10" />
+    );
   }
-  async function setDefault(p: ModelProfile) {
-    setBusy(true);
-    setRowNotice(undefined);
-    try {
-      publish(await window.api.setActiveModel(p.id));
-      setRowNotice({
-        id: p.id,
-        notice: {
-          kind: "success",
-          text: "已设为新会话默认模型。",
-        },
-      });
-    } catch (e) {
-      setRowNotice({ id: p.id, notice: { kind: "error", text: String(e) } });
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function saveRatio() {
-    setBusy(true);
-    setRatioNotice(undefined);
-    try {
-      const value = Number(ratio);
-      if (!Number.isFinite(value) || value < 10 || value > 95)
-        throw new Error("请输入 10 到 95 之间的百分比");
-      publish(await window.api.setCompactionRatio(value / 100));
-      setRatioNotice({ kind: "success", text: "自动压缩阈值已保存。" });
-    } catch (e) {
-      setRatioNotice({
-        kind: "error",
-        text: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <div className="model-config">
-      <header className="model-page-heading">
-        <h2>模型配置/上下文</h2>
-      </header>
-      <section className="model-settings-section" aria-label="连接与模型">
-        <div className="model-section-heading">
-          <div>
-            <h3>连接与模型</h3>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={loading || busy || !!loadError}
-            onClick={() => setEditor({ kind: "connection" })}
-          >
-            添加连接
-          </Button>
-        </div>
-        {loading && (
-          <p className="model-muted" role="status">
-            正在读取配置…
-          </p>
-        )}
-        {loadError && (
-          <Feedback
-            notice={{ kind: "error", text: `读取配置失败：${loadError}` }}
-          />
-        )}
-        {!loading && !loadError && !models.connections?.length && (
-          <div className="model-empty">
-            <p>尚未添加连接</p>
-          </div>
-        )}
-        <div className="model-connections">
-          {models.connections?.map((c) => {
-            const profiles = models.profiles.filter(
-              (p) => p.connectionId === c.id,
-            );
-            return (
-              <section
-                key={c.id}
-                className="model-connection-card"
-                aria-label={`连接 ${c.name}`}
-              >
-                <header className="model-connection-heading">
-                  <div className="model-connection-identity">
-                    <div>
-                      <h3>{c.name}</h3>
-                      <p>
-                        {c.baseUrl} ·{" "}
-                        {keyStates[c.id] === true
-                          ? "密钥已配置"
-                          : keyStates[c.id] === false
-                            ? c.category === "local"
-                              ? "本地连接 · 无密钥"
-                              : "未配置密钥"
-                            : "密钥状态待确认"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="model-actions">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      aria-label={`编辑连接 ${c.name}`}
-                      onClick={() =>
-                        setEditor({ kind: "connection", connection: c })
-                      }
-                    >
-                      编辑连接
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      aria-label={`添加模型到 ${c.name}`}
-                      onClick={() =>
-                        setEditor({ kind: "model", connection: c })
-                      }
-                    >
-                      添加模型
-                    </Button>
-                  </div>
-                </header>
-                {profiles.length === 0 && (
-                  <p className="model-empty-row">
-                    连接已保存，添加一个模型开始使用。
-                  </p>
-                )}
-                {profiles.map((p) => {
-                  return (
-                    <div key={p.id} className="model-summary-row">
-                      <div className="model-summary-main">
-                        <div className="model-name-line">
-                          <strong>{p.name || p.model}</strong>
-                          {p.id === models.activeId && (
-                            <span className="model-default-badge">
-                              新会话默认
-                            </span>
-                          )}
-                        </div>
-                        {p.model !== p.name && <code>{p.model}</code>}
-                      </div>
-                      <div className="model-actions">
-                        {p.id !== models.activeId && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={busy}
-                            aria-label={`设为默认 ${p.name}`}
-                            onClick={() => void setDefault(p)}
-                          >
-                            设为默认
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          aria-label={`编辑 ${p.name}`}
-                          onClick={() =>
-                            setEditor({
-                              kind: "model",
-                              connection: c,
-                              model: p,
-                            })
-                          }
-                        >
-                          编辑
-                        </Button>
-                      </div>
-                      {rowNotice?.id === p.id && (
-                        <div className="model-row-feedback">
-                          <Feedback notice={rowNotice.notice} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </section>
-            );
-          })}
-        </div>
-      </section>
-      <section className="model-settings-section" aria-label="上下文">
-        <div className="model-section-heading">
-          <h3>上下文</h3>
-        </div>
-        {models.profiles.length > 0 && (
-          <table className="model-context-table" aria-label="模型上下文窗口">
-            <colgroup>
-              <col />
-              <col className="model-context-capacity-col" />
-              <col className="model-context-source-col" />
-              <col className="model-context-action-col" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th scope="col">模型</th>
-                <th scope="col">窗口 · tokens</th>
-                <th scope="col">设置方式</th>
-                <th scope="col">
-                  <span className="sr-only">操作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {models.profiles.map((p) => (
-                <ContextWindowRow
-                  key={p.id}
-                  model={p}
-                  catalog={catalog}
-                  onPublish={publish}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
-        <div className="model-compression-row">
-          <div className="model-compression-label">
-            <label htmlFor="model-compaction-ratio">自动压缩</label>
-            <span className="model-caption">所有模型</span>
-          </div>
-          <div className="model-compression-controls">
-            <div className="model-percent-control">
-              <input
-                id="model-compaction-ratio"
-                aria-label="自动压缩阈值"
-                className="model-setting-input"
-                type="number"
-                min={10}
-                max={95}
-                step="any"
-                value={ratio}
-                disabled={loading || busy || !!loadError}
-                onChange={(e) => {
-                  setRatio(e.target.value);
-                  setRatioNotice(undefined);
-                }}
-              />
-              <span aria-hidden="true">%</span>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="保存阈值"
-              disabled={loading || busy || !!loadError || !ratioDirty}
-              onClick={() => void saveRatio()}
-            >
-              保存
-            </Button>
-          </div>
-          <Feedback notice={ratioNotice} />
-        </div>
-      </section>
-      {editor?.kind === "connection" && (
-        <ConnectionEditor
-          connection={editor.connection}
-          modelCount={
-            models.profiles.filter(
-              (p) => p.connectionId === editor.connection?.id,
-            ).length
-          }
-          onPublish={publish}
-          onClose={() => setEditor(undefined)}
-        />
+    <div
+      className={cn(
+        "m-1 h-2 w-2 shrink-0 rounded-full",
+        tone === "success" && "bg-ds-text-success-default-default",
+        tone === "error" && "bg-ds-text-error-default-default",
+        tone === "muted" && "bg-ds-text-neutral-default-default opacity-10",
       )}
-      {editor?.kind === "model" && (
-        <ModelEditor
-          connection={editor.connection}
-          model={editor.model}
-          catalog={catalog}
-          onPublish={publish}
-          onClose={() => setEditor(undefined)}
-        />
-      )}
-    </div>
+    />
   );
 }
 
-function ContextWindowRow({
-  model,
-  catalog,
-  onPublish,
-}: {
-  model: ModelProfile;
-  catalog: ModelCatalog;
-  onPublish: (state: ModelsState) => void;
-}) {
-  const cap = capabilityFor(model, catalog);
-  const automaticWindow = cap?.context ?? 200000;
-  const currentWindow = model.contextWindow ?? automaticWindow;
-  const [editing, setEditing] = useState(false);
-  const [mode, setMode] = useState("auto");
-  const [value, setValue] = useState("");
+function dotToneFor(
+  profile: ModelProfile | undefined,
+): "success" | "error" | "muted" | null {
+  if (!profile) return null;
+  if (profile.isValid === false) return "error";
+  if (profile.isValid) return "success";
+  return "muted";
+}
+
+export default function ModelsPanel() {
+  const [models, setModels] = useState<ModelsState>({ profiles: [], activeId: null });
+  const [selectedTab, setSelectedTab] = useState<SidebarTab>("byok-anthropic");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("https://api.anthropic.com");
+  const [modelId, setModelId] = useState("claude-sonnet-4-20250514");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [ring, setRing] = useState<ConfigCardRingStatus>("idle");
+  const [status, setStatus] = useState("");
+  const [fieldError, setFieldError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<Notice>();
-  const adjustRef = useRef<HTMLButtonElement>(null);
-  const dirty =
-    mode === "auto"
-      ? model.contextWindow !== undefined
-      : value !== model.contextWindow?.toString();
-  function open() {
-    setMode(model.contextWindow === undefined ? "auto" : "custom");
-    setValue(currentWindow.toString());
-    setNotice(undefined);
-    setEditing(true);
+  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  const [listing, setListing] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [byokCollapsed, setByokCollapsed] = useState(false);
+  const [localCollapsed, setLocalCollapsed] = useState(false);
+  const keyLoadSeq = useRef(0);
+  const appearance = isDarkAppearance() ? "dark" : "light";
+
+  const loadApiKey = useCallback((profileId: string | null | undefined) => {
+    const seq = ++keyLoadSeq.current;
+    if (!profileId || !window.api?.getKey) {
+      setApiKey("");
+      return;
+    }
+    void window.api.getKey(`model:${profileId}`).then((key) => {
+      if (seq !== keyLoadSeq.current) return;
+      setApiKey(key ?? "");
+    });
+  }, []);
+
+  const refresh = useCallback(() => {
+    if (!window.api?.getModels) return;
+    void window.api.getModels().then(setModels).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Backfill key when the active profile id changes (tab switch / first load).
+  useEffect(() => {
+    const presetId = selectedTab.startsWith("local-")
+      ? selectedTab.slice(6)
+      : selectedTab.startsWith("byok-")
+        ? selectedTab.slice(5)
+        : null;
+    const preset = findPreset(presetId);
+    const existing = preset ? profileForPreset(models, preset) : undefined;
+    if (existing) {
+      setEditId((prev) => (prev === existing.id ? prev : existing.id));
+      loadApiKey(existing.id);
+    } else {
+      loadApiKey(null);
+    }
+  }, [models.profiles, selectedTab, loadApiKey]);
+
+  const selectedPreset = useMemo(() => {
+    if (selectedTab.startsWith("byok-")) return findPreset(selectedTab.slice(5));
+    if (selectedTab.startsWith("local-")) return findPreset(selectedTab.slice(6));
+    return undefined;
+  }, [selectedTab]);
+
+  const editingProfile = useMemo(() => {
+    if (editId) return models.profiles.find((p) => p.id === editId);
+    if (selectedPreset) return profileForPreset(models, selectedPreset);
+    return undefined;
+  }, [editId, models, selectedPreset]);
+
+  const isConfigured = !!editingProfile;
+  const isDefault = !!(editId && models.activeId === editId) ||
+    !!(editingProfile && models.activeId === editingProfile.id);
+
+  function applyPreset(preset: ModelPreset, existing?: ModelProfile) {
+    setSelectedTab(
+      (preset.category === "local" ? `local-${preset.id}` : `byok-${preset.id}`) as SidebarTab,
+    );
+    setEditId(existing?.id ?? null);
+    setBaseUrl(existing?.baseUrl ?? preset.defaultHost);
+    setModelId(existing?.model ?? preset.defaultModel);
+    setShowApiKey(false);
+    setRemoteModels([]);
+    setRing(existing?.isValid ? "success" : existing?.isValid === false ? "error" : "idle");
+    setStatus("");
+    setFieldError("");
+    loadApiKey(existing?.id);
   }
-  function close() {
-    setEditing(false);
-    setNotice(undefined);
-    requestAnimationFrame(() => adjustRef.current?.focus());
-  }
-  async function save() {
-    if (!dirty || busy) return;
-    setBusy(true);
-    setNotice(undefined);
+
+  async function refreshModelList() {
+    if (!selectedPreset?.parseModels) {
+      setStatus("当前预设不支持拉取模型列表");
+      return;
+    }
+    const url = modelListUrl(baseUrl.trim() || selectedPreset.defaultHost, selectedPreset);
+    if (!url) {
+      setStatus("无法解析模型列表地址");
+      return;
+    }
+    setListing(true);
+    setStatus("");
     try {
-      if (mode === "custom" && !value.trim())
-        throw new Error("请输入上下文窗口");
-      const contextWindow = mode === "custom" ? Number(value) : undefined;
-      runtimeCapability({ ...model, contextWindow, reasoning: {} }, catalog);
-      onPublish(
-        await window.api.upsertModel({
-          ...model,
-          contextWindow,
-          activate: false,
-        }),
-      );
-      close();
-    } catch (e) {
-      setNotice({
-        kind: "error",
-        text: e instanceof Error ? e.message : String(e),
+      const headers: Record<string, string> = {};
+      if (apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: unknown = await res.json();
+      const list = selectedPreset.parseModels(data);
+      setRemoteModels(list);
+      if (!list.length) setStatus("列表为空");
+    } catch (err) {
+      setFieldError(`刷新失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setListing(false);
+    }
+  }
+
+  async function validateAndSave(activate: boolean) {
+    const preset = selectedPreset;
+    const provider = preset?.provider ?? editingProfile?.provider;
+    if (!provider || !preset) {
+      setFieldError("请选择厂商预设");
+      return;
+    }
+    if (!modelId.trim()) {
+      setFieldError("请填写模型类型");
+      return;
+    }
+    const needsKey =
+      preset.requiresApiKey !== false &&
+      provider !== "ollama" &&
+      provider !== "lmstudio" &&
+      provider !== "vllm";
+    if (needsKey && !apiKey.trim() && !editId) {
+      setFieldError("请填写 API 密钥");
+      setRing("error");
+      return;
+    }
+
+    setBusy(true);
+    setRing("configuring");
+    setStatus("");
+    setFieldError("");
+    try {
+      let keyForProbe = apiKey.trim();
+      if (!keyForProbe && editId && window.api?.getKey) {
+        keyForProbe = (await window.api.getKey(`model:${editId}`))?.trim() ?? "";
+      }
+      if (needsKey && !keyForProbe) {
+        setRing("error");
+        setFieldError("缺少 API 密钥，请重新填写");
+        setBusy(false);
+        return;
+      }
+
+      let result = { ok: false, error: "无法校验", latency_ms: 0 as number | undefined };
+      if (window.api?.validateModel) {
+        result = await window.api.validateModel({
+          provider,
+          model: modelId.trim(),
+          apiKey: keyForProbe || undefined,
+          baseUrl: baseUrl.trim() || undefined,
+        });
+      } else {
+        const backendUrl = await window.api?.getBackendUrl?.();
+        if (!backendUrl) throw new Error("后端未连接，且无本地探活");
+        const res = await fetch(`${backendUrl}/api/model/validate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: provider === "anthropic" ? "anthropic" : "openai_compat",
+            model: modelId.trim(),
+            api_key: keyForProbe,
+            base_url: baseUrl.trim() || undefined,
+          }),
+        });
+        result = (await res.json()) as typeof result;
+      }
+
+      if (!result.ok) {
+        setRing("error");
+        setFieldError(result.error || "校验失败");
+        return;
+      }
+
+      const next = await window.api.upsertModel({
+        id: editId ?? undefined,
+        name: preset.name,
+        provider,
+        model: modelId.trim(),
+        baseUrl: baseUrl.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+        activate,
+        isValid: true,
+        lastValidatedAt: new Date().toISOString(),
+        category: preset.category,
+        presetId: preset.id,
       });
+      setModels(next);
+      const saved =
+        next.profiles.find((p) => p.id === editId) ??
+        next.profiles.find((p) => p.presetId === preset.id && p.model === modelId.trim());
+      if (saved) {
+        setEditId(saved.id);
+        // Keep typed key in the field; if we only validated with stored key, reload it.
+        if (!apiKey.trim()) loadApiKey(saved.id);
+      }
+      setRing("success");
+      setStatus(
+        activate
+          ? `已保存并启用${result.latency_ms != null ? `（${result.latency_ms}ms）` : ""}`
+          : `已保存${result.latency_ms != null ? `（${result.latency_ms}ms）` : ""}`,
+      );
+    } catch (err) {
+      setRing("error");
+      setFieldError(`失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
     }
   }
-  return (
-    <>
-      <tr className="model-window-row">
-        <th scope="row">{model.name || model.model}</th>
-        <td className="model-window-value">{currentWindow.toLocaleString()}</td>
-        <td
-          className="model-window-source"
-          title={
-            !cap && model.contextWindow === undefined
-              ? "未识别容量，暂用 200,000 tokens"
-              : undefined
-          }
-        >
-          {model.contextWindow !== undefined ? "自定义" : cap ? "自动" : "暂用"}
-        </td>
-        <td className="model-window-action">
-          <Button
-            ref={adjustRef}
-            size="sm"
-            variant="ghost"
-            aria-label={`调整上下文 ${model.name}`}
-            aria-expanded={editing}
-            aria-controls={`context-editor-${model.id}`}
-            disabled={editing}
-            onClick={open}
-          >
-            调整
-          </Button>
-        </td>
-      </tr>
-      {editing && (
-        <tr className="model-window-edit-row">
-          <td colSpan={4}>
-            <form
-              id={`context-editor-${model.id}`}
-              aria-label={`调整上下文 ${model.name}`}
-              className="model-window-editor"
-              noValidate
-              onSubmit={(e) => {
-                e.preventDefault();
-                void save();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape" && !busy) {
-                  e.preventDefault();
-                  close();
-                }
-              }}
+
+  async function setAsDefault() {
+    const id = editId ?? editingProfile?.id;
+    if (!id) return;
+    setStatus("正在切换模型…");
+    try {
+      const next = await window.api.setActiveModel(id);
+      setModels(next);
+      setStatus("已设为默认");
+    } catch (err) {
+      setFieldError(`切换失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function resetProfile() {
+    const id = editId ?? editingProfile?.id;
+    if (!id) {
+      if (selectedPreset) applyPreset(selectedPreset);
+      return;
+    }
+    const next = await window.api.removeModel(id);
+    setModels(next);
+    if (selectedPreset) applyPreset(selectedPreset);
+    setStatus("已重置");
+  }
+
+  function renderSidebarItem(
+    tabId: SidebarTab,
+    label: string,
+    logoId: string | null,
+    isActive: boolean,
+    tone: "success" | "error" | "muted" | null,
+    fallback: "key" | "server",
+  ) {
+    const modelImage = getModelImage(logoId);
+    const FallbackIcon = fallback === "server" ? Server : Key;
+    return (
+      <button
+        key={tabId}
+        type="button"
+        data-active={isActive}
+        onClick={() => {
+          const preset = findPreset(
+            tabId.startsWith("local-") ? tabId.slice(6) : tabId.slice(5),
+          );
+          if (preset) applyPreset(preset, profileForPreset(models, preset));
+        }}
+        className={cn(
+          "model-provider flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors duration-200",
+          isActive
+            ? "bg-ds-bg-neutral-subtle-default hover:bg-ds-bg-neutral-subtle-default"
+            : "bg-transparent hover:bg-ds-bg-neutral-subtle-default/70",
+        )}
+      >
+        <div className="flex items-center justify-center gap-3">
+          {modelImage ? (
+            <img
+              src={modelImage}
+              alt={label}
+              className="h-5 w-5"
+              style={
+                needsInvertModelImage(logoId, appearance)
+                  ? { filter: "invert(1)" }
+                  : undefined
+              }
+            />
+          ) : (
+            <span
+              className={
+                isActive
+                  ? "text-ds-text-neutral-default-default"
+                  : "text-ds-text-neutral-muted-default"
+              }
             >
-              <div className="model-window-fields">
-                <label>
-                  设置方式
-                  <select
-                    className="model-setting-input"
-                    aria-label={`窗口设置方式 ${model.name}`}
-                    autoFocus
-                    disabled={busy}
-                    value={mode}
-                    onChange={(e) => {
-                      setMode(e.target.value);
-                      setNotice(undefined);
-                    }}
-                  >
-                    <option value="auto">自动</option>
-                    <option value="custom">自定义</option>
-                  </select>
-                </label>
-                <label>
-                  窗口（tokens）
-                  <input
-                    className="model-setting-input"
-                    aria-label={`上下文窗口 ${model.name}`}
-                    type="number"
-                    min={4096}
-                    max={10000000}
-                    value={mode === "auto" ? automaticWindow : value}
-                    disabled={busy || mode === "auto"}
-                    onChange={(e) => {
-                      setValue(e.target.value);
-                      setNotice(undefined);
-                    }}
-                  />
-                </label>
-              </div>
-              {!cap && mode === "auto" && (
-                <p className="model-caption">未识别容量，暂用 200,000 tokens</p>
-              )}
-              <Feedback notice={notice} />
-              <div className="model-window-editor-actions">
-                <Button
+              <FallbackIcon className="h-5 w-5" />
+            </span>
+          )}
+          <span
+            className={cn(
+              "text-body-sm font-medium",
+              isActive
+                ? "text-ds-text-neutral-default-default"
+                : "text-ds-text-neutral-muted-default",
+            )}
+          >
+            {label}
+          </span>
+        </div>
+        <StatusDot tone={tone} />
+      </button>
+    );
+  }
+
+  const showKey = selectedPreset?.category !== "local";
+  const displayName = selectedPreset?.name ?? "模型";
+
+  const panel = (
+    <div className="flex w-full flex-row items-start justify-between">
+      {/* Sidebar — Eigent: w-[240px] rounded-2xl */}
+      <div className="-ml-2 mr-4 h-full w-[240px] shrink-0 rounded-2xl bg-ds-bg-neutral-default-default">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <div className="px-3 py-2 text-body-sm font-bold text-ds-text-neutral-default-default">
+              自定义模型
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
+                <button
                   type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label="取消调整"
-                  onClick={close}
+                  onClick={() => setByokCollapsed((v) => !v)}
+                  className="flex items-center justify-between rounded-lg bg-transparent px-3 py-2 transition-colors hover:bg-ds-bg-neutral-default-default"
                 >
-                  取消
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={busy || !dirty}
-                  aria-label="保存窗口"
+                  <div className="text-body-sm font-medium text-ds-text-neutral-muted-default">
+                    自带密钥
+                  </div>
+                  {byokCollapsed ? (
+                    <ChevronDown className="h-4 w-4 text-ds-text-neutral-muted-default" />
+                  ) : (
+                    <ChevronUp className="h-4 w-4 text-ds-text-neutral-muted-default" />
+                  )}
+                </button>
+                <div
+                  className={cn(
+                    "overflow-hidden transition-opacity duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                    byokCollapsed ? "max-h-0 opacity-0" : "max-h-[2000px] opacity-100",
+                  )}
                 >
-                  保存
-                </Button>
+                  {BYOK_PRESETS.map((preset) => {
+                    const profile = profileForPreset(models, preset);
+                    const tabId = `byok-${preset.id}` as SidebarTab;
+                    return renderSidebarItem(
+                      tabId,
+                      preset.name,
+                      preset.id,
+                      selectedTab === tabId,
+                      dotToneFor(profile),
+                      "key",
+                    );
+                  })}
+                </div>
               </div>
-            </form>
-          </td>
-        </tr>
-      )}
-    </>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => setLocalCollapsed((v) => !v)}
+              className="flex items-center justify-between rounded-lg bg-transparent px-3 py-2 transition-colors hover:bg-ds-bg-neutral-default-default"
+            >
+              <div className="text-body-sm font-bold text-ds-text-neutral-default-default">
+                本地模型
+              </div>
+              {localCollapsed ? (
+                <ChevronDown className="h-4 w-4 text-ds-text-neutral-muted-default" />
+              ) : (
+                <ChevronUp className="h-4 w-4 text-ds-text-neutral-muted-default" />
+              )}
+            </button>
+            <div
+              className={cn(
+                "overflow-hidden transition-opacity duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                localCollapsed ? "max-h-0 opacity-0" : "max-h-[2000px] opacity-100",
+              )}
+            >
+              {LOCAL_PRESETS.map((preset) => {
+                const profile = profileForPreset(models, preset);
+                const tabId = `local-${preset.id}` as SidebarTab;
+                return renderSidebarItem(
+                  tabId,
+                  preset.name,
+                  preset.id,
+                  selectedTab === tabId,
+                  dotToneFor(profile),
+                  "server",
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Content card */}
+      <div className="min-w-0 flex-1">
+        <ConfigModelCard status={ring}>
+          <div className="mx-6 mb-4 flex flex-col items-start justify-between border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default pb-4 pt-2">
+            <div className="inline-flex items-center justify-between gap-2 self-stretch">
+              <div className="text-body-base my-2 font-bold text-ds-text-neutral-default-default">
+                {displayName}
+              </div>
+              <div className="flex items-center gap-2">
+                {isDefault ? (
+                  <Button
+                    variant="primary"
+                    size="xs"
+                    disabled
+                    className="!rounded-full !bg-ds-text-success-default-default !border-ds-text-success-default-default font-bold"
+                  >
+                    默认
+                  </Button>
+                ) : isConfigured ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="!rounded-full !text-ds-text-neutral-muted-default font-bold"
+                    onClick={() => void setAsDefault()}
+                  >
+                    设为默认
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    disabled
+                    className="!rounded-full font-bold"
+                  >
+                    未配置
+                  </Button>
+                )}
+                <StatusDot tone={dotToneFor(editingProfile)} />
+              </div>
+            </div>
+            <div className="text-body-sm text-ds-text-neutral-muted-default">
+              {selectedPreset?.category === "local"
+                ? "连接本机 OpenAI 兼容端点；测试通过后保存。"
+                : "填入 API Key 与模型类型，验证通过后才会保存。"}
+            </div>
+          </div>
+
+          <div className="flex w-full flex-col items-center gap-4 px-6">
+            {showKey && (
+              <SettingsField
+                title="API 密钥设置"
+                type={showApiKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setFieldError("");
+                }}
+                placeholder={`输入你的 ${displayName} Key`}
+                aria-label="API 密钥"
+                state={fieldError && !apiKey ? "error" : ring === "error" ? "error" : "default"}
+                backIcon={showApiKey ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+                onBackIconClick={() => setShowApiKey((v) => !v)}
+              />
+            )}
+
+            <SettingsField
+              title={selectedPreset?.category === "local" ? "模型端点 URL" : "API Host 设置"}
+              value={baseUrl}
+              onChange={(e) => {
+                setBaseUrl(e.target.value);
+                setFieldError("");
+              }}
+              placeholder={`输入 ${displayName} URL`}
+              aria-label="Base URL"
+            />
+
+            {selectedPreset?.parseModels ? (
+              <div className="flex w-full flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-body-sm font-bold text-ds-text-neutral-default-default">
+                    模型类型设置
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-body-sm text-ds-text-neutral-muted-default hover:text-ds-text-neutral-default-default"
+                    onClick={() => void refreshModelList()}
+                    disabled={listing}
+                  >
+                    {listing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    刷新
+                  </button>
+                </div>
+                {remoteModels.length > 0 ? (
+                  <div className="relative flex h-10 items-center rounded-xl border border-solid border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default shadow-sm">
+                    <select
+                      className="h-full w-full cursor-pointer bg-transparent px-3 text-body-sm outline-none"
+                      value={modelId}
+                      onChange={(e) => setModelId(e.target.value)}
+                      aria-label="模型 ID"
+                    >
+                      {!remoteModels.includes(modelId) && modelId && (
+                        <option value={modelId}>{modelId}</option>
+                      )}
+                      {remoteModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <SettingsField
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    placeholder={`输入 ${displayName} 模型类型`}
+                    aria-label="模型 ID"
+                  />
+                )}
+              </div>
+            ) : (
+              <SettingsField
+                title="模型类型设置"
+                value={modelId}
+                onChange={(e) => {
+                  setModelId(e.target.value);
+                  setFieldError("");
+                }}
+                placeholder={`输入 ${displayName} 模型类型`}
+                aria-label="模型 ID"
+                state={fieldError && !modelId.trim() ? "error" : "default"}
+              />
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 px-6 py-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="font-medium"
+              onClick={() => void resetProfile()}
+            >
+              重置
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="font-bold"
+              disabled={busy}
+              onClick={() => void validateAndSave(true)}
+            >
+              {busy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  配置中…
+                </span>
+              ) : (
+                "保存"
+              )}
+            </Button>
+          </div>
+
+          {(fieldError || status) && (
+            <p
+              className={cn(
+                "px-6 pb-4 text-body-sm",
+                fieldError
+                  ? "text-ds-text-error-default-default"
+                  : "text-ds-text-neutral-muted-default",
+              )}
+            >
+              {fieldError || status}
+            </p>
+          )}
+        </ConfigModelCard>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex w-full flex-col items-start justify-between">
+      <div className="text-body-base mb-4 w-full border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default px-3 py-2 font-bold text-ds-text-neutral-default-default">
+        模型配置
+      </div>
+      <div className="w-full px-3">{panel}</div>
+    </div>
   );
 }

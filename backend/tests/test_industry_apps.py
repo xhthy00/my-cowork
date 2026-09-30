@@ -22,17 +22,6 @@ from app.industry_apps.package import (
     rollback_app,
 )
 from app.main import create_app
-from app.industry_apps.lifecycle import Maintenance
-from test_industry_lifecycle import activate
-
-def _activate(root):
-    session = Maintenance(root)
-    try:
-        session.begin("enable", "cn.example.taskboard")
-        activate(session)
-    finally:
-        session.close()
-
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,12 +45,11 @@ def test_install_and_load_taskboard_in_existing_fastapi_process(tmp_path: Path) 
     root = tmp_path / "installed"
     installed = install_zip(raw, inspection.sha256, root)
     assert installed["requires_restart"] is True
-    assert list_installed(root)[0]["status"] == "pending_activation"
-    _activate(root)
+    assert list_installed(root)[0]["status"] == "pending_restart"
 
     app = FastAPI()
     loaded_tools: list[LoadedAppTool] = []
-    assert load_enabled_apps(app, root, tool_sink=loaded_tools) == [{"id": "cn.example.taskboard", "version": "1.0.0", "enabled": True, "status": "ready"}]
+    assert load_enabled_apps(app, root, tool_sink=loaded_tools) == [{"id": "cn.example.taskboard", "status": "ready"}]
     client = TestClient(app)
     created = client.post(
         "/api/apps/cn.example.taskboard/tasks",
@@ -72,7 +60,7 @@ def test_install_and_load_taskboard_in_existing_fastapi_process(tmp_path: Path) 
     assert client.get("/api/apps/cn.example.taskboard/tasks").json()["tasks"] == [
         {"id": 1, "title": "核对订单", "done": False}
     ]
-    assert len(loaded_tools) == 2
+    assert len(loaded_tools) == 1
     agent_tool = make_agent_tool(loaded_tools[0], None)
     assert agent_tool.name == "industry__cn_example_taskboard__list_tasks"
     assert agent_tool.metadata["tool_source"] == "industry_app"
@@ -132,7 +120,6 @@ def test_update_can_roll_back_to_previous_version(tmp_path: Path) -> None:
     original = _example_zip(tmp_path)
     root = tmp_path / "installed"
     install_zip(original, inspect_zip(original).sha256, root)
-    _activate(root)
 
     updated_source = tmp_path / "updated-source"
     shutil.copytree(EXAMPLE, updated_source)
@@ -149,15 +136,10 @@ def test_update_can_roll_back_to_previous_version(tmp_path: Path) -> None:
     module.pack(updated_source, output)
     updated = output.read_bytes()
     install_zip(updated, inspect_zip(updated).sha256, root)
-    _activate(root)
-    assert list_installed(root)[0]["recovery"]["entry"]["version"] == "1.0.0"
+    assert list_installed(root)[0]["previous_version"] == "1.0.0"
 
-    session = Maintenance(root)
-    try:
-        session.begin("rollback", "cn.example.taskboard")
-        activate(session)
-    finally:
-        session.close()
+    result = rollback_app("cn.example.taskboard", root)
+    assert result["version"] == "1.0.0"
     assert list_installed(root)[0]["version"] == "1.0.0"
 
 
@@ -165,7 +147,6 @@ def test_main_app_exposes_installed_app_routes(tmp_path: Path, monkeypatch: pyte
     raw = _example_zip(tmp_path)
     root = tmp_path / "installed"
     install_zip(raw, inspect_zip(raw).sha256, root)
-    _activate(root)
     monkeypatch.setenv("MY_COWORK_INDUSTRY_APPS_ROOT", str(root))
     monkeypatch.setenv("MY_COWORK_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("MY_COWORK_INDUSTRY_TOKEN", "test-only-token")

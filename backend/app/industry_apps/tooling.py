@@ -15,8 +15,6 @@ from app.industry_apps.package import AppManifest
 from app.industry_apps.sdk import AppContribution, AppToolCallContext, LoadedAppTool
 from app.runtime.todo_context import get_todo_runtime
 from app.runtime.workspace_context import get_workspace_runtime
-from app.task_support.admission import Admission
-from app.task_support.app_context import app_task_scope
 
 
 def validate_app_tools(manifest: AppManifest, contribution: AppContribution) -> list[LoadedAppTool]:
@@ -59,9 +57,6 @@ def agent_tool_metadata(entry: LoadedAppTool) -> dict[str, str]:
 
 
 def _call_context(app_id: str) -> AppToolCallContext:
-    scope = app_task_scope.get()
-    if scope and scope.app_id != app_id:
-        raise PermissionError('Task belongs to another application')
     workspace = get_workspace_runtime()
     todo = get_todo_runtime()
     return AppToolCallContext(
@@ -69,34 +64,25 @@ def _call_context(app_id: str) -> AppToolCallContext:
         space_id=workspace.space_id if workspace else None,
         project_id=workspace.project_id if workspace else None,
         task_id=todo.task_id if todo else None,
-        business=scope.business if scope else None,
     )
 
 
-def make_agent_tool(entry: LoadedAppTool, confirm_hub: Any, admission: Admission | None = None) -> StructuredTool:
+def make_agent_tool(entry: LoadedAppTool, confirm_hub: Any) -> StructuredTool:
     """Wrap one app operation with typed arguments and a host write gate."""
     spec = entry.tool
     name = agent_tool_name(entry)
     metadata = agent_tool_metadata(entry)
-    gate = admission or Admission()
 
     def run_sync(**kwargs: Any) -> Any:
-        scope = app_task_scope.get()
-        if scope and name not in scope.tools:
-            raise PermissionError('Tool is outside the task scope')
         if spec.access == "write":
             raise RuntimeError("write tools require an asynchronous confirmation")
         args = spec.args_schema.model_validate(kwargs)
-        with gate.work("插件工具"):
-            result = spec.run(_call_context(entry.app_id), args)
-            if inspect.isawaitable(result):
-                return asyncio.run(result)
-            return result
+        result = spec.run(_call_context(entry.app_id), args)
+        if inspect.isawaitable(result):
+            return asyncio.run(result)
+        return result
 
     async def run_async(**kwargs: Any) -> Any:
-        scope = app_task_scope.get()
-        if scope and name not in scope.tools:
-            raise PermissionError('Tool is outside the task scope')
         args = spec.args_schema.model_validate(kwargs)
         if spec.access == "write":
             if is_remote_channel():
@@ -104,37 +90,14 @@ def make_agent_tool(entry: LoadedAppTool, confirm_hub: Any, admission: Admission
             if confirm_hub is None:
                 return "[ERROR] Host confirmation is unavailable"
             allowed = await confirm_hub.request(
-                f"{name}:{uuid.uuid4().hex}", name,
-                {**args.model_dump(mode="json"), **({'业务范围': scope.business} if scope else {})},
-                tool_title=spec.title,
+                f"{name}:{uuid.uuid4().hex}", name, args.model_dump(mode="json")
             )
             if not allowed:
                 return "Operation rejected by user"
         context = _call_context(entry.app_id)
-        operation_id = uuid.uuid4().hex
-        def record(status, **details):
-            if scope and scope.record_operation and spec.access == 'write':
-                scope.record_operation({'type': 'app.operation', 'operation_id': operation_id,
-                                        'tool': spec.title, 'status': status, **details})
-        record('started', args=args.model_dump(mode='json'))
         if inspect.iscoroutinefunction(spec.run):
-            with gate.work("插件工具"):
-                try:
-                    result = await spec.run(context, args)
-                    record('completed', result=result)
-                    return result
-                except BaseException as exc:
-                    record('interrupted' if isinstance(exc, asyncio.CancelledError) else 'failed', error=str(exc))
-                    raise
-        def execute():
-            try:
-                result = spec.run(context, args)
-                record('completed', result=result)
-                return result
-            except BaseException as exc:
-                record('failed', error=str(exc))
-                raise
-        return await gate.thread(execute)
+            return await spec.run(context, args)
+        return await asyncio.to_thread(spec.run, context, args)
 
     return StructuredTool.from_function(
         func=run_sync,

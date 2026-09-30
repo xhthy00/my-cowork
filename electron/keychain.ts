@@ -1,22 +1,17 @@
 /**
  * Keychain service wrapping the OS-native credential store.
  *
- * Uses Electron safeStorage encryption in userData. Legacy plaintext is removed
- * only after encrypted storage is verified. An unavailable OS secret store
- * fails explicitly; existing keytar credentials remain readable for migration.
+ * Prefers ``keytar`` when available. Otherwise falls back to a JSON file under
+ * the app userData directory (configured via ``initKeychain``). An in-memory
+ * Map is used only until ``initKeychain`` runs (and in unit tests).
  */
 
 import * as fs from "fs";
 import * as path from "path";
-import { safeStorage } from "electron";
 
 import { getActiveProfile, toBackendProvider } from "./models_store";
 
 const SERVICE = "my-cowork";
-let credentialScope = "";
-function scopedService(service: string): string {
-  return service === SERVICE && credentialScope ? `${service}:app-dev:${credentialScope}` : service;
-}
 
 // ── back-end ─────────────────────────────────────────────────────────────────
 interface KeychainBackend {
@@ -41,80 +36,24 @@ class MemoryBackend implements KeychainBackend {
   }
 }
 
-class EncryptedBackend implements KeychainBackend {
-  private readonly filePath: string;
-  private readonly legacyPath: string;
-  constructor(userDataPath: string, private readonly legacyKeytar: KeychainBackend | null) {
-    this.filePath = path.join(userDataPath, "credentials.enc");
-    this.legacyPath = path.join(userDataPath, "credentials.json");
-  }
-
-  private requireEncryption(): void {
-    if (!safeStorage.isEncryptionAvailable() ||
-        (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text")) {
-      throw new Error("系统安全存储不可用，密钥未保存。请解锁系统密钥存储后重试。");
-    }
-  }
-
-  private parse(text: string): Record<string, string> {
-    try {
-      const data: unknown = JSON.parse(text);
-      if (!data || typeof data !== "object" || Array.isArray(data) ||
-          Object.values(data).some((v) => typeof v !== "string")) throw new Error();
-      return data as Record<string, string>;
-    } catch {
-      throw new Error("密钥文件无法读取；已保留原文件，请检查安全存储。");
-    }
-  }
-
-  private readEncrypted(): Record<string, string> {
-    if (!fs.existsSync(this.filePath)) return {};
-    this.requireEncryption();
-    try {
-      return this.parse(safeStorage.decryptString(fs.readFileSync(this.filePath)));
-    } catch {
-      throw new Error("密钥解密失败；已保留原文件，请检查系统安全存储。");
-    }
-  }
+class FileBackend implements KeychainBackend {
+  constructor(private readonly filePath: string) {}
 
   private readAll(): Record<string, string> {
-    const current = this.readEncrypted();
-    if (!fs.existsSync(this.legacyPath)) return current;
-    this.requireEncryption();
-    const legacy = this.parse(fs.readFileSync(this.legacyPath, "utf8"));
-    const merged = { ...legacy, ...current };
-    this.writeAll(merged);
-    const verified = this.readEncrypted();
-    if (Object.entries(merged).some(([key, value]) => verified[key] !== value)) {
-      throw new Error("密钥迁移验证失败，已保留旧文件。");
+    try {
+      return JSON.parse(fs.readFileSync(this.filePath, "utf8")) as Record<string, string>;
+    } catch {
+      return {};
     }
-    fs.unlinkSync(this.legacyPath);
-    return merged;
   }
 
   private writeAll(data: Record<string, string>): void {
-    this.requireEncryption();
-    const plain = JSON.stringify(data);
-    const encrypted = safeStorage.encryptString(plain);
-    // Verify before replacing a previously working encrypted file.
-    if (safeStorage.decryptString(encrypted) !== plain) throw new Error("密钥加密验证失败，未保存。");
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    try {
-      fs.writeFileSync(tmp, encrypted, { mode: 0o600 });
-      fs.renameSync(tmp, this.filePath);
-    } finally {
-      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
-    }
+    fs.writeFileSync(this.filePath, JSON.stringify(data), { mode: 0o600 });
   }
 
   async get(service: string, account: string): Promise<string | null> {
-    const key = `${service}:${account}`;
-    const data = this.readAll();
-    if (Object.hasOwn(data, key)) return data[key];
-    const legacy = await this.legacyKeytar?.get(service, account);
-    if (legacy != null) await this.set(service, account, legacy);
-    return legacy ?? null;
+    return this.readAll()[`${service}:${account}`] ?? null;
   }
 
   async set(service: string, account: string, password: string): Promise<void> {
@@ -124,11 +63,9 @@ class EncryptedBackend implements KeychainBackend {
   }
 
   async delete(service: string, account: string): Promise<boolean> {
-    // Delete from both secure stores, otherwise a later get could resurrect it.
-    const legacyDeleted = await this.legacyKeytar?.delete?.(service, account);
     const data = this.readAll();
     const key = `${service}:${account}`;
-    if (!Object.hasOwn(data, key)) return legacyDeleted ?? false;
+    if (!(key in data)) return false;
     delete data[key];
     this.writeAll(data);
     return true;
@@ -155,11 +92,14 @@ function tryKeytar(): KeychainBackend | null {
   }
 }
 
-/** Configure after app.ready; migration runs on the first credential access. */
-export function initKeychain(userDataPath: string, scope = ""): void {
-  if (scope && !/^[0-9a-f]{64}$/.test(scope)) throw new Error("invalid credential scope");
-  credentialScope = scope;
-  _backend = new EncryptedBackend(userDataPath, tryKeytar());
+/** Call once from Electron main after ``app.ready``. Prefers keytar, else file. */
+export function initKeychain(userDataPath: string): void {
+  const keytar = tryKeytar();
+  if (keytar) {
+    _backend = keytar;
+    return;
+  }
+  _backend = new FileBackend(path.join(userDataPath, "credentials.json"));
 }
 
 // ── public API ──────────────────────────────────────────────────────────────
@@ -169,19 +109,19 @@ export function overrideBackend(backend: KeychainBackend): void {
 }
 
 export async function getKey(service: string, account: string): Promise<string | null> {
-  return _backend.get(scopedService(service), account);
+  return _backend.get(service, account);
 }
 
 export async function setKey(service: string, account: string, password: string): Promise<void> {
-  return _backend.set(scopedService(service), account, password);
+  return _backend.set(service, account, password);
 }
 
 export async function deleteKey(service: string, account: string): Promise<boolean> {
   if (_backend.delete) {
-    return _backend.delete(scopedService(service), account);
+    return _backend.delete(service, account);
   }
   // Fallback: overwrite with empty then ignore (legacy backends).
-  await _backend.set(scopedService(service), account, "");
+  await _backend.set(service, account, "");
   return true;
 }
 
@@ -249,15 +189,11 @@ export async function buildPythonEnv(): Promise<Record<string, string>> {
   const env: Record<string, string> = {};
   const active = getActiveProfile();
   if (active) {
-    const { loadModels } = await import("./models_store");
-    const connection = loadModels().connections?.find(c => c.id === active.connectionId);
     const key =
-      (await getKey(SERVICE, connection?.keyAccount ?? `model:${active.id}`)) ??
+      (await getKey(SERVICE, `model:${active.id}`)) ??
       (await getKey(SERVICE, "openai"));
     if (key) {
       env["MY_COWORK_API_KEY"] = key;
-    } else if (active.category === "local" || ["ollama", "lmstudio", "vllm"].includes(active.provider)) {
-      env["MY_COWORK_API_KEY"] = "local";
     }
     env["MY_COWORK_PROVIDER"] = toBackendProvider(active.provider);
     env["MY_COWORK_MODEL"] = active.model;

@@ -1,36 +1,50 @@
 #!/usr/bin/env python3
-"""Compatible entry point for the shared host packer/checker."""
+"""Build a deterministic MyCowork industry application ZIP."""
+
+from __future__ import annotations
+
 import argparse
-import json
-import sys
+import hashlib
+import zipfile
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
-from app.industry_apps.packing import build_zip, publish
-from app.industry_apps.package import inspect_zip
 
 
 def pack(source: Path, output: Path) -> None:
-    publish(source, output)
+    source = source.resolve()
+    if output.resolve().is_relative_to(source):
+        raise ValueError("output ZIP must be outside the source directory")
+    if not (source / "mycowork-app.yaml").is_file():
+        raise ValueError("mycowork-app.yaml is missing")
+    if any(p.is_symlink() for p in source.rglob("*")):
+        raise ValueError("application source may not contain symbolic links")
+    files = sorted(
+        p for p in source.rglob("*")
+        if p.is_file()
+        and "__pycache__" not in p.parts
+        and p.suffix != ".pyc"
+        and p.name != "checksums.sha256"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    checksums: list[str] = []
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file in files:
+            relative = file.relative_to(source).as_posix()
+            content = file.read_bytes()
+            checksums.append(hashlib.sha256(content).hexdigest() + "  " + relative)
+            info = zipfile.ZipInfo(relative, date_time=(2020, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, content)
+        info = zipfile.ZipInfo("checksums.sha256", date_time=(2020, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o100644 << 16
+        archive.writestr(info, "\n".join(checksums) + "\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('source', type=Path)
-    parser.add_argument('-o', '--output', type=Path)
-    parser.add_argument('--validate', action='store_true', help='Compatibility flag; output is always validated')
-    parser.add_argument('--check', action='store_true')
-    parser.add_argument('--json', action='store_true')
-    parser.add_argument('--replace', action='store_true', help='Replace the owned developer candidate file')
+    parser.add_argument("source", type=Path)
+    parser.add_argument("-o", "--output", type=Path, required=True)
     args = parser.parse_args()
-    try:
-        if args.check:
-            inspection = build_zip(args.source)[1] if args.source.is_dir() else inspect_zip(args.source.read_bytes())
-        elif args.output:
-            inspection = publish(args.source, args.output, replace=args.replace)
-        else:
-            parser.error('-o is required unless --check is used')
-        result = {**inspection.public(), 'files': list(inspection.files), 'output': str(args.output) if args.output else None}
-        print(json.dumps(result, ensure_ascii=False) if args.json else str(args.output or args.source))
-    except (ValueError, OSError) as error:
-        print(str(error), file=sys.stderr)
-        sys.exit(1)
+    pack(args.source, args.output)
+    print(args.output)

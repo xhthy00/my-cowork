@@ -1,5 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
-import { backendUnavailableMessage } from "@/lib/backendStatus";
 import { Eye, EyeOff, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -15,7 +13,6 @@ import {
   KNOWLEDGE_SOURCES,
   knowledgeSourcesInGroup,
   type KnowledgeSourceId,
-  type KnowledgeSource,
 } from "@/lib/knowledgeSources";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +21,7 @@ const KEY_ACCOUNT = "ima:api_key";
 
 async function backendBase(): Promise<string> {
   const url = await window.api?.getBackendUrl?.();
-  if (!url) throw new Error(await backendUnavailableMessage());
+  if (!url) throw new Error("后端未连接");
   return url.replace(/\/$/, "");
 }
 

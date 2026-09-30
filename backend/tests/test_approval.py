@@ -7,19 +7,6 @@ from app.guardrails.approval import ConfirmHub, ConfirmTimeout, is_remote_channe
 
 class TestConfirmHub:
     @pytest.mark.asyncio
-    async def test_app_title_is_preserved_in_event_and_pending_confirmation(self) -> None:
-        events = []
-        hub = ConfirmHub(emit=events.append)
-        task = asyncio.create_task(hub.request("app-c1", "industry__cn_one__save", {"value": "记录"}, tool_title="保存记录"))
-        await asyncio.sleep(0)
-        try:
-            assert events[0]["payload"]["tool_title"] == "保存记录"
-            assert hub.pending("")[0]["tool_title"] == "保存记录"
-        finally:
-            hub.resolve("app-c1", False)
-            await task
-
-    @pytest.mark.asyncio
     async def test_emits_confirm_request_event(self) -> None:
         events = []
         hub = ConfirmHub(emit=events.append, timeout_seconds=0.1)

@@ -43,7 +43,6 @@ export { humanizeTool, humanizeAgent, humanizeAssignContent, formatWorkLogLine }
 /** Prefer todo_state plan in taskInfo; never show raw worker assign noise. */
 export function buildProgressItems(
   taskInfo: TaskInfo[],
-  runDone = false,
 ): ProgressItem[] {
   const planned = taskInfo.filter((t) => {
     const c = t.content.trim();
@@ -52,13 +51,7 @@ export function buildProgressItems(
   return planned.map((t) => ({
       id: t.id,
       content: humanizeAssignContent(t.content, t.agent),
-      status: (t.status === "completed" || runDone
-        ? "completed"
-        : t.status === "failed"
-          ? "failed"
-          : t.status === "running"
-            ? "running"
-            : "waiting") as ProgressItem["status"],
+      status: t.status || "waiting",
       substeps: (t.substeps || []).map((child) => ({
         id: child.id,
         content: child.content,

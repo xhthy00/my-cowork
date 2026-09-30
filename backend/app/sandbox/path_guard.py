@@ -5,10 +5,7 @@ The module also exposes a default global instance via the legacy
 backward compatibility. New code should instantiate ``PathGuard`` directly.
 """
 
-import json
-from collections.abc import Callable
 from pathlib import Path
-from threading import Lock
 
 _DESKTOP_ALIASES = {"desktop", "桌面"}
 
@@ -65,14 +62,14 @@ def normalize_user_path(path: str, *, base: Path | None = None) -> Path:
     if expanded.as_posix() in ("Desktop", "桌面") or raw in ("~/Desktop", "~/桌面"):
         return desktop_dir()
 
-    if expanded.is_absolute():
-        return expanded.resolve()
-
     parts = list(expanded.parts)
     for i, part in enumerate(parts):
         if part.lower() in _DESKTOP_ALIASES or part == "桌面":
             rest = parts[i + 1 :]
             return desktop_dir().joinpath(*rest).resolve()
+
+    if expanded.is_absolute():
+        return expanded.resolve()
 
     root = base if base is not None else Path.home()
     return (root / expanded).resolve()
@@ -82,7 +79,7 @@ def resolve_tool_path(path: str) -> Path:
     """Normalize using frozen working_directory when a WorkspaceRuntime is active."""
     base: Path | None = None
     try:
-        from app.task_support.workspace_context import get_workspace_runtime
+        from app.runtime.workspace_context import get_workspace_runtime
 
         rt = get_workspace_runtime()
         if rt is not None:
@@ -101,7 +98,7 @@ def resolve_write_path(path: str) -> Path:
     """
     resolved = resolve_tool_path(path)
     try:
-        from app.task_support.workspace_context import get_workspace_runtime
+        from app.runtime.workspace_context import get_workspace_runtime
 
         rt = get_workspace_runtime()
     except Exception:
@@ -138,45 +135,10 @@ def resolve_write_path(path: str) -> Path:
 class PathGuard:
     """Filesystem path whitelist guard. Each instance holds its own whitelist."""
 
-    def __init__(self, paths: list[str] | None = None, *, config_path: Path | None = None,
-                 workspace_paths: Callable[[], list[str]] | None = None,
-                 read_only_paths: list[str] | None = None) -> None:
+    def __init__(self, paths: list[str] | None = None) -> None:
         self._whitelist: set[str] = set()
-        self._save_lock = Lock()
-        self.config_path = config_path
-        self._workspace_paths = workspace_paths or (lambda: [])
-        self._read_only_paths = {str(Path(p).expanduser().resolve()) for p in (read_only_paths or [])}
-        if paths is None and config_path is not None and config_path.exists():
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-            paths = data["paths"]
-            if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
-                raise ValueError("Invalid saved directory permissions")
-        if paths is not None:
+        if paths:
             self.set_whitelist(paths)
-
-    def get_whitelist(self) -> list[str]:
-        return sorted(self._whitelist)
-
-    def workspace_paths(self) -> list[str]:
-        return sorted({str(Path(p).expanduser().resolve()) for p in self._workspace_paths()})
-
-    def save_whitelist(self, paths: list[str]) -> None:
-        normalized = []
-        for raw in paths:
-            p = Path(raw).expanduser()
-            if not raw.strip() or not p.is_absolute() or _is_remote_or_unc_path(raw):
-                raise ValueError("请输入本机目录的绝对路径，或使用 ~/ 开头的路径")
-            if not p.is_dir():
-                raise ValueError("目录不存在或不可访问")
-            normalized.append(str(p.resolve()))
-        if self.config_path is None:
-            raise OSError("Directory permission storage is unavailable")
-        with self._save_lock:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.config_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"paths": sorted(set(normalized))}, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(self.config_path)
-            self.set_whitelist(normalized)
 
     def set_whitelist(self, paths: list[str]) -> None:
         """Replace the whitelist with the provided absolute/relative paths."""
@@ -186,21 +148,14 @@ class PathGuard:
         """Add a path to the whitelist."""
         self._whitelist.add(str(Path(path).expanduser().resolve()))
 
-    def check_path(self, path: str, *, read_only: bool = False) -> None:
+    def check_path(self, path: str) -> None:
         """Raise PathGuardError if *path* is not inside any whitelisted directory."""
+        if not self._whitelist:
+            raise PathGuardError("No whitelist configured")
+
         resolved = resolve_tool_path(path)
-        allowed_paths = self._whitelist | set(self.workspace_paths())
-        if read_only:
-            allowed_paths |= self._read_only_paths
-        # Generated task output is available only to the current task. A direct
-        # user workspace still needs an active binding or explicit permission.
-        from app.task_support.workspace_context import get_workspace_runtime
-        rt = get_workspace_runtime()
-        if rt is not None:
-            allowed_paths.add(str(rt.task_output_root.resolve()))
-            if rt.space_root is None or rt.working_directory.resolve() != rt.space_root.resolve():
-                allowed_paths.add(str(rt.working_directory.resolve()))
-        for allowed in allowed_paths:
+
+        for allowed in self._whitelist:
             allowed_path = Path(allowed)
             if resolved == allowed_path or resolved.is_relative_to(allowed_path):
                 return

@@ -1,0 +1,161 @@
+{
+  "_comment": "通用示例配置（占位符模板 hooks.json）。command 用 C:\\PROGRAM FILES\\PYTHON\\python.exe 与 D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks 占位符，由运行时环境变量替换（方式 A），或经 hooks/install_hooks.py 预处理生成 hooks.installed.json（方式 B）。本模板不写死任何机器路径，换机/换项目只改环境变量或重跑安装器即可。matcher 已并集 write_to_file|replace_in_file|Write|Edit，跨工具（CodeBuddy CN / Trae / Cursor 等）通用。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/backup_on_write.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/guard_dirs.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/plan_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/lint_on_write.py\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/php8_compat.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/security_scan.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/secret_scan.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/utf8_check.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/debug_residue.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/select_star.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/dep_scan.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/sql_injection_check.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/cms_risk_check.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|Write|Edit|Bash|execute_command|run_command|run_in_terminal|terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/capture_learning.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\PROGRAM FILES\\PYTHON\\python.exe \"D:\\Program Files\\IDE-Data\\Marvis\\Marvis\\User\\5221761A514DB2CF5AB9EC35CC2B3D26\\skills\\custom\\dev-expert\\hooks/handoff_snapshot.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

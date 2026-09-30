@@ -74,14 +74,11 @@ async def install_hub(body: HubInstallBody, request: Request) -> dict[str, Any]:
 async def list_skills(request: Request) -> dict[str, Any]:
     root = getattr(request.app.state, "skills_root", None)
     cfg_path = getattr(request.app.state, "skills_config_path", None)
-    return {"skills": skills_config.list_skills_api(root=root, config_path=cfg_path, bundled=getattr(request.app.state, 'app_skills', {})),
-            "warnings": getattr(request.app.state, "skills_migration_warnings", [])}
+    return {"skills": skills_config.list_skills_api(root=root, config_path=cfg_path)}
 
 
 @router.patch("/api/skills/{skill_id}")
 async def patch_skill(skill_id: str, body: SkillPatch, request: Request) -> dict[str, Any]:
-    if skill_id.startswith('app:'):
-        raise HTTPException(409, '随包技能由所属插件统一管理')
     cfg_path = getattr(request.app.state, "skills_config_path", None)
     patch = body.model_dump(exclude_none=True)
     return skills_config.patch_skill_config(skill_id, patch, config_path=cfg_path)
@@ -100,8 +97,6 @@ async def import_skill(body: SkillImportBody, request: Request) -> dict[str, Any
 
 @router.delete("/api/skills/{skill_id}")
 async def remove_skill(skill_id: str, request: Request) -> dict[str, Any]:
-    if skill_id.startswith('app:'):
-        raise HTTPException(409, '随包技能由所属插件统一管理')
     root = getattr(request.app.state, "skills_root", None)
     cfg_path = getattr(request.app.state, "skills_config_path", None)
     ok = skills_config.delete_skill(skill_id, root=root, config_path=cfg_path)

@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from langchain_core.callbacks import BaseCallbackHandler, AsyncCallbackHandler
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 from app.llm.token_counter import count_tokens
-from app.llm.budget_context import LiveTokenPreview, record_llm_tokens, get_budget_runtime
+from app.runtime.budget_context import LiveTokenPreview, record_llm_tokens
 
 
 def _flatten_chat_messages(messages: list[list[BaseMessage]]) -> list[BaseMessage]:
@@ -59,42 +59,35 @@ def _parts_from_llm_result(response: LLMResult) -> tuple[int, int, int]:
         if total or tin or tout:
             return total, tin, tout
 
-    outputs: list = []
+    texts: list[str] = []
     for gens in response.generations or []:
         for gen in gens:
             if isinstance(gen, ChatGeneration) and gen.message is not None:
-                total, tin, tout = _usage_parts(getattr(gen.message, "usage_metadata", None))
+                meta = getattr(gen.message, "usage_metadata", None)
+                total, tin, tout = _usage_parts(meta if isinstance(meta, dict) else None)
                 if total or tin or tout:
                     return total, tin, tout
-                outputs.append(gen.message)
-            elif getattr(gen, "text", None):
-                outputs.append(gen.text)
-    # A local estimate is completion-only, not a provider total.
-    return 0, 0, count_tokens(outputs) if outputs else 0
-
-
-class BudgetGateCallback(AsyncCallbackHandler):
-    """Admission runs inline, before previews and before the provider request."""
-
-    raise_error = True
-    run_inline = True
-
-    async def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
-        rt = get_budget_runtime()
-        if rt is not None:
-            await rt.admit(run_id, count_tokens(_flatten_chat_messages(messages)))
-
-    async def on_llm_start(self, serialized, prompts, *, run_id, **kwargs):
-        rt = get_budget_runtime()
-        if rt is not None:
-            await rt.admit(run_id, count_tokens(prompts))
+                content = gen.message.content
+                if isinstance(content, str):
+                    texts.append(content)
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and "text" in part:
+                            texts.append(str(part["text"]))
+                        elif isinstance(part, str):
+                            texts.append(part)
+            else:
+                text = getattr(gen, "text", None)
+                if text:
+                    texts.append(str(text))
+    total = count_tokens(texts) if texts else 0
+    return total, 0, total
 
 
 class BudgetTokenCallback(BaseCallbackHandler):
     """Count prompt+completion tokens per LLM call and push ``budget.update``."""
 
     raise_error: bool = False
-    run_inline = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -157,8 +150,25 @@ class BudgetTokenCallback(BaseCallbackHandler):
             # Provider usage already includes prompt + completion.
             n = usage_n
         else:
-            n = prompt_n + usage_out
+            out_n = 0
+            try:
+                texts: list[str] = []
+                for gens in response.generations or []:
+                    for gen in gens:
+                        if isinstance(gen, ChatGeneration) and gen.message is not None:
+                            content = gen.message.content
+                            if isinstance(content, str):
+                                texts.append(content)
+                        else:
+                            text = getattr(gen, "text", None)
+                            if text:
+                                texts.append(str(text))
+                out_n = count_tokens(texts) if texts else 0
+            except Exception:
+                out_n = 0
+            n = prompt_n + out_n
             usage_in = prompt_n
+            usage_out = out_n
         context_n = usage_in or prompt_n
         if n > 0:
             record_llm_tokens(
@@ -167,20 +177,10 @@ class BudgetTokenCallback(BaseCallbackHandler):
                 input_tokens=usage_in or prompt_n,
                 output_tokens=usage_out,
             )
-        rt = get_budget_runtime()
-        if rt is not None:
-            rt.release(run_id)
 
     def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
-        partial = kwargs.get("response")
-        if isinstance(partial, LLMResult) and any(partial.generations):
-            self.on_llm_end(partial, run_id=run_id)
-            return
         self._prompt_tokens.pop(run_id, None)
         self._previews.pop(run_id, None)
-        rt = get_budget_runtime()
-        if rt is not None:
-            rt.release(run_id)
 
 
 def _chunk_plain_text(chunk: Any) -> str:
@@ -207,7 +207,6 @@ def _chunk_plain_text(chunk: Any) -> str:
 
 
 BUDGET_TOKEN_CALLBACK = BudgetTokenCallback()
-BUDGET_GATE_CALLBACK = BudgetGateCallback()
 
 
 def instrument_model_for_budget(model: Any) -> Any:
@@ -226,14 +225,14 @@ def instrument_model_for_budget(model: Any) -> Any:
         existing = list(getattr(model, "callbacks", None) or [])
     except Exception:
         existing = []
-    if cb in existing and BUDGET_GATE_CALLBACK in existing:
+    if cb in existing:
         return model
-    existing = [BUDGET_GATE_CALLBACK, *[handler for handler in existing if handler not in (cb, BUDGET_GATE_CALLBACK)], cb]
+    existing.append(cb)
     try:
         model.callbacks = existing
         return model
     except Exception:
         try:
-            return model.with_config(callbacks=[BUDGET_GATE_CALLBACK, cb])
+            return model.with_config(callbacks=[cb])
         except Exception:
             return model

@@ -1,4 +1,3 @@
-import { apiFetch as fetch } from "@/api/backend";
 const LEGACY_KEY = "my-cowork-memory-on";
 const MIGRATED_KEY = "my-cowork-memory-setting-migrated";
 

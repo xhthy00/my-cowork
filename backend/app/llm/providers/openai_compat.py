@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 
 from langchain_core.language_models import BaseChatModel
-from app.llm.providers.reasoning_openai import ReasoningChatOpenAI
+from langchain_openai import ChatOpenAI
 
 
 # Model families that emit a burst of tokens and then stall while "thinking"
@@ -93,7 +93,6 @@ def create_openai_compat(
     max_tokens: int | None = None,
     thinking: bool = True,
     stream_chunk_timeout: float | None | object = _UNSET,
-    request_options: dict | None = None,
 ) -> BaseChatModel:
     kwargs: dict = {"model": model, "api_key": api_key or "ollama"}
     if base_url is not None:
@@ -129,5 +128,4 @@ def create_openai_compat(
     else:
         kwargs["stream_chunk_timeout"] = resolved_timeout
 
-    kwargs.update(request_options or {})
-    return ReasoningChatOpenAI(**kwargs)
+    return ChatOpenAI(**kwargs)

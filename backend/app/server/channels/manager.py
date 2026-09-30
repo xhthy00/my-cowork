@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from app.task_support.documents import extract_claimed_office_paths, wants_document
+from app.graphs.routing import extract_claimed_office_paths, wants_document
 from app.guardrails.policy import skill_usable_via_remote
 from app.orchestrator.task_manager import TaskRequest
 from app.runtime.context import looks_like_plan_only, looks_like_workspace_dump
@@ -782,17 +782,7 @@ class ChannelManager:
             event_id=event_id,
         )
 
-    async def _run_and_reply(self, task_req, chat_id, platform="lark", **kwargs):
-        from contextlib import nullcontext
-        from app.task_support.admission import MaintenanceBusy
-        gate = getattr(self.task_manager, "admission", None)
-        try:
-            with gate.work("渠道任务") if gate else nullcontext():
-                await self._run_and_reply_accepted(task_req, chat_id, platform, **kwargs)
-        except MaintenanceBusy as exc:
-            await self._send_text(chat_id, str(exc), platform=platform)
-
-    async def _run_and_reply_accepted(
+    async def _run_and_reply(
         self,
         task_req: TaskRequest,
         chat_id: str,
@@ -817,9 +807,6 @@ class ChannelManager:
         try:
             async for event in tm.handle(task_req):
                 etype = event.get("type")
-                if etype == "budget.paused":
-                    await self._send_text(chat_id, "任务预算不足，已暂停。请在桌面端「设置 → 通用 → 任务预算」增加额度并继续。", platform=platform)
-                    continue
                 if etype == "human.ask":
                     key = (platform, user_id, chat_id)
                     owner = str(event.get("task_id") or "")
