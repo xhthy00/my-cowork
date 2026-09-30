@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /** Backend is the durable copy; localStorage remains a fast offline cache. */
 import { ensureActiveSession, useSessionsStore } from "./sessions";
 import { useSpacesStore } from "./spaces";

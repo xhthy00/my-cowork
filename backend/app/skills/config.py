@@ -52,7 +52,7 @@ def merge_skill_view(
     meta: SkillMeta,
     cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    entry = cfg.get("skills", {}).get(meta.id) or _default_entry()
+    entry = _default_entry() if meta.app_origin else (cfg.get("skills", {}).get(meta.id) or _default_entry())
     scope = entry.get("scope") or {"isGlobal": True, "selectedAgents": []}
     if isinstance(scope, str):
         scope = {"isGlobal": scope == "global", "selectedAgents": []}
@@ -62,7 +62,8 @@ def merge_skill_view(
         "description": meta.description,
         "schedule": meta.schedule,
         "allowed_tools": meta.allowed_tools,
-        "enabled": bool(entry.get("enabled", True)),
+        "enabled": meta.available if meta.app_origin else bool(entry.get("enabled", True)),
+        "appOrigin": meta.app_origin,
         "scope": {
             "isGlobal": bool(scope.get("isGlobal", True)),
             "selectedAgents": list(scope.get("selectedAgents") or []),
@@ -75,9 +76,10 @@ def merge_skill_view(
 def list_skills_api(
     root: Path | None = None,
     config_path: Path | None = None,
+    *, bundled: dict[str, SkillMeta] | None = None,
 ) -> list[dict[str, Any]]:
     cfg = load_skills_config(config_path)
-    return [merge_skill_view(s, cfg) for s in discover_skills(root)]
+    return [merge_skill_view(s, cfg) for s in discover_skills(root, bundled=bundled)]
 
 
 def patch_skill_config(
@@ -85,6 +87,8 @@ def patch_skill_config(
     patch: dict[str, Any],
     config_path: Path | None = None,
 ) -> dict[str, Any]:
+    if skill_id.startswith('app:'):
+        raise ValueError('随包技能由所属插件统一管理')
     cfg = load_skills_config(config_path)
     skills = cfg.setdefault("skills", {})
     entry = dict(skills.get(skill_id) or _default_entry())
@@ -140,6 +144,8 @@ def import_skill_zip(
             src_dir = src.parent
         else:
             raise ValueError("zip must contain skill.yaml or SKILL.md")
+        if meta.id.startswith('app:'):
+            raise ValueError('插件技能身份不能通过独立技能导入冒用')
         dest = base / meta.id
         if dest.exists():
             shutil.rmtree(dest)
@@ -156,6 +162,8 @@ def import_skill_zip(
 
 
 def delete_skill(skill_id: str, root: Path | None = None, config_path: Path | None = None) -> bool:
+    if skill_id.startswith('app:'):
+        raise ValueError('随包技能由所属插件统一管理')
     meta = find_skill(skill_id, root=root)
     if meta is None:
         return False

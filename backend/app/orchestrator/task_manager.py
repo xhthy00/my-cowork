@@ -15,6 +15,8 @@ from app.guardrails.approval import (
 )
 from app.runtime.budget import Budget
 from app.runtime.graph_runner import run_graph
+from app.runtime.admission import Admission
+from app.runtime.app_context import AppTaskScope, app_task_scope
 from app.skills import find_skill
 
 
@@ -93,6 +95,7 @@ class TaskRequest:
     run_started_at: float | None = None
     automation_run_id: str | None = None
     automation_store: Any = None
+    app_scope: AppTaskScope | None = None
 
 
 @dataclass
@@ -139,6 +142,7 @@ class TaskManager:
         notes_root: Path | str | None = None,
         task_store: Any = None,
         short_term: Any = None,
+        admission: Admission | None = None,
     ) -> None:
         self.graph = graph
         self.single_agent_graph = single_agent_graph
@@ -153,7 +157,11 @@ class TaskManager:
         self.human_input_hub = human_input_hub
         self.notes_root = Path(notes_root) if notes_root else None
         self.task_store = task_store
+        if task_store is not None and hasattr(task_store, 'interrupt_app_tasks'):
+            task_store.interrupt_app_tasks()
         self.short_term = short_term
+        self.admission = admission or Admission()
+        self.app_skills = {}
         self._tasks: dict[str, dict[str, Any]] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._graph_tasks: dict[str, asyncio.Task[None]] = {}
@@ -166,8 +174,8 @@ class TaskManager:
         if self.task_store is not None:
             try:
                 self.task_store.upsert(task_id, status, source=source, text=text)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._tasks[task_id]['storage_error'] = f'任务记录保存失败：{exc}'
 
     def status(self, task_id: str) -> str:
         """Return NEW|RUNNING|DONE|FAILED|CANCELLED for a task."""
@@ -181,6 +189,14 @@ class TaskManager:
 
     def cancel(self, task_id: str) -> bool:
         """Request cancellation of a running task. Returns True if signaled."""
+        pending = self._tasks.get(task_id, {})
+        if pending.get('app_task') and pending.get('status') == 'NEW':
+            event = {'type': 'graph.end', 'task_id': task_id, 'status': 'cancelled'}
+            if self.task_store is not None:
+                self.task_store.append_event(task_id, event)
+            pending['events'].append(event)
+            self._set_status(task_id, 'CANCELLED')
+            return True
         if self.human_input_hub is not None:
             self.human_input_hub.cancel_task(task_id)
         ev = self._cancel_events.get(task_id)
@@ -193,7 +209,7 @@ class TaskManager:
             graph_task.cancel()
             signaled = True
         if task_id in self._tasks and self._tasks[task_id]["status"] == "RUNNING":
-            self._set_status(task_id, "CANCELLED")
+            self._set_status(task_id, "CANCELLING" if self._tasks[task_id].get('app_task') else "CANCELLED")
             signaled = True
         return signaled
 
@@ -233,20 +249,31 @@ class TaskManager:
     async def submit(self, task_req: TaskRequest) -> str:
         """Enqueue a task in the background and return its id."""
         task_id = task_req.task_id or str(uuid.uuid4())
-        self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
-        asyncio.create_task(self._run(task_id, task_req))
+        lease = self.admission.acquire(task_req.text[:60] or "聊天任务")
+        try:
+            self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
+            self._tasks[task_id]['app_task'] = bool(task_req.app_scope)
+            child = asyncio.create_task(self._run(task_id, task_req, lease))
+            child.add_done_callback(lambda _: self.admission.release(lease))
+        except BaseException:
+            self.admission.release(lease)
+            raise
         return task_id
 
     async def handle(self, task_req: TaskRequest) -> AsyncIterator[dict[str, Any]]:
         """Run a task synchronously and yield all trace events."""
         task_id = task_req.task_id or str(uuid.uuid4())
-        self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
-        async for event in self._execute(task_id, task_req):
-            yield event
+        with self.admission.work(task_req.text[:60] or "聊天任务"):
+            self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
+            async for event in self._execute(task_id, task_req):
+                yield event
 
-    async def _run(self, task_id: str, task_req: TaskRequest) -> None:
-        async for _event in self._execute(task_id, task_req):
-            pass
+    async def _run(self, task_id: str, task_req: TaskRequest, lease=None) -> None:
+        with self.admission.work(task_id, lease):
+            if self._tasks[task_id]['status'] == 'CANCELLED':
+                return
+            async for _event in self._execute(task_id, task_req):
+                pass
 
     async def _execute(
         self, task_id: str, task_req: TaskRequest | str
@@ -302,6 +329,7 @@ class TaskManager:
                 enabled_skill_ids = list(a.get("enabled_skills") or [])
 
         self._set_status(task_id, "RUNNING", source=source, text=text)
+        self._tasks[task_id]['app_task'] = bool(req_obj.app_scope)
         self._seed_short_term(task_id, req_obj)
         other_running = any(
             tid != task_id and not gt.done()
@@ -358,6 +386,10 @@ class TaskManager:
         mcp_token = set_enabled_mcp(enabled_mcp)
 
         async def _run_graph() -> None:
+            scope_token = app_task_scope.set(req_obj.app_scope)
+            from app.skills import bundled_skill_scope
+            skill_context = bundled_skill_scope(self.app_skills, selected=req_obj.app_scope.skills if req_obj.app_scope is not None else None)
+            skill_context.__enter__()
             try:
                 async for _event in run_graph(
                     task,
@@ -386,6 +418,9 @@ class TaskManager:
                 )
             except Exception:
                 pass
+            finally:
+                skill_context.__exit__(None, None, None)
+                app_task_scope.reset(scope_token)
 
         graph_task = asyncio.create_task(_run_graph())
         self._graph_tasks[task_id] = graph_task
@@ -398,6 +433,14 @@ class TaskManager:
                     if owner and owner != task_id:
                         continue
                 self._tasks[task_id]["events"].append(event)
+                if req_obj.app_scope and self.task_store is not None:
+                    try:
+                        self.task_store.append_event(task_id, event)
+                    except Exception as exc:
+                        # A result that failed to persist must never look saved.
+                        self._tasks[task_id]['storage_error'] = f'任务记录保存失败：{exc}'
+                        event = {'type': 'graph.end', 'task_id': task_id, 'status': 'error',
+                                 'error': f'任务记录保存失败：{exc}'}
                 if event.get("type") == "graph.end" and self.short_term is not None:
                     try:
                         summary = str(
@@ -413,7 +456,6 @@ class TaskManager:
                             )
                     except Exception:
                         pass
-                yield event
                 if event.get("type") == "graph.end":
                     status = event.get("status")
                     if status == "error":
@@ -423,7 +465,9 @@ class TaskManager:
                     else:
                         final = "DONE"
                     self._set_status(task_id, final, source=source, text=text)
+                    yield event
                     break
+                yield event
         finally:
             if self.human_input_hub is not None:
                 self.human_input_hub.cancel_task(task_id)

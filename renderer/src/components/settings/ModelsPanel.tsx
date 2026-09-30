@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 import {
   ChevronDown,
   ChevronUp,
@@ -175,7 +176,7 @@ export default function ModelsPanel() {
     try {
       const headers: Record<string, string> = {};
       if (apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
-      const res = await fetch(url, { headers });
+      const res = await globalThis.fetch(url, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: unknown = await res.json();
       const list = selectedPreset.parseModels(data);

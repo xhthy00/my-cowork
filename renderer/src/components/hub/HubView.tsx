@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Adapted from eigent: pages/History.tsx
  * Full History shell: welcome headline + HistoryTabsNav + tab bodies.
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useIndustryNavigation } from "@/store/industryNavigation";
 import {
   usePageTabStore,
   type AgentsSection,
@@ -341,6 +343,7 @@ function BrowserHub() {
 export default function HubView() {
   const hubTab = usePageTabStore((s) => s.hubTab);
   const setHubTab = usePageTabStore((s) => s.setHubTab);
+  const activeAppId = useIndustryNavigation((s) => s.activeId);
   const [visited, setVisited] = useState<HubTab[]>([hubTab]);
 
   useEffect(() => {
@@ -350,7 +353,7 @@ export default function HubView() {
   return (
     <div className="hub-view flex h-full w-full flex-1 flex-col px-1 pb-1">
       {/* Grey scroll page — white welcome/nav sit on top */}
-      <div className="scrollbar-hide h-full overflow-y-auto rounded-2xl bg-ds-bg-neutral-subtle-default">
+      <div className={cn("scrollbar-hide h-full rounded-2xl bg-ds-bg-neutral-subtle-default", hubTab === "workbench" ? "flex min-h-0 flex-col overflow-hidden" : "overflow-y-auto")}>
         <div className={cn("flex w-full flex-row flex-wrap items-center justify-between gap-x-5 gap-y-3 bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] py-8", hubTab === "workbench" && "hidden")}>
           <p className="m-0 inline-flex flex-wrap items-baseline gap-2">
             <span className="history-welcome-headline text-[32px] font-bold not-italic text-ds-text-brand-muted-default">
@@ -369,8 +372,8 @@ export default function HubView() {
         </div>
 
         {/* Sticky History tabs */}
-        <div
-          className="sticky -top-px z-20 flex flex-col items-center justify-between border-b border-ds-border-neutral-subtle-disabled bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] pt-2 pb-2"
+        {!(hubTab === "workbench" && activeAppId) && <div
+          className="sticky -top-px z-20 flex shrink-0 flex-col items-center justify-between border-b border-ds-border-neutral-subtle-disabled bg-ds-bg-neutral-default-default px-[var(--hub-gutter)] pt-2 pb-2"
           style={
             {
               ["--home-hub-history-tabs-offset"]: "49px",
@@ -380,7 +383,7 @@ export default function HubView() {
           <div className="mx-auto flex w-full flex-row items-center">
             <HistoryTabsNav activeTab={hubTab} onChange={setHubTab} />
           </div>
-        </div>
+        </div>}
 
         {visited.includes("home") && (
           <div
@@ -393,14 +396,14 @@ export default function HubView() {
 
         {visited.includes("workbench") && (
           <div
-            className={hubTab === "workbench" ? "flex w-full" : "hidden"}
+            className={hubTab === "workbench" ? "flex min-h-0 w-full flex-1" : "hidden"}
             aria-hidden={hubTab !== "workbench"}
           >
             <IndustryWorkbench />
           </div>
         )}
 
-        <div className="m-auto flex h-auto w-full max-w-[1020px] flex-1 flex-col">
+        <div className={cn("m-auto h-auto w-full max-w-[1020px] flex-1 flex-col", hubTab === "workbench" ? "hidden" : "flex")}>
           <div className="flex h-auto w-full px-6 pb-[120px]">
             {visited.includes("agents") && (
               <div className={hubTab === "agents" ? "contents" : "hidden"} aria-hidden={hubTab !== "agents"}>

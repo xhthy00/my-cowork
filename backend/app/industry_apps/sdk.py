@@ -18,9 +18,22 @@ class AppContext:
     def workspace_data_dir(self, workspace_id: str) -> Path:
         if not workspace_id or "/" in workspace_id or "\\" in workspace_id or workspace_id in {".", ".."}:
             raise ValueError("invalid workspace_id")
-        path = self.data_root / workspace_id
+        from .snapshots import managed
+        if ":" in workspace_id:
+            raise ValueError("invalid workspace_id")
+        path = managed(self.data_root, workspace_id)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+
+@dataclass(frozen=True)
+class MigrationContext:
+    app_id: str
+    data_root: Path
+    source_version: str | None
+    target_version: str
+    source_data_version: int | str
+    target_data_version: int | str
 
 
 @dataclass
@@ -38,6 +51,7 @@ class AppToolCallContext:
     space_id: str | None
     project_id: str | None
     task_id: str | None
+    business: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

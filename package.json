@@ -9,7 +9,9 @@
     "url": "https://github.com/xhthy00/my-cowork.git"
   },
   "main": "dist-electron/main.js",
+  "bin": { "mycowork-app": "scripts/mycowork-app.cjs" },
   "scripts": {
+    "app": "node scripts/mycowork-app.cjs",
     "dev": "node scripts/dev.js",
     "dev:renderer": "vite",
     "dev:electron": "tsc && electron dist-electron/main.js",

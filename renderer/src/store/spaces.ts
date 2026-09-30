@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Local Space store — adapted from eigent spaceStore (no cloud Control Server).
  * Spaces own folder bindings; Projects (sessions) hang under a Space.

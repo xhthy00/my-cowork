@@ -586,15 +586,17 @@ def test_main_app_starts_scheduler_and_serves_automations(tmp_path, monkeypatch)
             yield {"type": "graph.end", "status": "ok", "summary": "scheduled result",
                    "task_id": request.task_id}
 
-    monkeypatch.setattr(main, "build_stack", lambda: {
+    monkeypatch.setattr(main, "build_stack", lambda **_kwargs: {
         "task_manager": FakeManager(), "automation_store": store,
         "bus": TraceBus(), "confirm_hub": ConfirmHub(), "data_dir": tmp_path,
     })
     monkeypatch.setenv("MY_COWORK_SKILLS_ROOT", str(tmp_path / "skills"))
     monkeypatch.setenv("MY_COWORK_SKILLS_CONFIG", str(tmp_path / "skills.json"))
     monkeypatch.setenv("MY_COWORK_SCHEDULER_DB", str(tmp_path / "legacy.db"))
+    monkeypatch.setenv("MY_COWORK_INDUSTRY_APPS_ROOT", str(tmp_path / "industry-apps"))
+    monkeypatch.setenv("MY_COWORK_INDUSTRY_TOKEN", "automation-test-token")
     app = main.create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-MyCowork-Industry-Token": "automation-test-token"}) as client:
         assert client.get("/api/automations").status_code == 200
         created = client.post("/api/automations", json={
             "title": "One time", "instructions": "Summarize",

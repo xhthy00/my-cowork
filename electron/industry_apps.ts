@@ -2,6 +2,12 @@ import { readFile } from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 
+type RunningRegistry = { generation?: string; apps?: Record<string, { version?: string; dev_revision?: string; enabled?: boolean }> };
+let runningRegistry: RunningRegistry = {};
+export function publishAppRuntime(runtime: { generation: string; apps: Array<{ id: string; version?: string; dev_revision?: string; status: string }> } | null): void {
+  runningRegistry = runtime ? { generation: runtime.generation, apps: Object.fromEntries(runtime.apps.filter(app => app.status === "ready").map(app => [app.id, { version: app.version, dev_revision: app.dev_revision, enabled: true }])) } : {};
+}
+
 const APP_ID = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -26,7 +32,7 @@ export function industryAppsRoot(): string {
 
 export function resolveAppAsset(
   url: string,
-  registry: { apps?: Record<string, { version?: string; enabled?: boolean }> },
+  registry: RunningRegistry,
   root: string,
 ): string | null {
   let parsed: URL;
@@ -45,19 +51,21 @@ export function resolveAppAsset(
     return null;
   }
   if (pathname.includes("\\") || pathname.includes("\0") || pathname.split("/").includes("..")) return null;
-  const base = path.join(root, "packages", parsed.hostname, entry.version, "frontend", "dist");
+  if (registry.generation) {
+    const prefix = "/" + registry.generation + "/";
+    if (!pathname.startsWith(prefix)) return null;
+    pathname = pathname.slice(prefix.length - 1);
+  }
+  if (entry.dev_revision && (process.env.MY_COWORK_APP_DEV !== "1" || process.env.MY_COWORK_DEV_APP_ID !== parsed.hostname || !/^[0-9a-f]{64}$/.test(entry.dev_revision))) return null;
+  const base = entry.dev_revision
+    ? path.resolve(root, "development", parsed.hostname, entry.dev_revision, "frontend", "dist")
+    : path.resolve(root, "packages", parsed.hostname, entry.version, "frontend", "dist");
   const asset = path.resolve(base, "." + (pathname === "/" ? "/index.html" : pathname));
   if (!asset.startsWith(base + path.sep)) return null;
   return asset;
 }
 
-export async function serveAppAsset(url: string, root = industryAppsRoot()): Promise<Response> {
-  let registry: { apps?: Record<string, { version?: string; enabled?: boolean }> };
-  try {
-    registry = JSON.parse(await readFile(path.join(root, "registry.json"), "utf-8"));
-  } catch {
-    return new Response("Application registry unavailable", { status: 404 });
-  }
+export async function serveAppAsset(url: string, root = industryAppsRoot(), registry = runningRegistry): Promise<Response> {
   const asset = resolveAppAsset(url, registry, root);
   if (!asset) return new Response("Forbidden", { status: 403 });
   try {

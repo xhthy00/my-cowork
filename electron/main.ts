@@ -3,7 +3,7 @@ import type { ChildProcess } from "child_process";
 import { readFile } from "fs/promises";
 import * as fs from "fs";
 import * as path from "path";
-import { randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import * as os from "os";
 
 import {
@@ -35,7 +35,8 @@ import {
   setKeepAwakeEnabled,
 } from "./keepAwake";
 import { startPdfServer, type PdfServer } from "./pdf_server";
-import { start, stop as stopPythonBackend } from "./python_runner";
+import { start, stop as stopPythonBackend, stopAndWait, startMaintenance } from "./python_runner";
+import { IndustryLifecycle, JsonPipe, RuntimeState } from "./industry_lifecycle";
 import { getPackageVersion, prepareTerminalPython } from "./terminal_venv";
 import { startTunnel, type TunnelHandle } from "./tunnel";
 import {
@@ -52,7 +53,8 @@ import {
   writePreviewFileBuffer,
 } from "./fileReader";
 import { isLocalfileAllowed, localfileUrlToFsPath } from "./localfile";
-import { serveAppAsset, validAppRequest } from "./industry_apps";
+import { serveAppAsset, validAppRequest, publishAppRuntime } from "./industry_apps";
+import { BackendProxy, type BackendRequest } from "./backend_proxy";
 
 let backendUrl = "";
 let backendProc: ChildProcess | null = null;
@@ -60,9 +62,24 @@ let pdfServer: PdfServer | null = null;
 let tunnel: TunnelHandle | null = null;
 let keepAwakeReleased = false;
 const industryToken = randomBytes(32).toString("hex");
+const backendProxy = new BackendProxy(() => backendUrl, () => industryToken);
+app.on("web-contents-created", (_event, contents) => {
+  const owner = contents.id;
+  contents.once("destroyed", () => backendProxy.closeOwner(owner));
+});
 
 const isDev = !app.isPackaged;
 const isE2E = process.env.MY_COWORK_E2E === "1";
+const developerControl = isDev && process.env.MY_COWORK_DEV_CONTROL === "1" && typeof process.send === "function";
+const developerApp = developerControl && process.env.MY_COWORK_APP_DEV === "1";
+
+// Development checkouts can keep sessions, settings and credentials separate.
+if (isDev && process.env.MY_COWORK_USER_DATA_DIR) {
+  const isolatedUserData = path.resolve(process.env.MY_COWORK_USER_DATA_DIR);
+  fs.mkdirSync(isolatedUserData, { recursive: true });
+  app.setPath("userData", isolatedUserData);
+  app.setPath("sessionData", isolatedUserData);
+}
 
 // Must run before app ready — local HTML preview in <webview>.
 protocol.registerSchemesAsPrivileged([
@@ -95,23 +112,46 @@ if (isE2E) {
 
 // ── backend lifecycle ────────────────────────────────────────────────────────
 
-let startInFlight: Promise<string> | null = null;
+let runningIndustry: RuntimeState | null = null;
+const lifecycle = new IndustryLifecycle({
+  pipe: () => new JsonPipe(startMaintenance({
+    cwd: isDev ? path.join(__dirname, "..", "backend") : process.resourcesPath,
+    dev: isDev,
+    env: { MY_COWORK_APP_VERSION: getPackageVersion() },
+  })),
+  running: () => Boolean(backendProc && backendUrl),
+  modelReady: async () => Boolean(isE2E || process.env.MY_COWORK_API_KEY || (await buildPythonEnv()).MY_COWORK_API_KEY),
+  start: async (token) => { await startBackendOnce(token); },
+  stop: async () => {
+    await stopAndWait(backendProc);
+    backendProc = null;
+    backendUrl = "";
+  },
+  runtime: async (action) => industryBackendRequest("/api/industry-apps/runtime" + (action ? "/" + action : ""), action ? { method: "POST" } : {}) as Promise<RuntimeState>,
+  publish: (runtime) => {
+    runningIndustry = runtime;
+    publishAppRuntime(runtime);
+    if (runtime) notifyBackendReady();
+  },
+  changed: (status) => {
+    if (developerControl && process.connected) process.send?.({ phase: status.phase, message: status.message });
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send("industry:status", status);
+    }
+  },
+});
 
 async function startBackend(): Promise<string> {
-  if (startInFlight) return startInFlight;
-  startInFlight = startBackendOnce().finally(() => {
-    startInFlight = null;
-  });
-  return startInFlight;
+  if (developerApp) {
+    const file = process.env.MY_COWORK_DEV_ZIP!;
+    const sha256 = createHash("sha256").update(await readFile(file)).digest("hex");
+    await lifecycle.run({ action: "develop", file, sha256 });
+  } else await lifecycle.run({ action: "restart" });
+  if (!backendUrl) throw new Error(lifecycle.status.message || "后端未就绪");
+  return backendUrl;
 }
 
-async function startBackendOnce(): Promise<string> {
-  if (backendProc) {
-    stopPythonBackend(backendProc);
-    backendProc = null;
-  }
-  backendUrl = "";
-
+async function startBackendOnce(operationToken?: string): Promise<string> {
   const env = await buildPythonEnv();
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("MY_COWORK_") && value) {
@@ -156,6 +196,8 @@ async function startBackendOnce(): Promise<string> {
   const appVersion = getPackageVersion();
   env.MY_COWORK_APP_VERSION = appVersion;
   env.MY_COWORK_INDUSTRY_TOKEN = industryToken;
+  if (operationToken) env.MY_COWORK_OPERATION_TOKEN = operationToken;
+  else delete env.MY_COWORK_OPERATION_TOKEN;
   // Do not wait for the (first-launch) venv copy — it can take minutes and
   // used to block the window. Backend falls back if python.exe is not ready yet.
   const terminalBase = prepareTerminalPython(appVersion);
@@ -177,7 +219,15 @@ async function startBackendOnce(): Promise<string> {
   });
   backendUrl = info.url;
   backendProc = info.process;
-  notifyBackendReady();
+  backendProc.once("exit", () => {
+    if (backendProc === info.process) {
+      backendProc = null;
+      backendUrl = "";
+      runningIndustry = null;
+      publishAppRuntime(null);
+      notifyBackendFailed("后端已退出，可在行业工作台重试恢复");
+    }
+  });
   return backendUrl;
 }
 
@@ -272,11 +322,7 @@ ipcMain.handle("models:remove", async (_event, id: string) => {
       // Active profile may lack a key; leave URL empty.
     }
   } else {
-    if (backendProc) {
-      stopPythonBackend(backendProc);
-      backendProc = null;
-    }
-    backendUrl = "";
+    await lifecycle.run({ action: "restart" });
   }
   return state;
 });
@@ -306,7 +352,7 @@ ipcMain.handle(
       try {
         const res = await fetch(`${backendUrl}/api/model/validate`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-MyCowork-Industry-Token": industryToken },
           body: JSON.stringify({
             provider: toBackendProvider(input.provider),
             model: input.model,
@@ -341,12 +387,25 @@ ipcMain.handle("backend:restart", async () => {
   return backendUrl;
 });
 
-function requireHostWindow(sender: Electron.WebContents): void {
+function requireHostWindow(sender: Electron.WebContents, frame?: Electron.WebFrameMain | null): void {
   const win = BrowserWindow.fromWebContents(sender);
-  if (!win || win.webContents !== sender) {
+  if (!win || win.webContents !== sender || !frame || frame.processId !== sender.mainFrame.processId || frame.routingId !== sender.mainFrame.routingId) {
     throw new Error("industry app operation must come from the host window");
   }
 }
+
+ipcMain.handle("backend:request", (event, id: string, request: BackendRequest) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  return backendProxy.request(event.sender.id, id, request);
+});
+ipcMain.handle("backend:read", (event, id: string) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  return backendProxy.read(event.sender.id, id);
+});
+ipcMain.handle("backend:cancel", (event, id: string) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  backendProxy.cancel(event.sender.id, id);
+});
 
 async function industryBackendRequest(
   endpoint: string,
@@ -359,7 +418,7 @@ async function industryBackendRequest(
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = data && typeof data === "object" && "detail" in data
-      ? String(data.detail)
+      ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)).slice(0, 2000)
       : "request failed";
     throw new Error(detail);
   }
@@ -367,37 +426,36 @@ async function industryBackendRequest(
 }
 
 ipcMain.handle("industry:list", async (event) => {
-  requireHostWindow(event.sender);
-  return industryBackendRequest("/api/industry-apps");
-});
-
-ipcMain.handle("industry:inspect", async (event, filePath: string) => {
-  requireHostWindow(event.sender);
-  if (path.extname(filePath).toLowerCase() !== ".zip") throw new Error("select a .zip file");
-  const info = await fs.promises.stat(filePath);
-  if (!info.isFile() || info.size > 50 * 1024 * 1024) throw new Error("ZIP exceeds 50 MiB");
-  return industryBackendRequest("/api/industry-apps/inspect", {
-    method: "POST",
-    headers: { "Content-Type": "application/zip" },
-    body: await readFile(filePath),
+  requireHostWindow(event.sender, event.senderFrame);
+  const result = await lifecycle.query({ command: "list" });
+  result.apps = result.apps.filter((entry: any) => !entry.removed).map((entry: any) => {
+    const running = runningIndustry?.apps.find((item) => item.id === entry.id && item.version === entry.version);
+    const devUrl = developerApp && running?.dev_revision && entry.id === process.env.MY_COWORK_DEV_APP_ID && /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(process.env.MY_COWORK_DEV_URL || "") ? process.env.MY_COWORK_DEV_URL : undefined;
+    return { ...entry, status: running?.status || (entry.status === "ready" ? "pending_activation" : entry.status), generation: running ? runningIndustry?.generation : undefined, ...(devUrl ? { dev_url: devUrl } : {}) };
   });
+  return { ...result, lifecycle: lifecycle.status };
 });
 
-ipcMain.handle(
-  "industry:install",
-  async (event, filePath: string, expectedSha256: string) => {
-    requireHostWindow(event.sender);
-    if (path.extname(filePath).toLowerCase() !== ".zip") throw new Error("select a .zip file");
-    if (!/^[0-9a-f]{64}$/.test(expectedSha256)) throw new Error("invalid package hash");
-    const info = await fs.promises.stat(filePath);
-    if (!info.isFile() || info.size > 50 * 1024 * 1024) throw new Error("ZIP exceeds 50 MiB");
-    return industryBackendRequest("/api/industry-apps/install", {
-      method: "POST",
-      headers: { "Content-Type": "application/zip", "X-Package-Sha256": expectedSha256 },
-      body: await readFile(filePath),
-    });
-  },
-);
+ipcMain.handle("industry:status", (event) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  return lifecycle.status;
+});
+ipcMain.handle("industry:cancel", (event) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  lifecycle.cancel();
+});
+ipcMain.handle("industry:inspect", async (event, filePath: string) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  if (path.extname(filePath).toLowerCase() !== ".zip") throw new Error("select a .zip file");
+  return lifecycle.query({ command: "inspect", file: filePath });
+});
+
+ipcMain.handle("industry:install", async (event, filePath: string, expectedSha256: string) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  if (path.extname(filePath).toLowerCase() !== ".zip") throw new Error("select a .zip file");
+  if (!/^[0-9a-f]{64}$/.test(expectedSha256)) throw new Error("invalid package hash");
+  return lifecycle.run({ action: "install", file: filePath, sha256: expectedSha256 });
+});
 
 ipcMain.handle(
   "industry:request",
@@ -407,8 +465,11 @@ ipcMain.handle(
     method: string,
     requestPath: string,
     body?: unknown,
+    generation?: string,
   ) => {
-    requireHostWindow(event.sender);
+    requireHostWindow(event.sender, event.senderFrame);
+    if (lifecycle.status.busy || !runningIndustry || generation !== runningIndustry.generation) throw new Error("应用正在更新，请稍后重新打开页面");
+    if (!runningIndustry.apps.some((item) => item.id === appId && item.status === "ready")) throw new Error("应用未启用");
     if (!validAppRequest(appId, method, requestPath)) throw new Error("invalid app request");
     return industryBackendRequest("/api/apps/" + appId + requestPath, {
       method,
@@ -419,12 +480,10 @@ ipcMain.handle(
 );
 
 ipcMain.handle("industry:manage", async (event, appId: string, action: string) => {
-  requireHostWindow(event.sender);
+  requireHostWindow(event.sender, event.senderFrame);
   if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/.test(appId)) throw new Error("invalid app id");
-  if (action !== "disable" && action !== "enable" && action !== "rollback") throw new Error("invalid app action");
-  return industryBackendRequest("/api/industry-apps/" + appId + "/" + action, {
-    method: "POST",
-  });
+  if (!["disable", "enable", "rollback", "remove", "retry"].includes(action)) throw new Error("invalid app action");
+  return lifecycle.run({ action, app_id: appId });
 });
 
 ipcMain.handle("print-to-pdf", async (_event, html: string) => {
@@ -443,7 +502,10 @@ ipcMain.handle("print-to-pdf", async (_event, html: string) => {
 });
 
 ipcMain.handle("open-path", async (_event, filePath: string) => {
-  if (filePath) await shell.openPath(filePath);
+  if (filePath) {
+    const error = await shell.openPath(filePath);
+    if (error) throw new Error(error);
+  }
 });
 
 ipcMain.handle("dialog:select-directory", async () => {
@@ -577,6 +639,7 @@ ipcMain.handle("updater:status", () => getUpdaterStatus());
 ipcMain.handle("updater:check", () => checkForUpdates());
 ipcMain.handle("updater:download", () => downloadUpdate());
 ipcMain.handle("updater:install", async () => {
+  if (lifecycle.status.busy) return { ok: false, message: "请等待行业应用操作完成后再重启更新" };
   if (getUpdaterStatus().state !== "downloaded") {
     return { ok: false, message: "no update downloaded" };
   }
@@ -606,7 +669,7 @@ ipcMain.handle(
 // ── window ───────────────────────────────────────────────────────────────────
 
 async function loadRenderer(win: BrowserWindow) {
-  const forceFile = isE2E;
+  const forceFile = isE2E || developerControl;
   if (isDev && !forceFile) {
     const devServerUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
     await win.loadURL(devServerUrl);
@@ -647,6 +710,53 @@ async function createWindow() {
 }
 
 // ── startup ──────────────────────────────────────────────────────────────────
+
+// Only the CLI-owned Node IPC channel can control a developer session.
+if (developerControl) {
+  let quitting = false;
+  process.on("message", async (message: { command?: string }) => {
+    try {
+      if (message.command === "cancel") lifecycle.cancel();
+      else if (["reload", "restart"].includes(message.command || "") && !quitting) await startBackend();
+      else if (message.command === "quit" && !quitting) {
+        quitting = true;
+        lifecycle.cancel();
+        while (lifecycle.status.busy) await new Promise(resolve => setTimeout(resolve, 300));
+        if (backendUrl) {
+          let state = await industryBackendRequest("/api/industry-apps/runtime/drain", { method: "POST" }) as RuntimeState;
+          while (state.active > 0) {
+            if (process.connected) process.send?.({ phase: "draining", message: `等待 ${state.active} 项工作结束；仍可在工作台回答或停止任务。` });
+            await new Promise(resolve => setTimeout(resolve, 300));
+            state = await industryBackendRequest("/api/industry-apps/runtime") as RuntimeState;
+          }
+        }
+        await stopAndWait(backendProc);
+        backendProc = null; backendUrl = "";
+        if (developerApp) await lifecycle.query({ command: "collect_development" }).catch(error => console.warn("开发快照清理未完成，已保留：", error));
+        for (const win of BrowserWindow.getAllWindows()) win.destroy();
+        app.quit();
+      }
+    } catch (error) {
+      console.error("开发操作失败：", error);
+      if (process.connected) process.send?.({ phase: "failed", message: "开发操作未完成，请查看工作台状态与日志。" });
+      quitting = false;
+      if (message.command === "quit") {
+        // A failed drain cannot leave the CLI waiting forever. Stop only this
+        // instance; ordinary startup recovery handles any interrupted work.
+        await stopAndWait(backendProc).catch(error => console.error("停止开发后端失败：", error));
+        backendProc = null; backendUrl = "";
+        for (const win of BrowserWindow.getAllWindows()) win.destroy();
+        app.quit();
+      }
+    } finally {
+      if (process.connected && ["reload", "restart"].includes(message.command || "")) process.send?.({ done: true });
+    }
+  });
+  process.once("disconnect", () => {
+    for (const win of BrowserWindow.getAllWindows()) win.destroy();
+    app.quit();
+  });
+}
 
 function registerLocalfileProtocol(): void {
   const handler = async (request: Request): Promise<Response> => {
@@ -701,7 +811,7 @@ app.whenReady().then(async () => {
   registerLocalfileProtocol();
   protocol.handle("mycowork-app", (request) => serveAppAsset(request.url));
   const userData = app.getPath("userData");
-  initKeychain(userData);
+  initKeychain(userData, developerControl ? process.env.MY_COWORK_CREDENTIAL_SCOPE : undefined);
   initModelsStore(userData);
   configureKeepAwakeRuntime({ powerSaveBlocker });
   initKeepAwake(userData);

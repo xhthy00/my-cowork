@@ -50,8 +50,9 @@ _FILE_REFUSE = (
 
 
 def _tool_map(tools: list[BaseTool] | None) -> dict[str, BaseTool]:
+    from app.runtime.app_context import scoped_tools
     out: dict[str, BaseTool] = {}
-    for tool in tools or []:
+    for tool in scoped_tools(tools or []):
         name = getattr(tool, "name", None) or ""
         if name:
             out[str(name)] = tool
@@ -79,6 +80,10 @@ async def _invoke_tool(
     call_id: str = "",
 ) -> str:
     tool_name = name or str(getattr(tool, "name", "") or "")
+    from app.runtime.app_context import app_task_scope
+    scope = app_task_scope.get()
+    if scope and getattr(tool, 'name', '') not in scope.tools:
+        return '[ERROR] Tool is outside the task scope'
     cid = call_id or tool_name
     runtime = get_todo_runtime()
     if (runtime is not None and runtime.source == "schedule"
@@ -497,7 +502,8 @@ async def run_act_loop(
     allow_file_writes: bool = True,
 ) -> list[Any]:
     """Run model ↔ tools until the model stops calling tools (ChatAgent-style)."""
-    tools = filter_mcp_tools(list(tools or []), get_enabled_mcp())
+    from app.runtime.app_context import scoped_tools
+    tools = scoped_tools(filter_mcp_tools(list(tools or []), get_enabled_mcp()))
     mapping = _tool_map(tools)
     bound = model.bind_tools(tools) if tools and hasattr(model, "bind_tools") else model
     working = list(messages)

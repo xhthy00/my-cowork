@@ -26,6 +26,7 @@ from app.runtime.v2.session import (
     write_compaction_transcript,
 )
 from app.runtime.todo_context import get_todo_runtime
+from app.runtime.app_context import app_task_scope, scoped_tools
 from app.runtime.v2.synthesize import synthesize_answer
 
 _FLOOR_RETRIES = 3
@@ -53,6 +54,11 @@ async def run_with_floor_retries(
     act_max_steps: int | None = None,
 ) -> list:
     """Act loop, then gate retries with forced search/fetch (LLM critic is optional later)."""
+    tools = scoped_tools(tools or [])
+    if app_task_scope.get():
+        # Business actions declare their tools and artifact format explicitly;
+        # generic web/Office retries must not reinterpret that contract.
+        return await run_act_loop(model, tools, messages, max_steps=act_max_steps or 40)
     allow_files = wants_document(user_text)
     tool_names = {
         str(getattr(t, "name", "") or "") for t in (tools or []) if getattr(t, "name", None)
@@ -186,7 +192,7 @@ def compile_single_agent_graph(
             result = await run_with_floor_retries(
                 model, tools or [], assembled, user_text
             )
-        floor = floor_analysis(user_text, result)
+        floor = None if app_task_scope.get() else floor_analysis(user_text, result)
         final = None
         if _search_gap(floor):
             from app.runtime.context import last_ai_text

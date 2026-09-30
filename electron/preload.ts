@@ -1,9 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("api", {
+  backendRequest: (id: string, request: import("./backend_proxy").BackendRequest) => ipcRenderer.invoke("backend:request", id, request),
+  backendRead: (id: string) => ipcRenderer.invoke("backend:read", id),
+  backendCancel: (id: string) => ipcRenderer.invoke("backend:cancel", id),
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("backend-url"),
   restartBackend: (): Promise<string> => ipcRenderer.invoke("backend:restart"),
   industryList: (): Promise<unknown> => ipcRenderer.invoke("industry:list"),
+  industryStatus: () => ipcRenderer.invoke("industry:status"),
+  industryCancel: () => ipcRenderer.invoke("industry:cancel"),
+  onIndustryStatus: (callback: (status: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
+    ipcRenderer.on("industry:status", listener);
+    return () => ipcRenderer.removeListener("industry:status", listener);
+  },
   industryInspect: (filePath: string): Promise<unknown> =>
     ipcRenderer.invoke("industry:inspect", filePath),
   industryInstall: (filePath: string, expectedSha256: string): Promise<unknown> =>
@@ -13,9 +23,10 @@ contextBridge.exposeInMainWorld("api", {
     method: string,
     requestPath: string,
     body?: unknown,
+    generation?: string,
   ): Promise<unknown> =>
-    ipcRenderer.invoke("industry:request", appId, method, requestPath, body),
-  industryManage: (appId: string, action: "disable" | "enable" | "rollback"): Promise<unknown> =>
+    ipcRenderer.invoke("industry:request", appId, method, requestPath, body, generation),
+  industryManage: (appId: string, action: "disable" | "enable" | "rollback" | "remove" | "retry"): Promise<unknown> =>
     ipcRenderer.invoke("industry:manage", appId, action),
   getKey: (account: string): Promise<string | null> =>
     ipcRenderer.invoke("keychain:get", account),

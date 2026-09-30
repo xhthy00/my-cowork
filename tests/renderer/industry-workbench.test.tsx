@@ -1,14 +1,17 @@
 /** @vitest-environment jsdom */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import IndustryWorkbench from "../../renderer/src/components/hub/IndustryWorkbench";
+import { useIndustryNavigation } from "../../renderer/src/store/industryNavigation";
+import type { IndustryStatus } from "../../renderer/src/window";
 
 const app = {
   id: "cn.example.taskboard",
   version: "1.0.0",
+  generation: "runtime-1",
   previous_version: null,
   enabled: true,
   status: "ready",
@@ -26,7 +29,10 @@ const industryRequest = vi.fn();
 const selectFile = vi.fn();
 
 beforeEach(() => {
+  useIndustryNavigation.setState({ activeId: null, dirty: false, routes: {} });
   vi.clearAllMocks();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   industryList.mockResolvedValue({ apps: [] });
   industryInspect.mockResolvedValue({
     sha256: "a".repeat(64),
@@ -61,7 +67,7 @@ describe("industry workbench", () => {
   it("previews trusted Python code before installing a ZIP", async () => {
     render(<IndustryWorkbench />);
     await userEvent.click(screen.getByRole("button", { name: "安装 ZIP" }));
-    expect(await screen.findByText(/此 ZIP 含可在 MyCowork 后端进程中运行的 Python 代码/)).toBeTruthy();
+    expect(await screen.findByText(/此应用可在本机运行代码，请仅安装你信任的来源/)).toBeTruthy();
     expect(industryInstall).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
     await waitFor(() => expect(industryInstall).toHaveBeenCalledWith("/tmp/taskboard.zip", "a".repeat(64)));
@@ -70,7 +76,7 @@ describe("industry workbench", () => {
   it("relays only the active iframe's app-scoped request", async () => {
     industryList.mockResolvedValue({ apps: [app] });
     render(<IndustryWorkbench />);
-    await userEvent.click(await screen.findByRole("button", { name: /任务管理样例/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "打开 任务管理样例" }));
     const frame = screen.getByTitle("任务管理样例") as HTMLIFrameElement;
     const bridgeToken = new URL(frame.src).searchParams.get("bridge");
     expect(bridgeToken).toBeTruthy();
@@ -91,24 +97,76 @@ describe("industry workbench", () => {
         path: "/tasks",
       },
     }));
-    await waitFor(() => expect(industryRequest).toHaveBeenCalledWith(app.id, "GET", "/tasks", undefined));
+    await waitFor(() => expect(industryRequest).toHaveBeenCalledWith(app.id, "GET", "/tasks", undefined, "runtime-1"));
     await waitFor(() => expect(reply).toHaveBeenCalledWith(expect.objectContaining({
       id: "req-1",
       ok: true,
     }), "mycowork-app://cn.example.taskboard"));
   });
 
-  it("does not keep a success banner after the updated app is ready", async () => {
-    let currentApp = { ...app, status: "pending_restart" };
-    industryList.mockImplementation(async () => ({ apps: [currentApp] }));
-    window.api.restartBackend = vi.fn(async () => { currentApp = { ...app }; return "ready"; });
-
+  it("keeps package management in the app list while running", async () => {
+    industryList.mockResolvedValue({ apps: [app] });
     render(<IndustryWorkbench />);
-    await userEvent.click(await screen.findByRole("button", { name: /任务管理样例/ }));
-    await userEvent.click(screen.getByRole("button", { name: "重启后端以应用变更" }));
+    await userEvent.click(await screen.findByRole("button", { name: "打开 任务管理样例" }));
+    expect(screen.queryByRole("button", { name: "管理 任务管理样例" })).toBeNull();
+    expect(screen.getByRole("button", { name: "AI 记录" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "返回应用列表" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "打开 任务管理样例" })));
+    await userEvent.click(screen.getByRole("button", { name: "管理 任务管理样例" }));
+    expect(await screen.findByRole("menuitem", { name: "从 ZIP 更新" })).toBeInTheDocument();
+  });
 
-    expect(await screen.findByTitle("任务管理样例")).toBeTruthy();
-    expect(screen.queryByText("后端已重启，应用状态已更新。")).toBeNull();
+  it("offers recovery instead of normal activation when recovery is required", async () => {
+    industryList.mockResolvedValue({ apps: [{ ...app, status: "recovery_required" }] });
+    render(<IndustryWorkbench />);
+    await userEvent.click(await screen.findByRole("button", { name: "管理 任务管理样例" }));
+    expect(await screen.findByRole("menuitem", { name: "重试恢复" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "启用", exact: true })).toBeNull();
+  });
+
+  it("does not offer a ZIP update for a source development app", async () => {
+    industryList.mockResolvedValue({ apps: [{ ...app, dev_revision: "a".repeat(64) }] });
+    render(<IndustryWorkbench />);
+    await userEvent.click(await screen.findByRole("button", { name: "管理 任务管理样例" }));
+    expect(screen.queryByRole("menuitem", { name: "从 ZIP 更新" })).toBeNull();
+    expect(screen.getByText(/开发调试 · 可用/)).toBeInTheDocument();
+  });
+
+  it("offers an explicit update preview and cancels without applying it", async () => {
+    industryList.mockResolvedValue({ apps: [app] });
+    industryInspect.mockResolvedValue({
+      sha256: "a".repeat(64), file_count: 7, current_version: "1.0.0",
+      manifest: { ...app.manifest, id: app.id, version: "1.1.0", capabilities: { host_api: [] } },
+    });
+    render(<IndustryWorkbench />);
+    await userEvent.click(await screen.findByRole("button", { name: "管理 任务管理样例" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "从 ZIP 更新" }));
+    expect(await screen.findByText("1.0.0 → 1.1.0")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(industryInstall).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("restores host-owned progress when returning to the workbench", async () => {
+    industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: true, phase: "draining", appId: app.id, active: 1, tasks: ["current task"] } });
+    window.api.industryCancel = vi.fn();
+    render(<IndustryWorkbench />);
+    expect(await screen.findByRole("status")).toHaveTextContent("等待 1 项工作结束");
+    await userEvent.click(screen.getByRole("button", { name: "取消更新" }));
+    expect(window.api.industryCancel).toHaveBeenCalledOnce();
+    expect(window.api.restartBackend).not.toHaveBeenCalled();
+  });
+
+  it("does not replay an old success notice on entry but shows a new operation result", async () => {
+    industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: false, phase: "committed", generation: "old", message: "旧的启用成功提示" } });
+    const subscribe = vi.fn((_callback: (status: IndustryStatus) => void) => () => {});
+    window.api.onIndustryStatus = subscribe;
+    render(<IndustryWorkbench />);
+    await screen.findByRole("button", { name: "打开 任务管理样例" });
     expect(screen.queryByRole("status")).toBeNull();
+    const next = { busy: false, phase: "committed", generation: "new", message: "本次更新完成" } as IndustryStatus;
+    industryList.mockResolvedValue({ apps: [app], lifecycle: next });
+    act(() => subscribe.mock.calls[0][0](next));
+    expect(await screen.findByRole("status")).toHaveTextContent("本次更新完成");
   });
 });

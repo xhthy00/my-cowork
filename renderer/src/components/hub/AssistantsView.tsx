@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "@/api/backend";
 /**
  * Builtin office assistants list — scene catalog with categories + prompt chips.
  */

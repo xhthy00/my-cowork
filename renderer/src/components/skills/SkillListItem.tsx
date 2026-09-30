@@ -12,12 +12,14 @@ import {
   Users,
 } from "lucide-react";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { usePageTabStore } from "@/store/pageTab";
 import { useSessionsStore } from "@/store/sessions";
+import { useIndustryNavigation, leaveIndustryPage } from "@/store/industryNavigation";
 
 export interface SkillScope {
   isGlobal: boolean;
@@ -32,6 +34,7 @@ export interface SkillItem {
   schedule?: string | null;
   isExample?: boolean;
   scope: SkillScope;
+  appOrigin?: { id: string; name: string; version: string } | null;
 }
 
 const WORKER_OPTIONS = [
@@ -121,11 +124,14 @@ export default function SkillListItem(props: SkillListItemProps) {
   };
 
   const handleTryInChat = () => {
-    useSessionsStore.getState().createSession(skill.name);
-    usePageTabStore.getState().setWorkspaceView("workspace");
+    // The composer subscribes on mount; finish navigation before delivering the draft.
+    flushSync(() => {
+      useSessionsStore.getState().createSession(skill.name);
+      usePageTabStore.getState().setWorkspaceView("workspace");
+    });
     window.dispatchEvent(
       new CustomEvent("my-cowork:composer-fill", {
-        detail: `我刚添加了 {{${skill.name}}} 技能，请用它帮我做点有意思的事。`,
+        detail: skill.appOrigin ? `请用 #${skill.id} 帮我处理业务。` : `我刚添加了 {{${skill.name}}} 技能，请用它帮我做点有意思的事。`,
       }),
     );
   };
@@ -142,7 +148,7 @@ export default function SkillListItem(props: SkillListItemProps) {
           {skill.name}
         </span>
         <div className="flex shrink-0 items-center gap-2">
-          <Switch checked={skill.enabled} onCheckedChange={onToggle} />
+          {skill.appOrigin ? <span className="text-xs text-ds-text-neutral-muted-default">{skill.enabled ? "可用" : "插件未启用或不可用"}</span> : <Switch checked={skill.enabled} onCheckedChange={onToggle} />}
           <Button
             type="button"
             variant="ghost"
@@ -153,7 +159,7 @@ export default function SkillListItem(props: SkillListItemProps) {
           >
             <MessageSquare className="h-4 w-4" />
           </Button>
-          {!skill.isExample && onDelete && (
+          {!skill.isExample && !skill.appOrigin && onDelete && (
             <div className="relative">
               <Button
                 type="button"
@@ -199,13 +205,21 @@ export default function SkillListItem(props: SkillListItemProps) {
         {skill.description || skill.id}
       </p>
 
+      {skill.appOrigin && <div className="mt-2 text-xs text-ds-text-neutral-muted-default">
+        <p className="m-0">{skill.appOrigin.name} · {skill.appOrigin.version} · 随插件管理</p>
+        <Button variant="ghost" size="sm" className="mt-1 px-0" onClick={() => {
+          if (!leaveIndustryPage()) return;
+          useIndustryNavigation.setState({ activeId: skill.appOrigin!.id });
+          usePageTabStore.getState().setHubTab("workbench");
+        }}>打开所属插件</Button>
+      </div>}
       {skill.schedule && (
         <code className="mt-2 text-[11px] text-ds-text-neutral-subtle-default">
           {skill.schedule}
         </code>
       )}
 
-      <div className="mt-2 flex flex-col items-start gap-2">
+      {!skill.appOrigin && <div className="mt-2 flex flex-col items-start gap-2">
         <Button
           type="button"
           variant="ghost"
@@ -258,7 +272,7 @@ export default function SkillListItem(props: SkillListItemProps) {
             })}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
