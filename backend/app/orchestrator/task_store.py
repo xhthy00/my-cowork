@@ -107,6 +107,20 @@ class TaskStore:
         return [{'seq': row[0], 'event': json.loads(row[1])} for row in self._conn.execute(
             'SELECT seq,event FROM task_events WHERE task_id=? AND seq>? ORDER BY seq LIMIT 500', (task_id, after))]
 
+    def latest_event(self, task_id: str, event_type: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT event FROM task_events WHERE task_id=? AND json_extract(event, '$.type')=? ORDER BY seq DESC LIMIT 1",
+            (task_id, event_type),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def recovery_snapshot(self, task_id: str) -> dict[str, Any]:
+        """Resume future events without downloading or replaying the old trace."""
+        cursor = self._conn.execute(
+            'SELECT COALESCE(MAX(seq), 0) FROM task_events WHERE task_id=?', (task_id,),
+        ).fetchone()[0]
+        return {'cursor': cursor, 'end': self.latest_event(task_id, 'graph.end')}
+
     def interrupt_app_tasks(self) -> None:
         with self._conn:
             self._conn.execute("UPDATE tasks SET status='INTERRUPTED', updated_at=? WHERE origin IS NOT NULL AND status IN ('NEW','RUNNING','CANCELLING')", (time.time(),))

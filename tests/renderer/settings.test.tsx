@@ -6,6 +6,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import SettingsDialog from "../../renderer/src/components/settings/SettingsDialog";
+import { usePageTabStore } from "../../renderer/src/store/pageTab";
 import Settings from "../../renderer/src/components/settings/Settings";
 import { useSettingsStore } from "../../renderer/src/store/settings";
 
@@ -30,6 +32,7 @@ describe("Settings", () => {
   beforeEach(() => {
     window.localStorage.removeItem("my-cowork-settings");
     resetStore();
+    usePageTabStore.setState({ settingsOpen: false, settingsSection: "general", workspaceView: "workspace", hubTab: "home" });
     originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }) as unknown as typeof fetch;
     window.api = {
@@ -159,19 +162,32 @@ describe("Settings", () => {
     expect(screen.queryByRole("button", { name: "飞书远程" })).not.toBeInTheDocument();
   });
 
-  it("does not duplicate 连接器 / MCP or 外观 tabs", () => {
-    render(<Settings />);
+  it("merges appearance into system settings without duplicate navigation", () => {
+    render(<Settings initialTab="general" />);
     expect(screen.queryByRole("button", { name: "连接器 / MCP" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "外观" })).not.toBeInTheDocument();
+    expect(screen.getByText("界面主题")).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "字体大小" })).toBeInTheDocument();
+  });
+
+  it("redirects the legacy appearance entry to system settings", () => {
+    const { rerender } = render(<Settings initialTab="appearance" />);
+    expect(screen.getByRole("button", { name: "系统设置" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("界面主题")).toBeInTheDocument();
+    rerender(<Settings initialTab="model" />);
+    rerender(<Settings initialTab="appearance" />);
+    expect(screen.getByRole("button", { name: "系统设置" })).toHaveAttribute("aria-current", "page");
   });
 
   it("switches appearance from the general tab and persists the choice", async () => {
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
     await userEvent.click(screen.getByRole("button", { name: "深色" }));
 
     expect(useSettingsStore.getState().appearance).toBe("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(screen.getByRole("button", { name: "深色" })).toHaveAttribute("aria-pressed", "true");
+    expect(JSON.parse(window.localStorage.getItem("my-cowork-settings") || "{}").state.appearance).toBe("dark");
 
     await userEvent.click(screen.getByRole("button", { name: "浅色" }));
     expect(useSettingsStore.getState().appearance).toBe("light");
@@ -183,7 +199,7 @@ describe("Settings", () => {
 
   it("changes system font size from the general tab and persists the choice", async () => {
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
 
     const slider = screen.getByRole("slider", { name: "字体大小" });
     expect(slider).toHaveValue("1");
@@ -205,7 +221,7 @@ describe("Settings", () => {
 
   it("renders keep-awake on the general tab and toggles it", async () => {
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
 
     const toggle = await screen.findByRole("switch", { name: "保持唤醒" });
     expect(toggle).toHaveAttribute("aria-checked", "false");
@@ -221,7 +237,7 @@ describe("Settings", () => {
 
   it("opens API / 模型 when navigating to models", async () => {
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
     expect(screen.getByRole("switch", { name: "保持唤醒" })).toBeInTheDocument();
 
     window.dispatchEvent(new CustomEvent("my-cowork:navigate", { detail: "models" }));
@@ -242,7 +258,7 @@ describe("Settings", () => {
     });
 
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
     expect(await screen.findByRole("button", { name: "检查更新" })).toBeInTheDocument();
     expect(await screen.findByText("当前版本 0.0.4")).toBeInTheDocument();
 
@@ -268,7 +284,7 @@ describe("Settings", () => {
     });
 
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
     expect(await screen.findByRole("button", { name: "检查更新" })).toBeInTheDocument();
     emitStatus?.({ state: "downloading", currentVersion: "0.0.4", percent: 42 });
     expect(await screen.findByRole("button", { name: "下载中" })).toBeInTheDocument();
@@ -289,7 +305,7 @@ describe("Settings", () => {
     window.api.installUpdate = vi.fn().mockResolvedValue({ ok: true });
 
     render(<Settings />);
-    await userEvent.click(screen.getByRole("button", { name: "通用" }));
+    await userEvent.click(screen.getByRole("button", { name: "系统设置" }));
     expect(await screen.findByRole("button", { name: "检查更新" })).toBeInTheDocument();
     emitStatus?.({
       state: "downloaded",
@@ -310,5 +326,46 @@ describe("Settings", () => {
     await userEvent.click(screen.getByRole("button", { name: "新建" }));
     expect(screen.getByLabelText("任务名称")).toBeInTheDocument();
     expect(screen.getByLabelText("执行内容")).toBeInTheDocument();
+  });
+
+  it("opens settings over the current page and restores focus and draft on Escape", async () => {
+    render(<><input aria-label="保留的草稿" defaultValue="整理报告" /><button onClick={() => usePageTabStore.getState().openSettings()}>打开设置</button><SettingsDialog /></>);
+    const trigger = screen.getByRole("button", { name: "打开设置" });
+    await userEvent.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "设置" })).toBeVisible();
+    expect(screen.getByRole("slider", { name: "字体大小" })).toBeVisible();
+    expect(usePageTabStore.getState().workspaceView).toBe("workspace");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "保留的草稿" })).toHaveValue("整理报告");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("opens the model section in the dialog without changing the underlying page", async () => {
+    usePageTabStore.getState().openSettings("model");
+    render(<SettingsDialog />);
+    expect(await screen.findByLabelText("API 密钥")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "关闭设置" }));
+    expect(usePageTabStore.getState()).toMatchObject({ settingsOpen: false, workspaceView: "workspace", hubTab: "home" });
+  });
+
+  it("keeps knowledge configuration and browser controls available inside settings", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ open: false, status: "closed", url: "", title: "" }) }) as typeof fetch;
+    window.api.getCdpBrowsers = vi.fn().mockResolvedValue([]);
+    window.api.connectCdpBrowser = vi.fn().mockResolvedValue({ port: 9333 });
+    usePageTabStore.setState({ browserSection: "agent", hubTab: "agents", agentsSection: "skill-store", workspaceView: "hub" });
+    usePageTabStore.getState().openSettings("knowledge");
+    render(<SettingsDialog />);
+    expect(await screen.findByPlaceholderText("ima-openapi-clientid")).toBeVisible();
+    expect(screen.getByRole("button", { name: "资料库", exact: true })).toHaveAttribute("aria-current", "page");
+    await userEvent.click(screen.getByRole("button", { name: "浏览器", exact: true }));
+    expect(await screen.findByText("暂无浏览器页面")).toBeVisible();
+    await userEvent.click(screen.getByRole("tab", { name: "外部 CDP" }));
+    await userEvent.clear(screen.getByPlaceholderText("端口"));
+    await userEvent.type(screen.getByPlaceholderText("端口"), "9333");
+    await userEvent.click(screen.getByRole("button", { name: "连接已有浏览器" }));
+    await waitFor(() => expect(window.api.connectCdpBrowser).toHaveBeenCalledWith(9333));
+    await userEvent.click(screen.getByRole("button", { name: "关闭设置" }));
+    expect(usePageTabStore.getState()).toMatchObject({ settingsOpen: false, workspaceView: "hub", hubTab: "agents", agentsSection: "skill-store" });
   });
 });

@@ -12,6 +12,7 @@ import "./styles/ds-tokens.css";
 import "./styles/app.css";
 import "./styles/markdown.css";
 import "./styles/vivid-theme.css";
+import "./styles/airy-theme.css";
 
 initAppearance();
 initFontSize();

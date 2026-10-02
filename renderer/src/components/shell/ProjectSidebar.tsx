@@ -1,26 +1,27 @@
+import { useAppVersion } from "@/hooks/useAppVersion";
+import { useCompactLayout } from "@/hooks/useCompactLayout";
 /**
- * Adapted from eigent: ProjectPageSidebar + SpaceSwitchDropdown
- * Two-level nav: Space switcher + Projects in active Space.
+ * Main navigation and conversation history for the active workspace.
  */
 import {
-  LayoutGrid,
-  Plus,
-  Radio,
-  FolderOpen,
+  Blocks,
+  FolderKanban,
+  Settings,
+  MessageSquarePlus,
+  Sparkles,
   ChevronDown,
   Trash2,
   Zap,
 } from "lucide-react";
+import appLogo from "@/assets/brand/app-logo.png";
 import { useMemo, useState } from "react";
 
 import AlertDialog from "@/components/ui/alertDialog";
-import { openScheduleSettings } from "@/components/settings/KeepAwakeBanner";
 import { cn } from "@/lib/utils";
 import {
   PROJECT_SIDEBAR_EXPANDED_WIDTH_PX,
   PROJECT_SIDEBAR_RAIL_WIDTH_PX,
 } from "@/components/session/sessionSidePanelLayout";
-import SpaceSwitchDropdown from "@/components/shell/SpaceSwitchDropdown";
 import { usePageTabStore } from "@/store/pageTab";
 import {
   ensureActiveSession,
@@ -64,7 +65,12 @@ export default function ProjectSidebar({
   /** When true, fill parent (resizable panel); otherwise fixed Eigent rail/expanded width. */
   fill?: boolean;
 }) {
-  const folded = usePageTabStore((s) => s.projectSidebarFolded);
+  const version = useAppVersion();
+  const hubTab = usePageTabStore((s) => s.hubTab);
+  const homeSection = usePageTabStore((s) => s.homeSection);
+  const sidebarFolded = usePageTabStore((s) => s.projectSidebarFolded);
+  const compact = useCompactLayout();
+  const folded = sidebarFolded || compact;
   const historyCollapsed = usePageTabStore((s) => s.projectHistoryCollapsed);
   const setHistoryCollapsed = usePageTabStore((s) => s.setProjectHistoryCollapsed);
   const workspaceView = usePageTabStore((s) => s.workspaceView);
@@ -77,13 +83,7 @@ export default function ProjectSidebar({
   const deleteSession = useSessionsStore((s) => s.deleteSession);
   const spaces = useSpacesStore((s) => s.spaces);
   const activeSpaceId = useSpacesStore((s) => s.activeSpaceId);
-  const setActiveSpace = useSpacesStore((s) => s.setActiveSpace);
-  const createBlankSpace = useSpacesStore((s) => s.createBlankSpace);
-  const createFolderSpace = useSpacesStore((s) => s.createFolderSpace);
-  const renameSpace = useSpacesStore((s) => s.renameSpace);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
 
   const deleteTarget = deleteId
     ? sessions.find((s) => s.id === deleteId)
@@ -110,133 +110,42 @@ export default function ProjectSidebar({
     return { groups, today };
   }, [projects]);
 
-  function selectSpace(spaceId: string) {
-    setActiveSpace(spaceId);
-    const first = useSessionsStore.getState().projectsForSpace(spaceId)[0];
-    if (first) setActive(first.id);
-    else createProject("新对话", { spaceId });
+  function enterWorkspace() {
     setWorkspaceView("workspace");
+    return usePageTabStore.getState().workspaceView === "workspace";
   }
 
-  async function pickFolderSpace() {
-    const dir = await window.api.selectDirectory?.();
-    if (!dir) return;
-    const name = dir.split(/[/\\]/).filter(Boolean).pop() || "文件夹工作区";
-    const spaceId = createFolderSpace(name, dir);
-    createProject(name, { spaceId, workdirMode: "direct-write" });
-    setWorkspaceView("workspace");
-  }
-
-  function openRename() {
-    setRenameValue(activeSpace?.name || "");
-    setRenameOpen(true);
-  }
-
-  function confirmRename() {
-    const next = renameValue.trim();
-    if (!next || !activeSpaceId) return;
-    renameSpace(activeSpaceId, next);
-    setRenameOpen(false);
+  function startNewTask() {
+    if (!enterWorkspace()) return;
+    createProject();
+    setHistoryCollapsed(false);
   }
 
   return (
     <aside
       className="project-sidebar box-border flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl bg-ds-bg-neutral-default-default p-1"
+      data-folded={folded}
       style={fill ? { width: "100%" } : { width }}
     >
       <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
-        <nav className="flex w-full shrink-0 flex-col gap-1">
-          <button
-            type="button"
-            title="工作区"
-            className={cn(
-              navTabClass(workspaceView === "workspace"),
-              folded && "justify-center px-0 gap-0",
-            )}
-            onClick={() => {
-              setWorkspaceView("workspace");
-              ensureActiveSession();
-            }}
-          >
-            <LayoutGrid className="h-4 w-4 shrink-0 text-ds-icon-neutral-muted-default" />
-            {!folded && <span className="min-w-0 flex-1 truncate">工作区</span>}
-          </button>
-          <button
-            type="button"
-            title="上下文"
-            className={cn(navTabClass(false), folded && "justify-center px-0 gap-0")}
-            onClick={() => {
-              setHubTab("agents");
-              usePageTabStore.getState().setAgentsSection("memory");
-            }}
-          >
-            <FolderOpen className="h-4 w-4 shrink-0 text-ds-icon-neutral-muted-default" />
-            {!folded && (
-              <>
-                <span className="min-w-0 flex-1 truncate">上下文</span>
-                <span className="rounded-md bg-ds-bg-neutral-subtle-default px-1.5 py-0.5 text-[11px] font-semibold text-ds-text-neutral-muted-default">
-                  本地
-                </span>
-              </>
-            )}
-          </button>
-          <button
-            type="button"
-            title="定时"
-            className={cn(navTabClass(false), folded && "justify-center px-0 gap-0")}
-            onClick={() => openScheduleSettings()}
-          >
-            <Zap className="h-4 w-4 shrink-0 text-ds-icon-neutral-muted-default" />
-            {!folded && <span className="min-w-0 flex-1 truncate">定时</span>}
-          </button>
-          <button
-            type="button"
-            title="调度"
-            className={cn(navTabClass(false), folded && "justify-center px-0 gap-0")}
-            onClick={() => setHubTab("connectors")}
-          >
-            <Radio className="h-4 w-4 shrink-0 text-ds-icon-neutral-muted-default" />
-            {!folded && <span className="min-w-0 flex-1 truncate">调度</span>}
-          </button>
+        <div className="sidebar-brand">
+          {folded ? <img src={appLogo} alt="MyCowork" /> : <><span>MyCoWork</span><small>v{version}</small></>}
+        </div>
+        <nav aria-label="主要导航" className="sidebar-navigation flex w-full shrink-0 flex-col gap-1">
+          {[
+            { label: "新建任务", icon: MessageSquarePlus, active: workspaceView === "workspace", action: startNewTask },
+            { label: "项目", icon: FolderKanban, active: workspaceView === "hub" && hubTab === "home" && homeSection !== "triggers", action: () => { setHubTab("home"); usePageTabStore.getState().setHomeSection("projects"); } },
+            { label: "助理 · 技能 · 连接器", icon: Sparkles, active: workspaceView === "hub" && (hubTab === "connectors" || hubTab === "agents"), action: () => setHubTab("agents") },
+            { label: "自动化", icon: Zap, active: workspaceView === "hub" && hubTab === "home" && homeSection === "triggers", action: () => { setHubTab("home"); usePageTabStore.getState().setHomeSection("triggers"); } },
+            { label: "工作台", icon: Blocks, active: workspaceView === "hub" && hubTab === "workbench", action: () => setHubTab("workbench") },
+          ].map(({ label, icon: Icon, active, action }) => <button key={label} type="button" title={label} aria-label={label} aria-current={active ? "page" : undefined} data-active={active} className={cn(navTabClass(active), folded && "justify-center px-0 gap-0")} onClick={action}><Icon className="h-5 w-5 shrink-0" aria-hidden="true" />{!folded && <span className="truncate">{label}</span>}</button>)}
         </nav>
-
         <div className="my-2 px-3">
           <div className="h-px w-full bg-ds-border-neutral-default-default" />
         </div>
 
         {!folded && (
           <>
-            <div className="mb-2 px-1">
-              <SpaceSwitchDropdown
-                spaces={spaces}
-                activeSpaceId={activeSpaceId}
-                onSpaceSelect={selectSpace}
-                onRenameSpace={openRename}
-                onStartFromScratch={() => {
-                  const id = createBlankSpace();
-                  createProject("新对话", {
-                    spaceId: id,
-                    workdirMode: "artifact-only",
-                  });
-                  setWorkspaceView("workspace");
-                }}
-                onSelectFolder={() => void pickFolderSpace()}
-              />
-            </div>
-
-            <button
-              type="button"
-              className={cn(navTabClass(false), "project-new-action mb-1")}
-              onClick={() => {
-                createProject();
-                setHistoryCollapsed(false);
-                setWorkspaceView("workspace");
-              }}
-            >
-              <Plus className="h-4 w-4 shrink-0" />
-              <span>新建对话</span>
-            </button>
-
             <button
               type="button"
               aria-label={historyCollapsed ? "展开历史会话" : "收起历史会话"}
@@ -245,7 +154,7 @@ export default function ProjectSidebar({
               className="mb-1 flex h-9 w-full shrink-0 items-center justify-between rounded-lg px-3 text-left text-xs font-semibold tracking-wide text-ds-text-neutral-muted-default transition-colors hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
               onClick={() => setHistoryCollapsed(!historyCollapsed)}
             >
-              <span>项目</span>
+              <span>任务</span>
               <span className="flex items-center gap-1.5">
                 <span className="tabular-nums">{projects.length}</span>
                 <ChevronDown
@@ -282,6 +191,7 @@ export default function ProjectSidebar({
                     title={`${s.title} · ${new Date(s.updatedAt).toLocaleString("zh-CN")}`}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-body-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
                     onClick={() => {
+                      if (!enterWorkspace()) return;
                       setActive(s.id);
                       setWorkspaceView("workspace");
                     }}
@@ -325,6 +235,10 @@ export default function ProjectSidebar({
         )}
       </div>
 
+      <button type="button" data-settings-trigger className="sidebar-settings-icon" aria-label="设置" title="设置" onClick={() => usePageTabStore.getState().openSettings()}>
+        <Settings aria-hidden="true" size={20} />
+      </button>
+
       <AlertDialog
         open={deleteId != null}
         title="删除项目"
@@ -347,25 +261,6 @@ export default function ProjectSidebar({
         }}
       />
 
-      <AlertDialog
-        open={renameOpen}
-        title="重命名工作空间"
-        confirmLabel="保存"
-        confirmDisabled={!renameValue.trim()}
-        onCancel={() => setRenameOpen(false)}
-        onConfirm={confirmRename}
-      >
-        <input
-          autoFocus
-          value={renameValue}
-          placeholder="工作空间名称"
-          className="h-9 w-full rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default px-3 text-sm outline-none focus:ring-2 focus:ring-ds-ring-neutral-subtle-default"
-          onChange={(e) => setRenameValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && renameValue.trim()) confirmRename();
-          }}
-        />
-      </AlertDialog>
     </aside>
   );
 }

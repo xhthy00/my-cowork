@@ -8,7 +8,7 @@ import {
   tokenizeRichPlainText,
 } from "@/lib/richText";
 import { cn } from "@/lib/utils";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import React, {
   useCallback,
   useEffect,
@@ -357,6 +357,7 @@ export const RichChatInput = React.forwardRef<
     document.execCommand("insertText", false, text);
   };
 
+  const reduceMotion = useReducedMotion();
   const placeholders = useMemo(() => {
     if (placeholdersProp && placeholdersProp.length > 0) {
       return Array.from(placeholdersProp);
@@ -399,22 +400,14 @@ export const RichChatInput = React.forwardRef<
             <motion.span
               key={placeholders[placeholderCycleIndex % placeholders.length]}
               className="block w-full text-body-sm text-ds-text-neutral-subtle-default"
-              initial={{
-                opacity: 0,
-                filter: "blur(8px)",
-                y: -18,
-              }}
+              initial={reduceMotion ? false : { opacity: 0, filter: "blur(8px)", y: -18 }}
               animate={{
                 opacity: 1,
                 filter: "blur(0px)",
                 y: 0,
               }}
-              exit={{
-                opacity: 0,
-                filter: "blur(8px)",
-                y: 18,
-              }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, filter: "blur(8px)", y: 18 }}
+              transition={{ duration: reduceMotion ? 0 : 0.5, ease: [0.22, 1, 0.36, 1] }}
             >
               {placeholders[placeholderCycleIndex % placeholders.length]}
             </motion.span>
@@ -424,6 +417,7 @@ export const RichChatInput = React.forwardRef<
       <div
         ref={setRootRef}
         role="textbox"
+        aria-label="任务内容"
         aria-multiline="true"
         aria-placeholder={ariaPlaceholderLine}
         contentEditable={!disabled}

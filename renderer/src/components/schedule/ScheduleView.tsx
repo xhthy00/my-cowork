@@ -1,6 +1,6 @@
 import { apiFetch as fetch } from "@/api/backend";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarClock, ChevronRight, Clock3, ExternalLink, Loader2, Pause, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronRight, Clock3, ExternalLink, Loader2, Pause, Play, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import KeepAwakeBanner, { openKeepAwakeSettings } from "@/components/settings/KeepAwakeBanner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { useSpacesStore } from "@/store/spaces";
 import type { Message } from "@/store/session";
 
 const card = "rounded-2xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default";
-const input = "w-full rounded-xl border border-ds-border-neutral-strong-default bg-white px-3 py-2.5 text-sm text-ds-text-neutral-default-default outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default";
+const input = "w-full rounded-xl border border-ds-border-neutral-strong-default bg-ds-bg-neutral-default-default px-3 py-2.5 text-sm text-ds-text-neutral-default-default outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default";
 const label = "mb-1.5 block text-sm font-medium text-ds-text-neutral-default-default";
 
 function fmt(value: number | null | undefined): string {
@@ -31,7 +31,7 @@ function Status({ value }: { value: string | null }) {
   const tone = value === "ok" ? "text-emerald-700 bg-emerald-50" :
     value === "error" || value === "interrupted" ? "text-red-700 bg-red-50" :
     value === "running" || value === "waiting_user" || value === "recovery_review" ? "text-violet-700 bg-violet-100" :
-    "text-ds-text-neutral-muted-default bg-white";
+    "text-ds-text-neutral-muted-default bg-ds-bg-neutral-default-default";
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>{statusName(value)}</span>;
 }
 
@@ -131,7 +131,7 @@ function TaskForm({ task, initial, busy, onCancel, onSubmit }: {
         {form.frequency === "custom" ? <div><label className={label} htmlFor="auto-cron">Cron 表达式</label><input id="auto-cron" className={input} value={form.cron} onChange={(e) => update({ cron: e.target.value })} placeholder="0 9 * * 1-5" /><p className="mt-1 text-xs text-ds-text-neutral-muted-default">分钟 小时 日期 月份 星期；例如 0 9 * * 1-5。</p></div> : null}
         <label className="flex cursor-pointer items-center gap-2 text-sm text-ds-text-neutral-default-default"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />完成后在应用内通知我</label>
         {notify ? <div><label className={label} htmlFor="auto-notify-target">同时发送到飞书（可选）</label><input id="auto-notify-target" className={input} value={notifyTarget} onChange={(e) => setNotifyTarget(e.target.value)} placeholder="飞书 chat_id" /><p className="mt-1 text-xs text-ds-text-neutral-muted-default">填入目标会话的 chat_id 后，任务成功时发送一条摘要。</p></div> : null}
-        {!task ? <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-white p-3 text-sm"><summary className="cursor-pointer font-medium">高级：固定目标授权</summary>
+        {!task ? <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default p-3 text-sm"><summary className="cursor-pointer font-medium">高级：固定目标授权</summary>
           <p className="my-2 text-xs text-ds-text-neutral-muted-default">仅对指定工具和完全匹配的目标生效。工作区内的交付文件可以直接写入；其他操作仍会询问你。</p>
           <div className="flex flex-wrap gap-2"><select aria-label="授权工具" className={`${input} max-w-44`} value={grantTool} onChange={(e) => setGrantTool(e.target.value)}>
             <option value="lark.send_message">飞书发送消息</option><option value="browser_navigate">浏览器打开网址</option><option value="fs.write">写入文件</option>
@@ -139,14 +139,14 @@ function TaskForm({ task, initial, busy, onCancel, onSubmit }: {
             <option value="xlsx.gen">生成 Excel</option><option value="pdf.gen">生成 PDF</option>
           </select><input aria-label="授权目标" className={`${input} min-w-44 flex-1`} value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder={grantTool === "browser_navigate" ? "https://example.com/page" : grantTool === "lark.send_message" ? "飞书 chat_id" : "完整文件路径"} />
             <Button type="button" variant="outline" onClick={() => { if (!grantTarget.trim()) return; setGrants((items) => [...items, { tool: grantTool, target: grantTarget.trim(), access: "write" }]); setGrantTarget(""); }}>添加</Button></div>
-          {grants.length ? <div className="mt-2 space-y-1">{grants.map((grant, index) => <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-2 py-1" key={`${grant.tool}-${grant.target}-${index}`}><span className="min-w-0 flex-1 truncate">{grant.tool} · {grant.target}</span><Button type="button" size="xs" variant="ghost" onClick={() => setGrants((items) => items.filter((_, row) => row !== index))}>移除</Button></div>)}</div> : null}
+          {grants.length ? <div className="mt-2 space-y-1">{grants.map((grant, index) => <div className="flex items-center gap-2 rounded-lg bg-[var(--ui-accent-soft)] px-2 py-1" key={`${grant.tool}-${grant.target}-${index}`}><span className="min-w-0 flex-1 truncate">{grant.tool} · {grant.target}</span><Button type="button" size="xs" variant="ghost" onClick={() => setGrants((items) => items.filter((_, row) => row !== index))}>移除</Button></div>)}</div> : null}
         </details> : null}
-        <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-white p-3 text-sm"><summary className="cursor-pointer font-medium">高级：执行授权{commands.length ? ` (${commands.length} 条命令)` : ""}</summary>
+        <details className="rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default p-3 text-sm"><summary className="cursor-pointer font-medium">高级：执行授权{commands.length ? ` (${commands.length} 条命令)` : ""}</summary>
           <p className="my-2 text-xs text-ds-text-neutral-muted-default">仅当代理在此任务的工作区执行完全相同的命令时自动允许。不同命令仍会暂停询问；命令中的参数和路径也必须完全一致。</p>
           <label className="mb-3 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><input type="checkbox" className="mt-1" checked={autoApproveCommands} onChange={(event) => setAutoApproveCommands(event.target.checked)} /><span><strong className="block">自动批准此任务的命令与浏览器交互</strong><span className="mt-1 block text-xs text-amber-900">适用于无人值守运行；包括网页输入、点击、选择和上传。终端命令可访问工作区外的文件及网络，仅对你信任的任务开启。</span></span></label>
           <div className="flex flex-wrap gap-2"><input aria-label="允许的完整命令" className={`${input} min-w-44 flex-1 font-mono`} value={commandDraft} onChange={(e) => setCommandDraft(e.target.value)} placeholder="例如：git status --short" />
             <Button type="button" variant="outline" onClick={() => { const value = commandDraft.trim(); if (!value || commands.includes(value)) return; if (/[\x00-\x1f\x7f]/.test(value) || value.length > 2000) { setError("命令须为单行且不超过 2000 字符"); return; } setCommands((items) => [...items, value]); setCommandDraft(""); setError(""); }}>添加命令</Button></div>
-          {commands.length ? <div className="mt-2 space-y-1">{commands.map((command) => <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-2 py-1" key={command}><code className="min-w-0 flex-1 break-all text-xs">{command}</code><Button type="button" size="xs" variant="ghost" onClick={() => setCommands((items) => items.filter((item) => item !== command))}>移除</Button></div>)}</div> : null}
+          {commands.length ? <div className="mt-2 space-y-1">{commands.map((command) => <div className="flex items-center gap-2 rounded-lg bg-[var(--ui-accent-soft)] px-2 py-1" key={command}><code className="min-w-0 flex-1 break-all text-xs">{command}</code><Button type="button" size="xs" variant="ghost" onClick={() => setCommands((items) => items.filter((item) => item !== command))}>移除</Button></div>)}</div> : null}
         </details>
       </div>
       {error ? <p role="alert" className="mt-3 text-sm text-red-600">{error}</p> : null}
@@ -210,7 +210,7 @@ function PendingInput({ run, events, onResolved }: { run: AutomationRun; events:
         {field.kind === "single" && field.options?.length ? <select id={`answer-${field.label}`} className={input} value={choices[field.label] || ""} onChange={(e) => setChoices({ ...choices, [field.label]: e.target.value })}><option value="">请选择</option>{field.options.map((option) => <option key={option}>{option}</option>)}</select>
           : field.kind === "multiple" && field.options?.length ? <div className="grid gap-1.5 sm:grid-cols-2">{field.options.map((option) => {
             const selected = (choices[field.label] || "").split("、").filter(Boolean);
-            return <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg border border-ds-border-neutral-subtle-default bg-white p-2 text-sm"><input type="checkbox" checked={selected.includes(option)} onChange={(event) => setChoices({ ...choices, [field.label]: (event.target.checked ? [...selected, option] : selected.filter((item) => item !== option)).join("、") })} />{option}</label>;
+            return <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default p-2 text-sm"><input type="checkbox" checked={selected.includes(option)} onChange={(event) => setChoices({ ...choices, [field.label]: (event.target.checked ? [...selected, option] : selected.filter((item) => item !== option)).join("、") })} />{option}</label>;
           })}</div>
           : <input id={`answer-${field.label}`} className={input} value={choices[field.label] || ""} onChange={(e) => setChoices({ ...choices, [field.label]: e.target.value })} />}</div>)}
       {!fields.length && options.length ? <div className="mb-3 flex flex-wrap gap-2">{options.map((option) => <Button type="button" key={option} variant={answer === option ? "primary" : "outline"} onClick={() => setAnswer(option)}>{option}</Button>)}</div> : null}
@@ -218,18 +218,19 @@ function PendingInput({ run, events, onResolved }: { run: AutomationRun; events:
       <textarea id="run-answer" className={`${input} min-h-20`} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="也可以自行填写" />
       <div className="mt-3"><Button disabled={busy || (!answer.trim() && !Object.values(choices).some(Boolean))} onClick={() => void respond()}>提交并继续</Button></div>
     </> : isPlan ? <>
-      <div className="mb-3 space-y-2">{(Array.isArray(data.subtasks) ? data.subtasks : []).map((step, index) => <div key={index} className="rounded-xl border border-ds-border-neutral-subtle-default bg-white p-3 text-sm">{index + 1}. {String((step as Record<string, unknown>).title || (step as Record<string, unknown>).description || "执行步骤")}</div>)}</div>
+      <div className="mb-3 space-y-2">{(Array.isArray(data.subtasks) ? data.subtasks : []).map((step, index) => <div key={index} className="rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default p-3 text-sm">{index + 1}. {String((step as Record<string, unknown>).title || (step as Record<string, unknown>).description || "执行步骤")}</div>)}</div>
       <Button disabled={busy} onClick={() => void respond()}>确认方案并继续</Button>
     </> : <>
       <p className="mb-2 text-sm">{String(data.tool || "工具调用")}</p>
-      <pre className="mb-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-xs">{JSON.stringify(data.args || {}, null, 2)}</pre>
+      <pre className="mb-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-ds-bg-neutral-default-default p-3 text-xs">{JSON.stringify(data.args || {}, null, 2)}</pre>
       <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => void respond(true)}>本次允许</Button>{data.tool === "exec.bash" ? <Button disabled={busy} variant="outline" onClick={() => void respond(true, true)}>此任务以后允许这条命令</Button> : null}<Button disabled={busy} variant="outline" onClick={() => void respond(false)}>拒绝</Button></div>
     </>}
     {error ? <p role="alert" className="mt-2 text-sm text-red-600">{error}</p> : null}
   </div>;
 }
 
-export default function ScheduleView({ search = "" }: { search?: string } = {}) {
+export default function ScheduleView({ search = "", standalone = false }: { search?: string; standalone?: boolean } = {}) {
+  const [query, setQuery] = useState("");
   const [tasks, setTasks] = useState<Automation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -308,16 +309,19 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
   }
 
   const currentTask = detail?.task;
-  return <div className="w-full overflow-y-auto px-4 pb-8">
-    <div className="sticky top-0 z-10 mb-4 flex items-center justify-between border-b border-ds-border-neutral-subtle-default bg-white/95 py-3 backdrop-blur">
+  const filteredTasks = tasks.filter((task) => `${task.title} ${task.instructions}`.toLowerCase().includes((standalone ? query : search).trim().toLowerCase()));
+  return <div className={`schedule-page w-full overflow-y-auto px-4 pb-8 ${standalone ? "schedule-page-standalone" : ""}`}>
+    <div className="schedule-toolbar sticky top-0 z-10 mb-4 flex items-center justify-between border-b border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default py-3 backdrop-blur">
       <div className="flex items-center gap-2">
         {selectedId ? <Button variant="ghost" size="icon" aria-label="返回任务列表" onClick={() => { setSelectedId(null); setSelectedRunId(null); setDetail(null); setRunDetail(null); setEditing(false); }}><ArrowLeft /></Button> : <CalendarClock className="size-5 text-violet-700" />}
-        <div><h2 className="text-base font-bold text-ds-text-neutral-default-default">{currentTask?.title || "定时任务"}</h2><p className="text-xs text-ds-text-neutral-muted-default">{selectedId ? "任务详情与运行记录" : "让代理按你的计划自动完成工作"}</p></div>
+        <div><h2 className="text-base font-bold text-ds-text-neutral-default-default">{currentTask?.title || "定时任务"}{standalone && !selectedId && <span className="schedule-task-count">{tasks.length}</span>}</h2><p className="text-xs text-ds-text-neutral-muted-default">{selectedId ? "任务详情与运行记录" : "按你的计划，自动完成工作"}</p></div>
       </div>
-      <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void refresh()} aria-label="刷新定时任务"><RefreshCw /></Button>
-        {!selectedId ? <Button size="sm" onClick={() => setFormOpen((value) => !value)}><Plus /> 新建</Button> : null}</div>
+      <div className="schedule-toolbar-actions flex gap-2">
+        {standalone && !selectedId && <label className="schedule-search"><Search aria-hidden="true" /><input aria-label="搜索自动化任务" placeholder="搜索任务…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
+        <Button variant="outline" size="sm" onClick={() => void refresh()} aria-label="刷新定时任务"><RefreshCw aria-hidden="true" /></Button>
+        {!selectedId ? <Button size="sm" onClick={() => setFormOpen((value) => !value)}><Plus aria-hidden="true" /> 新建</Button> : null}</div>
     </div>
-    <KeepAwakeBanner className="mb-4" message="任务在电脑唤醒、后端运行时执行；重新启动后会补执行错过的计划一次。" onOpenKeepAwake={openKeepAwakeSettings} />
+    <KeepAwakeBanner className="schedule-awake-notice mb-4" message="任务在电脑唤醒、后端运行时执行；重新启动后会补执行错过的计划一次。" onOpenKeepAwake={openKeepAwakeSettings} />
     {error ? <div role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
     {!selectedId ? <div className="space-y-3">
@@ -327,12 +331,12 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
           setFormOpen(false); await openTask(response.task.id);
         });
       }} /> : null}
-      {tasks.length ? tasks.filter((task) => `${task.title} ${task.instructions}`.toLowerCase().includes(search.toLowerCase())).map((task) => <button type="button" key={task.id} onClick={() => void openTask(task.id)} className={`${card} flex w-full items-center gap-3 p-4 text-left transition-colors hover:border-violet-300 focus-visible:outline-2 focus-visible:outline-violet-500`}>
-        <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700"><Clock3 className="size-5" /></div>
+      {tasks.length ? filteredTasks.length ? filteredTasks.map((task) => <button type="button" key={task.id} onClick={() => void openTask(task.id)} className={`schedule-task-row ${card} flex w-full items-center gap-3 p-4 text-left transition-colors hover:border-violet-300 focus-visible:outline-2 focus-visible:outline-violet-500`}>
+        <div className="schedule-task-icon grid size-10 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700"><Clock3 className="size-5" aria-hidden="true" /></div>
         <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate font-semibold text-ds-text-neutral-default-default">{task.title}</span>{task.unseen_runs ? <span className="rounded-full bg-violet-600 px-1.5 text-xs text-white">{task.unseen_runs}</span> : null}</div>
-          <p className="truncate text-xs text-ds-text-neutral-muted-default">{task.enabled ? task.schedule_label : "已暂停"} · 下次 {fmt(task.next_run)} · 已运行 {task.run_count} 次</p></div>
-        <Status value={task.last_status} /><ChevronRight className="size-4 text-ds-text-neutral-muted-default" />
-      </button>) : !formOpen ? <div className="space-y-4"><div className={`${card} flex flex-col items-center gap-3 p-8 text-center`}><CalendarClock className="size-9 text-violet-500" /><div className="font-semibold">还没有定时任务</div><p className="text-sm text-ds-text-neutral-muted-default">创建一个任务，设置执行内容和时间。</p><Button onClick={() => setFormOpen(true)}><Plus /> 新建定时任务</Button></div>
+          <p className="schedule-task-meta text-xs text-ds-text-neutral-muted-default"><span>{task.enabled ? task.schedule_label : "已暂停"}</span><span>下次 {fmt(task.next_run)}</span><span>已运行 {task.run_count} 次</span></p></div>
+        <Status value={task.last_status} /><ChevronRight className="size-4 text-ds-text-neutral-muted-default" aria-hidden="true" />
+      </button>) : <p className="schedule-no-results" role="status">没有匹配的任务</p> : !formOpen ? <div className="space-y-4"><div className={`${card} flex flex-col items-center gap-3 p-8 text-center`}><CalendarClock className="size-9 text-violet-500" /><div className="font-semibold">还没有定时任务</div><p className="text-sm text-ds-text-neutral-muted-default">创建一个任务，设置执行内容和时间。</p><Button onClick={() => setFormOpen(true)}><Plus /> 新建定时任务</Button></div>
         <div><div className="mb-2 text-sm font-semibold">从常见任务开始</div><div className="grid gap-2 sm:grid-cols-3">{[
           { title: "每日资讯简报", instructions: "搜索今天的重要资讯，核实来源并整理成简明摘要。", frequency: "daily", time: "09:00" },
           { title: "每周工作总结", instructions: "整理本周工作记录，归纳进展、待办和下周计划。", frequency: "weekly", weekday: "5", time: "17:00" },
@@ -376,7 +380,7 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
       }} /> : null}
       <div className={`${card} p-5`}>
         <div className="mb-3 font-semibold">运行记录</div>
-        {detail.runs.length ? <div className="space-y-2">{detail.runs.map((run) => <button type="button" key={run.run_id} onClick={() => void openRun(run.run_id)} className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors hover:border-violet-300 ${selectedRunId === run.run_id ? "border-violet-400 bg-violet-50" : "border-ds-border-neutral-subtle-default bg-white"}`}>
+        {detail.runs.length ? <div className="space-y-2">{detail.runs.map((run) => <button type="button" key={run.run_id} onClick={() => void openRun(run.run_id)} className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors hover:border-violet-300 ${selectedRunId === run.run_id ? "border-violet-400 bg-[var(--ui-accent-soft)]" : "border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default"}`}>
           <div><div className="text-sm font-medium">{fmt(run.started_at)}</div><div className="text-xs text-ds-text-neutral-muted-default">{run.trigger === "manual" ? "手动运行" : run.trigger === "catchup" ? "启动补执行" : "按计划运行"}</div></div><Status value={run.status} />
         </button>)}</div> : <p className="text-sm text-ds-text-neutral-muted-default">尚无运行记录。</p>}
       </div>
@@ -385,7 +389,7 @@ export default function ScheduleView({ search = "" }: { search?: string } = {}) 
           {["ok", "error", "interrupted", "cancelled"].includes(runDetail.run.status) ? <Button size="sm" variant="outline" onClick={() => continueRun(runDetail.run)}><ExternalLink /> 进入会话追问</Button>
             : ["running", "waiting_user", "recovery_review"].includes(runDetail.run.status) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void mutate(() => automationApi(`/${encodeURIComponent(currentTask.id)}/runs/${encodeURIComponent(runDetail.run.run_id)}/cancel`, { method: "POST" }))}>停止运行</Button> : null}</div>
         {runDetail.run.status === "recovery_review" ? <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><div className="font-semibold">恢复前请检查上次操作</div><p className="mt-1">后端退出时，下列工具正在执行，无法确认外部操作是否已完成。请先检查目标文件或消息，再决定是否重试。</p><ul className="mt-2 list-disc pl-5">{(runDetail.run.recovery_tools || []).map((item) => <li key={item.call_id}>{item.tool}</li>)}</ul><Button className="mt-3" disabled={busy} onClick={() => void mutate(() => automationApi(`/${encodeURIComponent(currentTask.id)}/runs/${encodeURIComponent(runDetail.run.run_id)}/resume`, { method: "POST" }))}>我已检查，继续重试</Button></div> : null}
-        {runDetail.run.result_text ? <div className="prose prose-sm max-w-none rounded-xl bg-white p-4"><MarkdownView>{runDetail.run.result_text}</MarkdownView></div> : null}
+        {runDetail.run.result_text ? <div className="prose prose-sm max-w-none rounded-xl bg-ds-bg-neutral-default-default p-4"><MarkdownView>{runDetail.run.result_text}</MarkdownView></div> : null}
         {runDetail.run.error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{runDetail.run.error}</p> : null}
         {runDetail.run.notification_error ? <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">任务已完成，但飞书通知失败：{runDetail.run.notification_error}</p> : null}
         {runDetail.run.artifacts.length ? <div className="mt-3 text-sm"><div className="mb-1 font-medium">交付文件</div>{runDetail.run.artifacts.map((path) => <div key={path} className="break-all text-violet-700">{path}</div>)}</div> : null}

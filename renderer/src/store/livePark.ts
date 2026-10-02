@@ -44,7 +44,7 @@ export function restoreProject(
   ensureProjectRuntime(projectId, fallbackMessages);
 }
 
-export function dispatchProjectEvent(projectId: string, event: SSEvent): void {
+export function dispatchProjectEvent(projectId: string, event: SSEvent, options?: { historical?: boolean }): void {
   const tid = event.payload?.task_id;
   if (typeof tid === "string" && tid) {
     const bound = taskIdByProject.get(projectId);
@@ -54,12 +54,16 @@ export function dispatchProjectEvent(projectId: string, event: SSEvent): void {
 
   getProjectRuntime(projectId).session.getState().handleEvent(event, projectId);
 
+  const preservedTime = options?.historical
+    ? useSessionsStore.getState().sessions.find(project => project.id === projectId)?.updatedAt
+    : undefined;
   if (event.type === "graph.start") {
-    useSessionsStore.getState().touchSession(projectId, { status: "running" });
+    useSessionsStore.getState().touchSession(projectId, { status: "running", updatedAt: preservedTime });
   }
   if (event.type === "graph.end") {
     useSessionsStore.getState().touchSession(projectId, {
       status: event.payload.status === "error" ? "error" : "done",
+      updatedAt: preservedTime,
     });
   }
 }

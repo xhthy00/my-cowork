@@ -1,0 +1,9 @@
+# MyCoWork 蓝色横版 Logo
+
+使用内置 image_gen 编辑原始 `renderer/src/assets/brand/logo-horizontal.png`，蓝色小牛 `app-logo.png` 用作配色与形象参考。原始横版图保留；新资产为 `renderer/src/assets/brand/logo-horizontal-blue.png`，启动页使用该透明图片，并保留原入场与悬浮动效。
+
+## 最终提示词
+
+Use case: precise-object-edit / logo-brand. Edit target is image 1, original MyCoWork horizontal transparent logo. Image 2 is ONLY a palette and cow identity reference, not the composition.
+Restore and recolor the original horizontal brand logo for a calm pale-blue desktop AI productivity UI. Preserve original wide compact arrangement and silhouette, italic rounded bold 3D letters, cow head replacing the o between C and W, relative character positions and proportions. Text exactly: "MyCoWork" with the cow head as the lowercase o, and the existing smaller lower-right tagline exactly "AI 让办公更智能". Make the original purple C and orange/yellow W polished lake-blue / ice-blue sculpted gradients (#007FCA, #77BDDB, #B8E2F6). Other letters medium saturated blue (#2786BC to #397CA5), never very dark navy, so readable against BOTH pale blue #F5FBFF and dark blue-gray #111E29 surfaces. Tagline medium blue as well, readable and accurate Chinese; AI rounded badge uses same blue gradient. Cow matching image 2: pearl white, blue-slate eye patch and hair, soft champagne horns, soft blush muzzle/inner ears, same smiling front-facing 3D cow; NO square tile behind cow. Preserve dimensional clay/vinyl finish, soft highlights and clean edges. Repair any rough transparent edges on original. Background genuinely transparent alpha including around letters and character, no opaque canvas, no checkerboard drawing, no plate. Entire logo and tagline inside frame with small even safe margins, wide composition, no extra elements, no duplicate marks, no watermark. Deliver production-ready wide logo as single image.
+

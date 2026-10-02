@@ -18,13 +18,13 @@ import { cn } from "@/lib/utils";
 import { usePageTabStore } from "@/store/pageTab";
 import { usePreviewStore } from "@/store/preview";
 
-/** Default width the chat column starts with while display is open. */
-const CHAT_DEFAULT_WIDTH = 680;
+/** Initial width before measuring the two equally sized content columns. */
+const CHAT_DEFAULT_WIDTH = 600;
 /** Smallest the chat column may be dragged to. */
 const CHAT_MIN_WIDTH = 360;
 /** Keep at least this much room for the preview when the chat is widened. */
 const PREVIEW_MIN_WIDTH = 320;
-const RESIZE_HANDLE_WIDTH = 4;
+const RESIZE_HANDLE_WIDTH = 1;
 const CHAT_WIDTH_STORAGE_KEY = "my-cowork-chat-preview-width";
 
 function loadSavedChatWidth(): number | null {
@@ -72,7 +72,7 @@ function ResizeHandle({
       data-resize-handle-state={active ? "drag" : "inactive"}
       style={{ width: RESIZE_HANDLE_WIDTH }}
       className={cn(
-        "relative z-10 flex shrink-0 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-ds-bg-brand-subtle-default",
+        "session-column-divider relative z-10 flex shrink-0 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-ds-bg-brand-subtle-default",
         "before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-['']",
         "after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 after:bg-ds-bg-neutral-default-default after:transition-colors",
         active &&
@@ -94,6 +94,7 @@ export default function WorkspaceSessionLayout({
   const pagePreviewOpen = usePageTabStore((s) => s.previewOpen);
   const storeOpen = usePreviewStore((s) => s.open);
   const previewOpen = pagePreviewOpen && storeOpen;
+  const hasSide = Boolean(side);
 
   const rowRef = useRef<HTMLDivElement>(null);
   const userChatWidthRef = useRef<number | null>(null);
@@ -117,22 +118,27 @@ export default function WorkspaceSessionLayout({
       rowWidth - sidePanelWidth - sidePanelGap - PREVIEW_MIN_WIDTH - RESIZE_HANDLE_WIDTH,
     );
   }, []);
+  const computeDefaultChat = useCallback(() => {
+    const rowWidth = rowRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    const sideWidth = document.getElementById("session-side-panel")?.getBoundingClientRect().width ?? 0;
+    return Math.min(computeMaxChat(), Math.max(CHAT_MIN_WIDTH, (rowWidth - sideWidth - RESIZE_HANDLE_WIDTH) / 2));
+  }, [computeMaxChat]);
 
   useEffect(() => {
     if (previewOpen) {
       const desired =
-        userChatWidthRef.current ?? loadSavedChatWidth() ?? CHAT_DEFAULT_WIDTH;
+        userChatWidthRef.current ?? loadSavedChatWidth() ?? computeDefaultChat();
       setChatWidth(Math.min(Math.max(desired, CHAT_MIN_WIDTH), computeMaxChat()));
     }
-  }, [previewOpen, computeMaxChat]);
+  }, [previewOpen, hasSide, computeMaxChat, computeDefaultChat]);
 
   // Re-clamp on window/panel resize so the fixed-width chat column never
   // overflows the row (which overflow-hidden would clip from the right).
   useEffect(() => {
     if (!previewOpen) return;
     const onResize = () => {
-      setChatWidth((w) =>
-        Math.min(Math.max(w, CHAT_MIN_WIDTH), computeMaxChat()),
+      setChatWidth(() =>
+        Math.min(Math.max(userChatWidthRef.current ?? loadSavedChatWidth() ?? computeDefaultChat(), CHAT_MIN_WIDTH), computeMaxChat()),
       );
     };
     window.addEventListener("resize", onResize);
@@ -141,11 +147,13 @@ export default function WorkspaceSessionLayout({
         ? new ResizeObserver(onResize)
         : null;
     if (ro && rowRef.current) ro.observe(rowRef.current);
+    const sidePanel = document.getElementById("session-side-panel");
+    if (ro && sidePanel) ro.observe(sidePanel);
     return () => {
       window.removeEventListener("resize", onResize);
       ro?.disconnect();
     };
-  }, [previewOpen, computeMaxChat]);
+  }, [previewOpen, hasSide, computeMaxChat, computeDefaultChat]);
 
   const handlePreviewResizeStart = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -188,10 +196,10 @@ export default function WorkspaceSessionLayout({
   );
 
   const handlePreviewResizeReset = useCallback(() => {
-    userChatWidthRef.current = CHAT_DEFAULT_WIDTH;
-    setChatWidth(CHAT_DEFAULT_WIDTH);
-    saveChatWidth(CHAT_DEFAULT_WIDTH);
-  }, []);
+    userChatWidthRef.current = null;
+    setChatWidth(computeDefaultChat());
+    try { window.localStorage.removeItem(CHAT_WIDTH_STORAGE_KEY); } catch { /* Storage unavailable. */ }
+  }, [computeDefaultChat]);
 
   return (
     <div

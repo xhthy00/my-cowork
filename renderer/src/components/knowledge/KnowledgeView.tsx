@@ -13,6 +13,7 @@ import {
   KNOWLEDGE_SOURCE_GROUPS,
   KNOWLEDGE_SOURCES,
   knowledgeSourcesInGroup,
+  type KnowledgeSource,
   type KnowledgeSourceId,
 } from "@/lib/knowledgeSources";
 import { cn } from "@/lib/utils";
@@ -179,12 +180,9 @@ export default function KnowledgeView() {
   const busy = saving || testing;
 
   return (
-    <div className="flex h-auto w-full flex-1 flex-col pb-12 pt-8">
-      <div className="text-body-base mb-4 w-full border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default px-3 py-2 font-bold text-ds-text-neutral-default-default">
-        知识库配置
-      </div>
-      <div className="flex w-full flex-row items-start justify-between px-3">
-        <div className="-ml-2 mr-4 h-full w-[240px] shrink-0 rounded-2xl bg-ds-bg-neutral-default-default">
+    <div className="knowledge-view flex h-auto w-full flex-1 flex-col pb-12 pt-8">
+      <div className="knowledge-layout flex w-full flex-row items-start justify-between px-3">
+        <div className="knowledge-sources -ml-2 mr-4 h-full w-[240px] shrink-0 rounded-2xl bg-ds-bg-neutral-default-default">
           <div className="flex flex-col gap-4">
             {KNOWLEDGE_SOURCE_GROUPS.map((group) => (
               <div key={group.id} className="flex flex-col gap-1">
@@ -239,7 +237,7 @@ export default function KnowledgeView() {
           </div>
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="knowledge-detail min-w-0 flex-1">
           <ConfigModelCard status={selected.id === "ima" ? ring : "idle"}>
             <div className="mx-6 mb-4 flex flex-col items-start justify-between border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default pb-4 pt-2">
               <div className="inline-flex items-center justify-between gap-2 self-stretch">

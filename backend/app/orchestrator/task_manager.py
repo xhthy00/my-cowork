@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -265,8 +266,9 @@ class TaskManager:
         task_id = task_req.task_id or str(uuid.uuid4())
         with self.admission.work(task_req.text[:60] or "聊天任务"):
             self._set_status(task_id, "NEW", source=task_req.source, text=task_req.text)
-            async for event in self._execute(task_id, task_req):
-                yield event
+            async with aclosing(self._execute(task_id, task_req)) as stream:
+                async for event in stream:
+                    yield event
 
     async def _run(self, task_id: str, task_req: TaskRequest, lease=None) -> None:
         with self.admission.work(task_id, lease):

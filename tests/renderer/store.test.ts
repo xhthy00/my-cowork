@@ -290,6 +290,21 @@ describe("session store", () => {
     expect(useSessionStore.getState().alwaysAllowTools).toEqual(["exec.bash"]);
   });
 
+  it("silently resolves already queued calls of the granted tool only", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ resolved: true }) });
+    (globalThis as { window?: unknown }).window = { api: { getBackendUrl: async () => "http://127.0.0.1:8000" } };
+    const store = useSessionStore.getState();
+    store.enqueueConfirm({ call_id: "clicked", tool: "exec.bash", args: {} });
+    store.enqueueConfirm({ call_id: "parallel", tool: "exec.bash", args: {} });
+    store.enqueueConfirm({ call_id: "other-tool", tool: "fs.write", args: {} });
+    store.addAlwaysAllowTool("exec.bash", "clicked");
+    await vi.waitFor(() => expect(useSessionStore.getState().settledConfirmIds).toContain("parallel"));
+    expect(useSessionStore.getState().confirmQueue.map(c => c.call_id)).toEqual(["clicked", "other-tool"]);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    store.handleEvent({ type: "tool.confirm_request", payload: { call_id: "parallel", tool: "exec.bash", args: {} } });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("recoverPendingConfirms skips settled call_ids", () => {
     useSessionStore.getState().beginRun();
     useSessionStore.getState().handleEvent({

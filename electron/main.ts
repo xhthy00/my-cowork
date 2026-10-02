@@ -686,13 +686,17 @@ async function createWindow() {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, "icon.ico")
     : path.join(__dirname, "..", "build", "icon.ico");
+  if (process.platform === "darwin" && !app.isPackaged) {
+    const dockIconPath = path.join(__dirname, "..", "build", "icon.png");
+    if (fs.existsSync(dockIconPath)) app.dock?.setIcon(dockIconPath);
+  }
   const win = new BrowserWindow({
     width: ww,
     height: wh,
     title: "MyCowork",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     titleBarStyle: "hiddenInset",
-    backgroundColor: "#f6f7ff",
+    backgroundColor: "#f5fbff",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatConfirmCard, { ChatConfirmRecord, ChatConfirmRecordGroup } from "../../renderer/src/components/chat/ChatConfirmCard";
 import { useSessionStore } from "../../renderer/src/store/session";
+import { getProjectRuntime, setActiveProjectRuntime } from "../../renderer/src/store/projectRuntime";
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
@@ -126,6 +127,47 @@ describe("ChatConfirmCard", () => {
         }),
       );
     });
+  });
+
+  it("applies the session grant before the resumed command emits another confirmation", async () => {
+    useSessionStore.getState().enqueueConfirm({ call_id: "first", tool: "exec.bash", args: { cmd: "pwd" } });
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).endsWith("/first")) {
+        useSessionStore.getState().handleEvent({ type: "tool.confirm_request", payload: {
+          call_id: "next", tool: "exec.bash", args: { cmd: "ls" },
+        } });
+      }
+      return { ok: true, json: async () => ({ resolved: true }) } as Response;
+    });
+    render(<ChatConfirmCard confirm={useSessionStore.getState().messages[0].confirm!} />);
+    await userEvent.click(screen.getByRole("button", { name: "本会话总是允许此工具" }));
+    await waitFor(() => expect(useSessionStore.getState().settledConfirmIds).toContain("next"));
+    expect(useSessionStore.getState().confirmQueue).toEqual([]);
+    expect(useSessionStore.getState().messages.some(m => m.confirm?.call_id === "next")).toBe(false);
+    expect(useSessionStore.getState().alwaysAllowTools).toEqual(["exec.bash"]);
+  });
+
+  it("rolls back a new session grant when the confirmation fails", async () => {
+    useSessionStore.getState().enqueueConfirm({ call_id: "failed", tool: "exec.bash", args: {} });
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false });
+    render(<ChatConfirmCard confirm={useSessionStore.getState().messages[0].confirm!} />);
+    await userEvent.click(screen.getByRole("button", { name: "本会话总是允许此工具" }));
+    await waitFor(() => expect(useSessionStore.getState().alwaysAllowTools).toEqual([]));
+    expect(useSessionStore.getState().confirmQueue).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "本会话总是允许此工具" })).toBeEnabled();
+  });
+
+  it("keeps the grant in the card's conversation when the active conversation changes", async () => {
+    const origin = getProjectRuntime("confirm-origin").session;
+    origin.setState({ messages: [], confirmQueue: [], alwaysAllowTools: [] });
+    origin.getState().enqueueConfirm({ call_id: "bound", tool: "exec.bash", args: {} });
+    setActiveProjectRuntime("confirm-other");
+    render(<ChatConfirmCard projectId="confirm-origin" confirm={origin.getState().messages[0].confirm!} />);
+    await userEvent.click(screen.getByRole("button", { name: "本会话总是允许此工具" }));
+    await waitFor(() => expect(origin.getState().confirmQueue).toEqual([]));
+    expect(origin.getState().alwaysAllowTools).toEqual(["exec.bash"]);
+    expect(useSessionStore.getState().alwaysAllowTools).toEqual([]);
+    setActiveProjectRuntime(null);
   });
 
   it("updates message confirm.status to allowed after responding", async () => {

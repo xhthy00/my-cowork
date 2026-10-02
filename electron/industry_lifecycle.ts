@@ -105,11 +105,11 @@ export class IndustryLifecycle {
     if (this.inFlight) return this.requestKey === key ? this.inFlight : Promise.reject(new Error("已有应用操作正在进行，请等待完成"));
     this.requestKey = key;
     this.cancelRequested = false;
-    this.update("staged", { busy: true, appId: request.app_id as string | undefined, message: undefined, detail: undefined, active: 0 });
+    this.update("staged", { busy: true, appId: request.app_id as string | undefined, message: undefined, detail: undefined, active: 0, tasks: [] });
     const promise = this.execute(request).finally(() => {
       this.inFlight = undefined;
       this.requestKey = undefined;
-      this.update(this.status.phase, { busy: false });
+      this.update(this.status.phase, { busy: false, active: 0, tasks: [] });
     });
     this.inFlight = promise;
     return promise;
@@ -129,7 +129,7 @@ export class IndustryLifecycle {
     if (!this.cancelRequested) return true;
     await pipe.call({ command: "cancel" });
     if (this.hooks.running()) await this.hooks.runtime("open");
-    this.update("cancelled", { message: "已取消更新，原有工作可继续", active: 0 });
+    this.update("cancelled", { message: "已取消更新，原有工作可继续", active: 0, tasks: [] });
     return false;
   }
 

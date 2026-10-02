@@ -73,7 +73,7 @@ describe("McpConnectorsPanel", () => {
   it("imports local JSON via POST /api/mcp/import", async () => {
     render(<McpConnectorsPanel />);
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(`${BACKEND_URL}/api/mcp/servers`);
+      expect(globalThis.fetch).toHaveBeenCalledWith(`${BACKEND_URL}/api/mcp/servers`, undefined);
     });
 
     await userEvent.click(screen.getByRole("button", { name: "添加" }));
@@ -95,7 +95,7 @@ describe("McpConnectorsPanel", () => {
   it("imports a remote URL as { url }", async () => {
     render(<McpConnectorsPanel />);
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(`${BACKEND_URL}/api/mcp/servers`);
+      expect(globalThis.fetch).toHaveBeenCalledWith(`${BACKEND_URL}/api/mcp/servers`, undefined);
     });
 
     await userEvent.click(screen.getByRole("button", { name: "添加" }));

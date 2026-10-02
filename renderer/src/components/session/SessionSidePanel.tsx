@@ -65,7 +65,7 @@ function AccordionBox({
     : null;
 
   return (
-    <div className="z-10 flex min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-solid border-ds-border-neutral-subtle-disabled bg-ds-bg-neutral-default-default">
+    <div className="session-details-section z-10 flex min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-solid border-ds-border-neutral-subtle-disabled bg-ds-bg-neutral-default-default">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -182,7 +182,7 @@ export default function SessionSidePanel() {
   return (
     <aside
       className={cn(
-        "relative flex h-full shrink-0 flex-col overflow-hidden bg-transparent transition-[width] duration-200",
+        "session-details-panel relative flex h-full shrink-0 flex-col overflow-hidden bg-transparent transition-[width] duration-200",
         visible
           ? !hasDetails && mode === SessionMode.SINGLE_AGENT
             ? "w-[min(280px,32vw)]"
@@ -202,7 +202,7 @@ export default function SessionSidePanel() {
         </button>
       ) : (
         <>
-          <div className="flex h-11 shrink-0 items-center gap-2 px-1">
+          <div className="session-details-header flex h-11 shrink-0 items-center gap-2 px-1">
             <Workflow className="h-4 w-4 text-ds-icon-neutral-muted-default" />
             <span className="text-body-sm font-semibold text-ds-text-neutral-default-default">
               {headerTitle}

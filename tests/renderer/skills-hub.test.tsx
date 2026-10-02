@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SkillHubSuite from "../../renderer/src/components/skills/SkillHubSuite";
 import { formatCount } from "../../renderer/src/components/skills/SkillHubCard";
+import HubView from "../../renderer/src/components/hub/HubView";
+import { usePageTabStore } from "../../renderer/src/store/pageTab";
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
@@ -61,6 +63,31 @@ describe("SkillHubSuite", () => {
   it("formats download counts like WorkBuddy", () => {
     expect(formatCount(435385)).toBe("435k");
     expect(formatCount(26)).toBe("26");
+  });
+
+  it("separates the store tab and shows a newly installed skill in management", async () => {
+    let installed = false;
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/skillhub/install") && init?.method === "POST") installed = true;
+      const body = url.endsWith("/api/skills") ? {skills: installed ? [{
+        id: HUB_SKILL.slug, name: HUB_SKILL.name, description: HUB_SKILL.description,
+        enabled: true, scope: {isGlobal: true, selectedAgents: []},
+      }] : []} : {skills: [HUB_SKILL], total: 1};
+      return {ok: true, status: 200, json: async () => body} as Response;
+    }) as typeof fetch;
+    usePageTabStore.setState({hubTab: "agents", agentsSection: "skills", workspaceView: "hub"});
+    render(<HubView />);
+    expect(screen.getByRole("tab", {name: "您的技能"})).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("搜索 SkillHub 技能…")).toBeNull();
+    await userEvent.click(screen.getByRole("tab", {name: "skill商店"}));
+    expect(screen.getByRole("tab", {name: "skill商店"})).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab", {name: "您的技能"})).toBeNull();
+    await userEvent.click(await screen.findByLabelText("安装 编程专家.Skill"));
+    expect(await screen.findByLabelText("已安装 编程专家.Skill")).toBeDisabled();
+    await userEvent.click(screen.getByRole("tab", {name: "技能", exact: true}));
+    expect(await screen.findByText(HUB_SKILL.name)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("搜索 SkillHub 技能…")).toBeNull();
   });
 
   it("loads hub skills then sends category on chip click", async () => {

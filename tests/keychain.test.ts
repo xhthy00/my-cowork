@@ -3,6 +3,19 @@ import * as os from "os";
 import * as path from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("electron", () => ({
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => "keychain",
+    encryptString: (value: string) => Buffer.from(`encrypted:${value}`),
+    decryptString: (value: Buffer) => {
+      const contents = value.toString();
+      if (!contents.startsWith("encrypted:")) throw new Error("invalid ciphertext");
+      return contents.slice("encrypted:".length);
+    },
+  },
+}));
+
 import {
   buildPythonEnv,
   deleteKey,
@@ -60,13 +73,25 @@ describe("keychain", () => {
     expect(setter).toHaveBeenCalledWith("my-cowork", "openai", "sk-new-key");
   });
 
-  it("initKeychain file fallback persists across reads", async () => {
+  it("stores credentials encrypted and persists across reads", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-"));
     initKeychain(dir);
     await setKey("my-cowork", "openai", "sk-persisted");
+    expect(fs.existsSync(path.join(dir, "credentials.enc"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "credentials.json"))).toBe(false);
     expect(await getKey("my-cowork", "openai")).toBe("sk-persisted");
     initKeychain(dir);
     expect(await getKey("my-cowork", "openai")).toBe("sk-persisted");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reads a key saved by the newer encrypted credential store", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "my-cowork-key-newer-"));
+    const encrypted = Buffer.from('encrypted:{"my-cowork:model:active":"sk-restored"}');
+    fs.writeFileSync(path.join(dir, "credentials.enc"), encrypted);
+    initKeychain(dir);
+    expect(await getKey("my-cowork", "model:active")).toBe("sk-restored");
+    expect(fs.readFileSync(path.join(dir, "credentials.enc"))).toEqual(encrypted);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

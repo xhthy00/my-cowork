@@ -53,12 +53,12 @@
 .project-sidebar .project-new-action {
   min-height: 38px;
   color: #fff;
-  background: linear-gradient(110deg, var(--ui-brand-violet-deep), var(--ui-brand-violet));
+  background: linear-gradient(110deg, var(--ui-brand-primary-deep), var(--ui-brand-primary));
   box-shadow: 0 6px 15px rgba(125, 61, 243, 0.25);
 }
 .project-sidebar .project-new-action:hover {
   color: #fff;
-  background: linear-gradient(110deg, #5d22b3, var(--ui-brand-violet-deep));
+  background: linear-gradient(110deg, #5d22b3, var(--ui-brand-primary-deep));
 }
 .project-sidebar .project-row[data-active="true"] {
   color: var(--ds-text-brand-default-default);
@@ -95,7 +95,7 @@
 .chat-composer-input button:not(.chat-send):hover { color: var(--ds-text-brand-default-default); }
 .chat-composer-input .chat-send {
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--ui-brand-violet-deep), var(--ui-brand-violet));
+  background: linear-gradient(135deg, var(--ui-brand-primary-deep), var(--ui-brand-primary));
   box-shadow: 0 5px 13px rgba(125, 61, 243, 0.29);
 }
 .chat-composer-input .chat-send:disabled { opacity: 0.58; }
@@ -172,7 +172,7 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--ui-brand-violet-deep), var(--ui-brand-violet));
+  background: linear-gradient(90deg, var(--ui-brand-primary-deep), var(--ui-brand-primary));
   transition: width 240ms ease;
 }
 .progress-revision {
@@ -198,7 +198,7 @@
 .progress-step[data-status="running"] {
   border-color: color-mix(in srgb, var(--ds-border-information-default-default) 62%, var(--ui-card-border));
   background: linear-gradient(110deg, color-mix(in srgb, var(--ui-accent-soft) 68%, var(--ui-card-bg)), var(--ui-card-bg) 72%);
-  box-shadow: 0 3px 12px color-mix(in srgb, var(--ui-brand-violet) 10%, transparent);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ui-brand-primary) 10%, transparent);
 }
 .progress-step[data-status="completed"] { border-color: color-mix(in srgb, var(--ds-text-success-default-default) 22%, var(--ui-card-border)); }
 .progress-step[data-status="failed"] { border-color: color-mix(in srgb, var(--ds-text-error-default-default) 36%, var(--ui-card-border)); }
@@ -295,6 +295,72 @@
 }
 
 /* Hub navigation and management cards */
+.industry-app-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--ui-card-border);
+  border-radius: 18px;
+  background: var(--ui-card-bg);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ds-text-brand-default-default) 4%, transparent);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.industry-app-card:hover,
+.industry-app-card:focus-within {
+  border-color: color-mix(in srgb, var(--ds-text-brand-default-default) 40%, var(--ui-card-border));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ds-text-brand-default-default) 10%, transparent);
+}
+.industry-app-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 206px;
+  padding: 22px;
+  border: 0;
+  border-radius: inherit;
+  color: var(--ds-text-neutral-default-default);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-accent-soft) 35%, var(--ui-card-bg)), var(--ui-card-bg) 65%);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.industry-app-entry:focus-visible {
+  outline: 2px solid var(--ds-text-brand-default-default);
+  outline-offset: -3px;
+}
+.industry-app-entry:disabled { cursor: wait; opacity: .6; }
+.industry-app-card[data-switching]:hover { border-color: var(--ui-card-border); box-shadow: none; }
+.industry-app-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border: 1px solid color-mix(in srgb, var(--ds-text-brand-default-default) 12%, transparent);
+  border-radius: 14px;
+  color: var(--ds-text-brand-default-default);
+  background: var(--ui-accent-soft);
+}
+.industry-app-description { min-height: 44px; margin-top: 18px; line-height: 1.6; }
+.industry-app-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 18px; }
+.industry-app-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ds-text-neutral-muted-default); }
+.industry-app-status-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+.industry-app-status[data-status="ready"] { color: var(--ds-text-success-default-default); }
+.industry-app-status[data-status="busy"],
+.industry-app-status[data-status="pending_activation"],
+.industry-app-status[data-status="pending_restart"] { color: var(--ds-text-warning-default-default); }
+.industry-app-status[data-status="load_failed"],
+.industry-app-status[data-status="recovery_required"] { color: var(--ds-text-error-default-default); }
+.industry-app-arrow { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; color: var(--ds-text-neutral-muted-default); transition: background-color 160ms ease, color 160ms ease; }
+.industry-app-entry:hover .industry-app-arrow,
+.industry-app-entry:focus-visible .industry-app-arrow { color: var(--ds-text-brand-default-default); background: var(--ui-accent-soft); }
+.industry-app-management { position: absolute; top: 18px; right: 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .industry-app-card, .industry-app-arrow { transition: none; }
+}
+
 .hub-view > div:first-child {
   border: 1px solid var(--ui-card-border);
   background: var(--ui-card-bg);
@@ -336,7 +402,7 @@
   position: absolute;
   inset: 0 0 auto;
   height: 4px;
-  background: linear-gradient(90deg, var(--ui-brand-violet), var(--ui-brand-coral) 62%, var(--ui-brand-sunshine));
+  background: linear-gradient(90deg, var(--ui-brand-primary), var(--ui-brand-coral) 62%, var(--ui-brand-sunshine));
 }
 .assistant-card-icon {
   box-sizing: content-box;

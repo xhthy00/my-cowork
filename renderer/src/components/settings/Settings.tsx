@@ -1,6 +1,9 @@
 import { apiFetch as fetch } from "@/api/backend";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { Settings as SettingsIcon, CalendarClock, Box, ShieldCheck, Search, Radio, ClipboardList, Info, BookOpen, Compass } from "lucide-react";
+import { useAppVersion } from "@/hooks/useAppVersion";
+import type { SettingsSection as TabId } from "@/store/pageTab";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -12,20 +15,23 @@ import ModelsPanel from "./ModelsPanel";
 import ChannelsPanel from "./channels/ChannelsPanel";
 import SearchPanel from "./SearchPanel";
 import AuditPanel from "./AuditPanel";
+import BrowserSettingsPanel from "./BrowserSettingsPanel";
+import KnowledgeView from "@/components/knowledge/KnowledgeView";
 import ScheduleView from "@/components/schedule/ScheduleView";
 import { openKeepAwakeSettings, takeSettingsTabPending } from "./KeepAwakeBanner";
 
-type TabId = "general" | "schedule" | "model" | "paths" | "channels" | "search" | "audit";
-
-const TABS: { id: TabId; label: string }[] = [
-  { id: "general", label: "通用" },
-  { id: "schedule", label: "定时任务" },
-  { id: "model", label: "API / 模型" },
-  { id: "paths", label: "隐私 / 白名单" },
-  { id: "search", label: "检索" },
-  { id: "channels", label: "远程连接" },
-  { id: "audit", label: "操作审计" },
-];
+const TABS = [
+  { id: "general", label: "系统设置", icon: SettingsIcon },
+  { id: "model", label: "模型", icon: Box },
+  { id: "knowledge", label: "资料库", icon: BookOpen },
+  { id: "browser", label: "浏览器", icon: Compass },
+  { id: "schedule", label: "定时任务", icon: CalendarClock },
+  { id: "paths", label: "隐私 / 白名单", icon: ShieldCheck },
+  { id: "search", label: "检索", icon: Search },
+  { id: "channels", label: "远程连接", icon: Radio },
+  { id: "audit", label: "操作审计", icon: ClipboardList },
+  { id: "about", label: "关于我们", icon: Info },
+] as const;
 
 const APPEARANCE_OPTIONS: { id: Appearance; label: string }[] = [
   { id: "light", label: "浅色" },
@@ -85,7 +91,7 @@ function updaterActionLabel(state: UpdaterStatus["state"]): string {
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex w-full flex-col items-start justify-between">
-      <div className="text-body-base mb-4 w-full border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default px-3 py-2 font-bold text-ds-text-neutral-default-default">
+      <div className="settings-section-heading text-body-base mb-4 w-full border-x-0 border-b-[0.5px] border-t-0 border-solid border-ds-border-neutral-default-default px-3 py-2 font-bold text-ds-text-neutral-default-default">
         {title}
       </div>
       <div className="flex w-full flex-col gap-4 px-3">{children}</div>
@@ -95,17 +101,19 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
 
 function SettingsCard({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("w-full rounded-2xl bg-ds-bg-neutral-subtle-default", className)}>
+    <div className={cn("settings-card w-full rounded-2xl bg-ds-bg-neutral-subtle-default", className)}>
       {children}
     </div>
   );
 }
 
-export default function Settings({ embedded = false }: { embedded?: boolean }) {
+export default function Settings({ embedded = false, initialTab }: { embedded?: boolean; initialTab?: TabId }) {
+  const version = useAppVersion();
   const [tab, setTab] = useState<TabId>(() => {
     const pending = takeSettingsTabPending();
-    return pending === "general" || pending === "schedule" ? pending : "model";
+    return initialTab === "appearance" ? "general" : initialTab || (pending === "general" || pending === "schedule" ? pending : "model");
   });
+  useEffect(() => { if (initialTab) setTab(initialTab === "appearance" ? "general" : initialTab); }, [initialTab]);
   const whitelist = useSettingsStore((s) => s.whitelist);
   const setWhitelist = useSettingsStore((s) => s.setWhitelist);
   const appearance = useSettingsStore((s) => s.appearance);
@@ -220,15 +228,16 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
       <div className={embedded ? undefined : "w-full"}>
         <div className="settings-layout">
           {!embedded && (
-            <nav className="settings-nav">
+            <nav className="settings-nav" aria-label="设置分类">
               {TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   className={tab === t.id ? "active" : ""}
+                  aria-current={tab === t.id ? "page" : undefined}
                   onClick={() => setTab(t.id)}
                 >
-                  {t.label}
+                  <t.icon size={18} aria-hidden />{t.label}
                 </button>
               ))}
             </nav>
@@ -236,10 +245,35 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
 
           <div className="settings-panel">
             {!embedded && tab === "general" && (
-              <SettingsSection title="通用">
+              <SettingsSection title="系统设置">
                 <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                   <SettingsCard className="sm:col-span-2">
-                    <div className="flex items-center justify-between gap-6 px-5 py-4">
+                    <div className="px-5 py-4">
+                      <div className="text-body-base font-bold text-ds-text-neutral-default-default">
+                        界面主题
+                      </div>
+                      <p className="mt-1 text-body-sm text-ds-text-neutral-muted-default">
+                        跟随系统会随操作系统自动切换。
+                      </p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        {APPEARANCE_OPTIONS.map((opt) => (
+                          <Button
+                            key={opt.id}
+                            type="button"
+                            variant={appearance === opt.id ? "primary" : "outline"}
+                            size="sm"
+                            className="w-full"
+                            aria-pressed={appearance === opt.id}
+                            onClick={() => setAppearance(opt.id)}
+                          >
+                            {opt.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </SettingsCard>
+                  <SettingsCard className="sm:col-span-2">
+                    <div className="settings-font-row flex items-center justify-between gap-6 px-5 py-4">
                       <label
                         htmlFor="font-size-slider"
                         className="text-body-base shrink-0 font-bold text-ds-text-neutral-default-default"
@@ -334,33 +368,12 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
                       </Button>
                     </div>
                   </SettingsCard>
-                  <SettingsCard className="sm:col-span-2">
-                    <div className="px-5 py-4">
-                      <div className="text-body-base font-bold text-ds-text-neutral-default-default">
-                        界面主题
-                      </div>
-                      <p className="mt-1 text-body-sm text-ds-text-neutral-muted-default">
-                        跟随系统会随操作系统自动切换。
-                      </p>
-                      <div className="mt-3 grid grid-cols-3 gap-2">
-                        {APPEARANCE_OPTIONS.map((opt) => (
-                          <Button
-                            key={opt.id}
-                            type="button"
-                            variant={appearance === opt.id ? "primary" : "outline"}
-                            size="sm"
-                            className="w-full"
-                            onClick={() => setAppearance(opt.id)}
-                          >
-                            {opt.label}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  </SettingsCard>
+
                 </div>
               </SettingsSection>
             )}
+
+            {!embedded && tab === "about" && <SettingsSection title="关于我们"><SettingsCard><div className="px-5 py-4"><h3>MyCoWork</h3><p className="mt-2 text-body-sm text-ds-text-neutral-muted-default">版本 v{version}</p><p className="mt-2 text-body-sm text-ds-text-neutral-muted-default">你的 AI 工作伙伴</p></div></SettingsCard></SettingsSection>}
 
             {!embedded && tab === "schedule" && <ScheduleView />}
 
@@ -421,6 +434,8 @@ export default function Settings({ embedded = false }: { embedded?: boolean }) {
             )}
 
             {!embedded && tab === "search" && <SearchPanel />}
+            {!embedded && tab === "knowledge" && <KnowledgeView />}
+            {!embedded && tab === "browser" && <BrowserSettingsPanel />}
             {!embedded && tab === "audit" && <AuditPanel />}
             {!embedded && tab === "channels" && (
               <ChannelsPanel onOpenKeepAwake={openKeepAwakeSettings} />

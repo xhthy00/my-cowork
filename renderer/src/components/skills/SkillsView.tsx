@@ -1,4 +1,5 @@
 import { apiFetch as fetch } from "@/api/backend";
+import { importSkillZip } from "@/api/skills";
 /**
  * Adapted from eigent: pages/Agents/Skills.tsx
  * Data: GET/PATCH/DELETE/import via /api/skills (not Eigent skillsStore).
@@ -7,7 +8,6 @@ import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import SearchInput from "@/components/hub/SearchInput";
-import SkillHubSuite from "@/components/skills/SkillHubSuite";
 import SkillListItem, {
   type SkillItem,
   type SkillScope,
@@ -69,19 +69,12 @@ export default function SkillsView() {
   }
 
   async function importZip(file: File) {
-    const backendUrl = await window.api.getBackendUrl();
-    if (!backendUrl) return;
-    const buf = await file.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-    const zip_base64 = btoa(binary);
-    const res = await fetch(`${backendUrl}/api/skills/import`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ zip_base64, filename: file.name }),
-    });
-    setStatus(res.ok ? "已导入技能" : `导入失败 ${res.status}`);
+    try {
+      await importSkillZip(file);
+      setStatus("已导入技能");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
     await load();
   }
 
@@ -143,12 +136,6 @@ export default function SkillsView() {
 
   return (
     <div className="skills-view m-auto flex h-auto w-full flex-1 flex-col">
-      <div className="flex w-full items-center justify-between px-6 pb-6 pt-8">
-        <div className="text-heading-sm font-bold text-ds-text-neutral-default-default">
-          技能
-        </div>
-      </div>
-
       <div className="mb-12 flex flex-col gap-6">
         <div className="skills-panel flex w-full flex-col gap-4 rounded-2xl bg-ds-bg-neutral-default-default px-6 py-4">
           <Tabs defaultValue="your-skills" className="w-full">
@@ -195,10 +182,6 @@ export default function SkillsView() {
               {renderList(exampleSkills, "暂无内置技能", false)}
             </TabsContent>
           </Tabs>
-          <SkillHubSuite
-            installedIds={new Set(skills.map((s) => s.id))}
-            onInstalled={() => void load()}
-          />
         </div>
       </div>
 

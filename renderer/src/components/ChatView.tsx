@@ -4,17 +4,17 @@ import { apiFetch as fetch } from "@/api/backend";
  * Empty: welcome hero · title · composer · Recent runs
  * Active: message list + follow-up composer
  */
-import { ArrowRight, CheckCircle2, ChevronDown, CircleHelp, Copy, Eye, Loader2, ShieldCheck, Sparkles, Square, SquareArrowOutUpRight } from "lucide-react";
+import { ArrowUpRight, ChevronDown, CircleHelp, Copy, Eye, Loader2, MessageSquareText, ShieldCheck, Sparkles, Square, SquareArrowOutUpRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import welcomeHero from "@/assets/welcome/chat-welcome-hero.webp";
-import welcomeHeroWorkforce from "@/assets/welcome/chat-welcome-hero-workforce.webp";
+import welcomeHero from "@/assets/welcome/chat-welcome-hero-blue.webp";
+import welcomeHeroWorkforce from "@/assets/welcome/chat-welcome-hero-workforce-blue.webp";
 import { abortChatStream } from "../api/chatStream";
 import type { SSEvent } from "../api/sse";
-import GridPatternBackground from "./Background/GridPatternBackground";
 import ChatBar from "./chat/ChatBar";
 import ChatConfirmCard, { ChatConfirmRecordGroup } from "./chat/ChatConfirmCard";
-import HumanQuestionCard from "./chat/HumanQuestionCard";
+import HumanQuestionCard, { HumanQuestionSummary } from "./chat/HumanQuestionCard";
+import { groupTurns } from "./chat/groupTurns";
 import WorkspaceOverlaysBar from "./workspace/WorkspaceOverlaysBar";
 import OnboardingHint from "./workspace/OnboardingHint";
 import MessageContent from "./chat/MessageContent";
@@ -36,13 +36,13 @@ import { usePreviewStore } from "../store/preview";
 import { usePageTabStore } from "../store/pageTab";
 import { useSessionsStore } from "../store/sessions";
 import { useWorkforceStore } from "../store/workforce";
+import { SessionMode } from "../types/workforce";
 import { planTodosFromQuery } from "../lib/planTodos";
 import {
   displayTitleFromUserContent,
   fileNameFromPath,
   parseUserAttachments,
 } from "../lib/userAttachments";
-import { SessionMode } from "../types/workforce";
 import { useIndustryNavigation } from "../store/industryNavigation";
 import { useAppTasks } from "../api/industryAI";
 
@@ -201,31 +201,6 @@ function MessageCopyRow({
   );
 }
 
-type Turn = {
-  user: Message;
-  assistants: Message[];
-};
-
-function groupTurns(messages: Message[]): Turn[] {
-  const turns: Turn[] = [];
-  let current: Turn | null = null;
-  for (const m of messages) {
-    if (m.role === "user") {
-      current = { user: m, assistants: [] };
-      turns.push(current);
-    } else if (current) {
-      current.assistants.push(m);
-    } else {
-      current = {
-        user: { id: `synthetic-${m.id}`, role: "user", content: "" },
-        assistants: [m],
-      };
-      turns.push(current);
-    }
-  }
-  return turns;
-}
-
 function mergeAssistantContent(assistants: Message[]): {
   content: string;
   artifacts: FileArtifact[];
@@ -357,7 +332,7 @@ function AssistantTimeline({
       continue;
     }
     if (msg.humanQuestion) {
-      nodes.push(<HumanQuestionCard key={msg.id} question={msg.humanQuestion} text={msg.content} />);
+      nodes.push(<HumanQuestionSummary key={msg.id} question={msg.humanQuestion} text={msg.content} />);
       i++;
       continue;
     }
@@ -450,7 +425,10 @@ export default function ChatView() {
   const wasRunningRef = useRef(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const messages = useSessionStore((s) => s.messages);
-  const pendingQuestion = [...messages].reverse().find((m) => m.humanQuestion?.status === "pending")?.humanQuestion;
+  const pendingQuestionMessage = [...messages].reverse().find((m) => m.humanQuestion?.status === "pending");
+  const pendingQuestion = pendingQuestionMessage?.humanQuestion;
+  const [collapsedQuestionId, setCollapsedQuestionId] = useState<string | null>(null);
+  const questionCollapsed = collapsedQuestionId === pendingQuestion?.question_id;
   const pendingConfirm = [...messages].reverse().find((m) => m.confirm?.status === "pending")?.confirm;
   const pendingQuestionKey = messages
     .filter((m) => m.humanQuestion?.status === "pending")
@@ -467,15 +445,13 @@ export default function ChatView() {
   const openPreviewFoldSide = usePageTabStore((s) => s.openPreviewFoldSide);
   const setPreviewOpen = usePageTabStore((s) => s.setPreviewOpen);
   const setSidePanelVisible = usePageTabStore((s) => s.setSidePanelVisible);
-  const setHubTab = usePageTabStore((s) => s.setHubTab);
   const addChooser = usePreviewStore((s) => s.addChooser);
   const setPreviewStoreOpen = usePreviewStore((s) => s.setOpen);
   const touchSession = useSessionsStore((s) => s.touchSession);
   const activeId = useSessionsStore((s) => s.activeId);
   const sessions = useSessionsStore((s) => s.sessions);
-  const setActive = useSessionsStore((s) => s.setActive);
-  const sessionMode = useWorkforceStore((s) => s.sessionMode);
   const [stopping, setStopping] = useState(false);
+  const sessionMode = useWorkforceStore((s) => s.sessionMode);
 
   useEffect(() => {
     if (!activeId) return;
@@ -594,30 +570,23 @@ export default function ChatView() {
     activeProject?.assistantName || activeProject?.title || "办公助手";
   const title = boundAssistant
     ? assistantLabel
-    : "MyCowork 轻松搞定工作每一件事！";
+    : "把想法变成成果";
   const skillIds = activeProject?.enabledSkillIds ?? [];
   const assistantPrompts = activeProject?.assistantPrompts ?? [];
 
-  const recent = sessions.filter((s) => s.id !== activeId || s.status !== "idle").slice(0, 5);
   const turns = useMemo(() => groupTurns(messages), [messages]);
 
   if (messages.length === 0) {
-    const recentPreview = recent.slice(0, 3);
     return (
-      <section className="main chat-empty relative z-[1] flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <GridPatternBackground />
-        <div className="relative z-[1] mx-auto flex h-full w-full max-w-[680px] min-h-0 flex-col px-4">
-          <div className="scrollbar-hide flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-x-hidden overflow-y-auto py-4">
+      <section className={cn("main chat-empty relative z-[1] flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden", boundAssistant && "assistant-welcome")}>
+        <div className="relative z-[1] mx-auto flex h-full w-full max-w-[900px] min-h-0 flex-col px-4">
+          <div className="welcome-content scrollbar-hide flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-x-hidden overflow-y-auto py-4">
             <div className="flex w-full flex-col items-center">
               <img
-                src={
-                  sessionMode === SessionMode.WORKFORCE
-                    ? welcomeHeroWorkforce
-                    : welcomeHero
-                }
-                alt=""
+                src={sessionMode === SessionMode.WORKFORCE ? welcomeHeroWorkforce : welcomeHero}
+                alt={sessionMode === SessionMode.WORKFORCE ? "多智能体小牛 Logo" : "单智能体小牛 Logo"}
                 draggable={false}
-                className="pointer-events-none mb-1 h-auto w-[min(100%,380px)] max-h-[148px] select-none object-contain"
+                className="welcome-hero pointer-events-none select-none"
               />
               {boundAssistant && (
                 <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-ds-bg-neutral-subtle-default px-3 py-1 text-xs font-medium text-ds-text-neutral-muted-default">
@@ -642,12 +611,12 @@ export default function ChatView() {
                 </div>
               )}
               {boundAssistant && assistantPrompts.length > 0 && (
-                <div className="-mt-1 mb-4 flex w-full flex-col gap-1.5">
+                <div className="welcome-prompts" role="group" aria-label="推荐任务">
                   {assistantPrompts.slice(0, 3).map((p) => (
                     <button
                       key={p}
                       type="button"
-                      className="rounded-xl bg-ds-bg-neutral-subtle-default px-3 py-2 text-left text-xs text-ds-text-neutral-default-default transition-opacity hover:opacity-80"
+                      className="welcome-prompt"
                       onClick={() => {
                         window.dispatchEvent(
                           new CustomEvent("my-cowork:composer-fill", {
@@ -656,19 +625,21 @@ export default function ChatView() {
                         );
                       }}
                     >
-                      {p}
+                      <span className="welcome-prompt-icons" aria-hidden="true"><MessageSquareText /><ArrowUpRight /></span>
+                      <span>{p}</span>
                     </button>
                   ))}
                 </div>
               )}
-              <div className="w-full">
+              <div className="welcome-composer w-full">
                 <WorkspaceOverlaysBar />
                 <ChatBar
                   {...handlers}
+                  layout="welcome"
                   placeholder={
                     boundAssistant
                       ? `向「${assistantLabel}」描述任务…`
-                      : "描述你想完成的事…"
+                      : "今天帮你做些什么？ @ 引用连接器，# 调用技能"
                   }
                   showFooter
                   modeInteractive
@@ -681,38 +652,7 @@ export default function ChatView() {
             </div>
           </div>
 
-          {recentPreview.length > 0 && (
-            <div className="recent-runs w-full shrink-0 pb-5 pt-1">
-              <div className="mb-1.5 flex w-full items-center justify-between gap-2 px-1 text-ds-text-neutral-muted-default">
-                <h2 className="text-body-sm font-semibold">最近运行</h2>
-                <button
-                  type="button"
-                  className="group/all inline-flex items-center gap-1 text-body-sm font-medium hover:underline"
-                  onClick={() => setHubTab("home")}
-                >
-                  全部
-                  <ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/all:opacity-100" />
-                </button>
-              </div>
-              <div className="recent-run-list flex flex-col">
-                {recentPreview.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className="recent-run flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-body-sm text-ds-text-neutral-muted-default hover:bg-ds-bg-neutral-subtle-default hover:text-ds-text-neutral-default-default"
-                    onClick={() => setActive(s.id)}
-                  >
-                    {s.status === "done" ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-ds-icon-status-completed-default" />
-                    ) : (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ds-border-neutral-default-default" />
-                    )}
-                    <span className="truncate">{s.title}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+
         </div>
       </section>
     );
@@ -725,6 +665,7 @@ export default function ChatView() {
           useIndustryNavigation.setState(state => ({ activeId: appOrigin.appId, routes: { ...state.routes, [appOrigin.appId]: appOrigin.route } }));
           usePageTabStore.getState().setHubTab("workbench");
         }}>返回{appOrigin.appName}</Button>}
+        {!appOrigin && <h1 title={activeProject?.title}>{activeProject?.title || "对话"}</h1>}
         <div className="tags min-w-0 flex-1">
           {!!appTask?.loaded_skills?.length && <span className="truncate text-xs text-ds-text-neutral-muted-default" title={appTask.loaded_skills.map(skill => `${skill.name}（${skill.version}）`).join("、")}>
             本次载入技能：{appTask.loaded_skills.map(skill => skill.name).join("、")}
@@ -845,7 +786,7 @@ export default function ChatView() {
 
       <div className="composer-wrap chat-surface-container">
         <div className="chat-surface-fluid w-full min-w-0">
-          {(pendingQuestion || pendingConfirm) && (
+          {((pendingQuestion && questionCollapsed) || pendingConfirm) && (
             <div className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default px-3 py-2 shadow-sm" role="status" aria-live="polite">
               {pendingQuestion
                 ? <CircleHelp className="h-4 w-4 shrink-0 text-ds-text-brand-default-default" aria-hidden="true" />
@@ -857,10 +798,11 @@ export default function ChatView() {
                 type="button"
                 className="min-h-7 shrink-0 rounded-lg px-2 py-1 text-body-sm font-semibold text-ds-text-brand-default-default hover:bg-ds-bg-neutral-subtle-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-ring-neutral-subtle-default"
                 onClick={() => {
-                  const selector = pendingQuestion
-                    ? '.human-question-card[data-status="pending"]'
-                    : '.chat-confirm-card';
-                  const cards = messagesScrollRef.current?.querySelectorAll<HTMLElement>(selector);
+                  if (pendingQuestion) {
+                    setCollapsedQuestionId(null);
+                    return;
+                  }
+                  const cards = messagesScrollRef.current?.querySelectorAll<HTMLElement>('.chat-confirm-card');
                   const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
                     ? "auto"
                     : "smooth";
@@ -871,17 +813,29 @@ export default function ChatView() {
               </button>
             </div>
           )}
-          <WorkspaceOverlaysBar />
-          <ComposerLiveStatus />
-          <ChatBar
-            {...handlers}
-            placeholder={pendingQuestion ? "回复代理的问题…" : runStatus === "running" ? "任务进行中，完成后可继续追问…" : "继续追问…"}
-            showFooter
-            modeInteractive={false}
-            disabled={runStatus === "running" && !pendingQuestion}
-            stopping={stopping}
-            onStop={() => void stopTask()}
-          />
+          {pendingQuestion && pendingQuestionMessage && (
+            <HumanQuestionCard
+              key={`${activeId}:${pendingQuestion.question_id}`}
+              question={pendingQuestion}
+              text={pendingQuestionMessage.content}
+              projectId={activeId || undefined}
+              hidden={questionCollapsed}
+              onClose={() => setCollapsedQuestionId(pendingQuestion.question_id)}
+            />
+          )}
+          {(!pendingQuestion || questionCollapsed) && <>
+            <WorkspaceOverlaysBar />
+            <ComposerLiveStatus />
+            <ChatBar
+              {...handlers}
+              placeholder={pendingQuestion ? "回复代理的问题…" : runStatus === "running" ? "任务进行中，完成后可继续追问…" : "继续追问…"}
+              showFooter
+              modeInteractive={false}
+              disabled={runStatus === "running" && !pendingQuestion}
+              stopping={stopping}
+              onStop={() => void stopTask()}
+            />
+          </>}
         </div>
       </div>
     </section>

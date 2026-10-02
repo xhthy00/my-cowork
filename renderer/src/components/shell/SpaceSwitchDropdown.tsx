@@ -24,6 +24,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -31,10 +32,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useCompactLayout } from "@/hooks/useCompactLayout";
 import type { CoworkSpace } from "@/store/spaces";
 
 export interface SpaceSwitchDropdownProps {
   trigger?: ReactElement;
+  disabled?: boolean;
   spaces: CoworkSpace[];
   activeSpaceId: string | null;
   canRenameActiveSpace?: boolean;
@@ -43,11 +46,13 @@ export interface SpaceSwitchDropdownProps {
   onStartFromScratch: () => void;
   onSelectFolder: () => void;
   contentAlign?: "start" | "center" | "end";
+  contentSide?: "top" | "right" | "bottom" | "left";
   contentClassName?: string;
 }
 
 export default function SpaceSwitchDropdown({
   trigger,
+  disabled,
   spaces,
   activeSpaceId,
   canRenameActiveSpace = true,
@@ -56,11 +61,15 @@ export default function SpaceSwitchDropdown({
   onStartFromScratch,
   onSelectFolder,
   contentAlign = "start",
+  contentSide = "bottom",
   contentClassName,
 }: SpaceSwitchDropdownProps) {
+  const compact = useCompactLayout();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const openingDialog = useRef(false);
 
   const filteredSpaces = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -98,11 +107,18 @@ export default function SpaceSwitchDropdown({
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger asChild>{trigger ?? defaultTrigger}</DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild disabled={disabled}>{trigger ?? defaultTrigger}</DropdownMenuTrigger>
       <DropdownMenuContent
+        ref={contentRef}
         align={contentAlign}
+        side={contentSide}
         sideOffset={6}
-        className={cn("min-w-[280px] overflow-hidden p-0", contentClassName)}
+        collisionPadding={12}
+        onCloseAutoFocus={(event) => {
+          if (openingDialog.current) event.preventDefault();
+          openingDialog.current = false;
+        }}
+        className={cn("w-[280px] min-w-0 max-w-[calc(100vw-24px)] overflow-y-auto p-0", contentClassName)}
       >
         <div className="flex flex-col gap-1 p-1">
           <div className="relative">
@@ -111,9 +127,17 @@ export default function SpaceSwitchDropdown({
               ref={searchInputRef}
               value={searchQuery}
               placeholder="搜索工作空间…"
+              aria-label="搜索工作空间"
               className="h-8 w-full rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default pl-8 pr-2 text-sm outline-none focus:ring-2 focus:ring-ds-ring-neutral-subtle-default"
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") return;
+                e.stopPropagation();
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  contentRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([data-disabled])')?.focus();
+                }
+              }}
             />
           </div>
 
@@ -127,9 +151,10 @@ export default function SpaceSwitchDropdown({
                 <DropdownMenuItem
                   key={space.id}
                   className="h-8 cursor-pointer"
-                  onClick={() => {
+                  data-selected={activeSpaceId === space.id}
+                  onSelect={() => {
                     onSpaceSelect(space.id);
-                    setOpen(false);
+                    handleOpenChange(false);
                   }}
                 >
                   <Check
@@ -154,37 +179,40 @@ export default function SpaceSwitchDropdown({
               <Plus className="h-4 w-4 shrink-0" aria-hidden />
               创建工作空间
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-52 p-1" sideOffset={6} alignOffset={-4}>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2"
-                onSelect={(e) => {
-                  e.preventDefault();
-                  onStartFromScratch();
-                  setOpen(false);
-                }}
-              >
-                <PlusCircle className="h-4 w-4 shrink-0" aria-hidden />
-                从空白开始
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2"
-                onSelect={(e) => {
-                  e.preventDefault();
-                  onSelectFolder();
-                  setOpen(false);
-                }}
-              >
-                <FolderOpen className="h-4 w-4 shrink-0" aria-hidden />
-                选择文件夹…
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent className="w-52 p-1" sideOffset={compact ? -276 : 6} collisionPadding={12} alignOffset={-4}>
+                <DropdownMenuItem
+                  className="cursor-pointer gap-2"
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    onStartFromScratch();
+                    handleOpenChange(false);
+                  }}
+                >
+                  <PlusCircle className="h-4 w-4 shrink-0" aria-hidden />
+                  从空白开始
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer gap-2"
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    onSelectFolder();
+                    handleOpenChange(false);
+                  }}
+                >
+                  <FolderOpen className="h-4 w-4 shrink-0" aria-hidden />
+                  选择文件夹…
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
           </DropdownMenuSub>
 
           <DropdownMenuItem
             className="cursor-pointer"
             disabled={!canRenameActiveSpace || !activeSpaceId}
-            onClick={() => {
-              setOpen(false);
+            onSelect={() => {
+              openingDialog.current = true;
+              handleOpenChange(false);
               onRenameSpace();
             }}
           >

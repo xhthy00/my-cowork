@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import { apiFetch } from "./backend";
-import { normalizeSSEvent } from "./sse";
+import { normalizeSSEvent, type SSEvent } from "./sse";
 import { useSessionsStore } from "@/store/sessions";
 import { useSpacesStore } from "@/store/spaces";
 import { getProjectRuntime } from "@/store/projectRuntime";
-import { dispatchProjectEvent, rememberProjectTaskId } from "@/store/livePark";
+import { dispatchProjectEvent, getProjectTaskId, rememberProjectTaskId } from "@/store/livePark";
+import { resolveEndMessageText, type Message } from "@/store/session";
 
 export interface AppTask {
   task_id: string;
@@ -17,14 +18,37 @@ export interface AppTask {
   waiting?: boolean;
   loaded_skills?: Array<{ id: string; name: string; version: string }>;
   storage_error?: string;
+  recovery?: { cursor: number; end: Record<string, unknown> | null;
+    pending_confirms: Record<string, unknown>[]; pending_questions: Record<string, unknown>[] };
   operations?: Array<{ operation_id: string; tool: string; status: string; result?: unknown; error?: string }>;
 }
 
 export const useAppTasks = create<{ records: Record<string, AppTask>; error: string }>(() => ({ records: {}, error: "" }));
 const cursors = new Map<string, number>();
 const started = new Set<string>();
+const restored = new Set<string>();
 const syncing = new Map<string, Promise<AppTask>>();
+const cachedMessages = new Map<string, Message[]>();
 export const isAppTaskRunning = (task: AppTask) => ["NEW", "RUNNING", "CANCELLING"].includes(task.status);
+
+function terminalStatus(task: AppTask) {
+  if (task.storage_error || ["FAILED", "INTERRUPTED"].includes(task.status)) return "error" as const;
+  if (["DONE", "CANCELLED"].includes(task.status)) return "done" as const;
+  return null;
+}
+
+function restoreTerminalStatus(task: AppTask) {
+  const status = terminalStatus(task);
+  const pid = task.origin.project_id;
+  const bound = getProjectTaskId(pid);
+  if (!status || (bound && bound !== task.task_id)) return;
+  // Durable task status wins over a cached or replayed graph.start, even if
+  // reading the rest of the history fails. Recovery never starts execution.
+  getProjectRuntime(pid).session.setState({ runStatus: status, taskStartedAt: null,
+    thinking: null, lastContentAt: null, lastBeatAt: null });
+  useSessionsStore.getState().touchSession(pid, { status,
+    updatedAt: useSessionsStore.getState().sessions.find(project => project.id === pid)?.updatedAt });
+}
 
 export async function appAIRequest<T>(appId: string, path: string, body?: unknown): Promise<T> {
   const base = await window.api.getBackendUrl();
@@ -40,48 +64,156 @@ export async function appAIRequest<T>(appId: string, path: string, body?: unknow
 function register(task: AppTask) {
   const origin = task.origin;
   const sessions = useSessionsStore.getState();
+  const existing = sessions.sessions.find(project => project.id === origin.project_id);
+  const updatedAt = task.updated_at > 0 ? task.updated_at * 1000 : existing?.updatedAt ?? Date.now();
   sessions.createProject(task.text.slice(0, 60), { id: origin.project_id, spaceId: origin.space_id, background: true,
+    createdAt: existing?.createdAt ?? updatedAt, updatedAt,
     workdirMode: "artifact-only", appOrigin: { appId: origin.app_id, appName: origin.app_name, route: origin.route,
       taskId: task.task_id, generation: origin.generation } });
+  sessions.touchSession(origin.project_id, { updatedAt, appOrigin: { appId: origin.app_id, appName: origin.app_name,
+    route: origin.route, taskId: task.task_id, generation: origin.generation } });
   useAppTasks.setState(state => ({ records: { ...state.records, [task.task_id]: { ...state.records[task.task_id], ...task } } }));
 }
 
-export function syncAppTask(task: AppTask): Promise<AppTask> {
+export function syncAppTask(task: AppTask, options?: { recovery?: boolean }): Promise<AppTask> {
   const pending = syncing.get(task.task_id);
   if (pending) return pending;
-  const work = syncRecord(task).finally(() => syncing.delete(task.task_id));
+  const work = (options?.recovery && !started.has(task.task_id) ? restoreRecord(task) : syncRecord(task))
+    .finally(() => syncing.delete(task.task_id));
   syncing.set(task.task_id, work);
   return work;
+}
+
+async function restoreRecord(task: AppTask) {
+  register(task);
+  restoreTerminalStatus(task);
+  const snapshot = await appAIRequest<AppTask>(task.origin.app_id, `/tasks/${task.task_id}?recovery=true`);
+  const pid = task.origin.project_id;
+  const runtime = getProjectRuntime(pid);
+  const recordedAt = snapshot.updated_at > 0 ? snapshot.updated_at * 1000
+    : useSessionsStore.getState().sessions.find(project => project.id === pid)!.updatedAt;
+  const messages = [...(runtime.session.getState().messages.length
+    ? runtime.session.getState().messages : useSessionsStore.getState().getMessages(pid))];
+  let user = messages.findIndex(message => message.id === `app-user-${task.task_id}`);
+  if (user < 0) user = messages.findIndex(message => message.role === "user" && message.content === task.text);
+  if (user < 0) {
+    user = messages.length;
+    messages.push({id: `app-user-${task.task_id}`, role: "user", content: task.text, createdAt: recordedAt});
+  }
+  let end = messages.findIndex((message, index) => index > user && message.role === "user" && !message.humanReplyTo);
+  if (end < 0) end = messages.length;
+  const final = snapshot.recovery?.end ? normalizeSSEvent(snapshot.recovery.end).payload : {};
+  const summary = resolveEndMessageText(String(final.summary || ""));
+  const error = snapshot.storage_error || String(final.error || "");
+  const content = summary || (error ? `任务失败：${error}` : "");
+  if (content) {
+    let answer = -1;
+    for (let i = user + 1; i < end; i++) {
+      const message = messages[i];
+      if (message.role === "assistant" && !message.humanQuestion && !message.confirm && !message.memoryNotice) answer = i;
+    }
+    if (answer >= 0) {
+      // Keep an interrupted partial answer when there is no final summary.
+      const prior = messages[answer];
+      messages[answer] = {...prior, content: summary || (prior.content.includes(content) ? prior.content : `${prior.content}\n${content}`)};
+    } else {
+      messages.splice(end, 0, {id: `app-answer-${task.task_id}`, role: "assistant", content, createdAt: recordedAt});
+      end++;
+    }
+  }
+  const settled = terminalStatus(snapshot);
+  for (let i = user; i < end; i++) {
+    const message = messages[i];
+    messages[i] = {...message, createdAt: message.createdAt ? Math.min(message.createdAt, recordedAt) : recordedAt,
+      ...(settled && message.humanQuestion?.status === "pending"
+        ? {humanQuestion: {...message.humanQuestion, status: "cancelled" as const}} : {}),
+      ...(settled && message.confirm?.status === "pending"
+        ? {confirm: {...message.confirm, status: "expired" as const}} : {})};
+  }
+  rememberProjectTaskId(pid, task.task_id);
+  runtime.session.setState({messages, trace: [], traceNodes: [], traceEdges: [], currentStepId: null,
+    answerStreamByAgent: {}, confirmQueue: [], thinking: null, taskStartedAt: null, lastContentAt: null, lastBeatAt: null,
+    runStatus: settled || "running"});
+  // Only current unanswered requests are restored; old tool/LLM events stay on disk.
+  if (!settled) {
+    for (const request of snapshot.recovery?.pending_confirms || []) {
+      dispatchProjectEvent(pid, normalizeSSEvent({...request, type: "tool.confirm_request", task_id: task.task_id}), {historical: true});
+    }
+    for (const question of snapshot.recovery?.pending_questions || []) {
+      dispatchProjectEvent(pid, normalizeSSEvent({...question, type: "human.ask", task_id: task.task_id}), {historical: true});
+    }
+    runtime.session.setState({trace: [], traceNodes: [], traceEdges: []});
+  }
+  cursors.set(task.task_id, snapshot.recovery?.cursor || 0);
+  started.add(task.task_id);
+  restored.add(task.task_id);
+  register(snapshot);
+  restoreTerminalStatus(snapshot);
+  useAppTasks.setState({error: ""});
+  return snapshot;
 }
 
 async function syncRecord(task: AppTask) {
   register(task);
   const pid = task.origin.project_id;
   const runtime = getProjectRuntime(pid);
+  restoreTerminalStatus(task);
+  // Fetch every page before publishing history. Replaying graph.start between
+  // network awaits made a completed task look live at 500 / 1000 events on boot.
+  const events: Array<{ seq: number; event: SSEvent }> = [];
+  let cursor = cursors.get(task.task_id) || 0;
+  let snapshot: AppTask;
+  do {
+    snapshot = await appAIRequest<AppTask>(task.origin.app_id, `/tasks/${task.task_id}?after=${cursor}`);
+    restoreTerminalStatus(snapshot);
+    for (const row of snapshot.events || []) {
+      events.push({ seq: row.seq, event: normalizeSSEvent(row.event) });
+      cursor = row.seq;
+    }
+  } while (snapshot.events?.length === 500);
   if (!started.has(task.task_id)) {
     // Server execution records are authoritative; clear cached display once per project on recovery.
     if (![...started].some(id => useAppTasks.getState().records[id]?.origin.project_id === pid)) {
+      cachedMessages.set(pid, runtime.session.getState().messages.length
+        ? runtime.session.getState().messages : useSessionsStore.getState().getMessages(pid));
       runtime.session.setState({ messages: [] });
     }
     started.add(task.task_id);
-    runtime.session.getState().addUserMessage(task.text);
-    runtime.session.getState().beginRun();
+    const cached = cachedMessages.get(pid)?.find(message => message.id === `app-user-${task.task_id}`)
+      || cachedMessages.get(pid)?.find(message => message.role === "user" && message.content === task.text);
+    const recordedAt = task.updated_at > 0 ? task.updated_at * 1000 : useSessionsStore.getState().sessions.find(project => project.id === pid)!.updatedAt;
+    runtime.session.setState(state => ({ messages: [...state.messages, { id: `app-user-${task.task_id}`,
+      role: "user", content: task.text, createdAt: cached?.createdAt ? Math.min(cached.createdAt, recordedAt) : recordedAt }] }));
+    if (isAppTaskRunning(snapshot)) runtime.session.getState().beginRun();
     rememberProjectTaskId(pid, task.task_id);
-    useSessionsStore.getState().touchSession(pid, { appOrigin: { appId: task.origin.app_id, appName: task.origin.app_name,
-      route: task.origin.route, taskId: task.task_id, generation: task.origin.generation } });
   }
-  let snapshot: AppTask;
-  do {
-    snapshot = await appAIRequest<AppTask>(task.origin.app_id, `/tasks/${task.task_id}?after=${cursors.get(task.task_id) || 0}`);
-    for (const row of snapshot.events || []) {
-      dispatchProjectEvent(pid, normalizeSSEvent(row.event));
-      cursors.set(task.task_id, row.seq);
-    }
-  } while (snapshot.events?.length === 500);
-  if (snapshot.storage_error || snapshot.status === "INTERRUPTED") {
-    dispatchProjectEvent(pid, { type: "graph.end", payload: { task_id: task.task_id, status: "error", error: snapshot.storage_error || "运行已中断。已完成的修改仍保留，请检查业务记录后再决定是否重新发起。" } });
+  const knownMessageIds = new Set(runtime.session.getState().messages.map(message => message.id));
+  for (const row of events) {
+    dispatchProjectEvent(pid, row.event, { historical: true });
+    cursors.set(task.task_id, row.seq);
   }
+  const status = terminalStatus(snapshot);
+  const hasEnd = runtime.session.getState().trace.some(event => event.type === "graph.end" && event.payload.task_id === task.task_id);
+  const unchangedRestoredEnd = restored.has(task.task_id) && !events.length && terminalStatus(task) === status;
+  if (status && !unchangedRestoredEnd && (!hasEnd || runtime.session.getState().runStatus !== status)) {
+    // Some interrupted/failed tasks have no persisted end event. Always settle
+    // them from the snapshot, retaining any partial answer already recovered.
+    dispatchProjectEvent(pid, { type: "graph.end", payload: { task_id: task.task_id,
+      status: status === "error" ? "error" : snapshot.status === "CANCELLED" ? "cancelled" : "ok",
+      error: snapshot.storage_error || (snapshot.status === "INTERRUPTED"
+        ? "运行已中断。已完成的修改仍保留，请检查业务记录后再决定是否重新发起。" : "任务已结束，未保存结束事件。"),
+    } }, { historical: true });
+  }
+  // Replaying durable events must not turn old messages into newly sent messages.
+  const cached = cachedMessages.get(pid) || [];
+  runtime.session.setState(state => ({ messages: state.messages.map(message => {
+    if (knownMessageIds.has(message.id)) return message;
+    const prior = cached.find(row => row.id === message.id || (row.role === message.role && row.content === message.content));
+    const recordedAt = snapshot.updated_at > 0 ? snapshot.updated_at * 1000 : task.updated_at * 1000;
+    return { ...message, createdAt: prior?.createdAt ? Math.min(prior.createdAt, recordedAt) : recordedAt };
+  }) }));
   register(snapshot);
+  restoreTerminalStatus(snapshot);
   useAppTasks.setState({ error: "" });
   return snapshot;
 }
@@ -130,7 +262,7 @@ export function watchAppTasks() {
       for (const task of tasks) {
         if (stopped) return;
         if (blockedProjects.has(task.origin.project_id)) continue;
-        try { await syncAppTask(task); }
+        try { await syncAppTask(task, {recovery: !recovered}); }
         catch (failure) {
           error = failure instanceof Error ? failure.message : String(failure);
           blockedProjects.add(task.origin.project_id);

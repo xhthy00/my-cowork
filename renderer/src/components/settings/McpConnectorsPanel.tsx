@@ -349,10 +349,7 @@ export default function McpConnectorsPanel() {
     <div className="flex h-auto w-full flex-1 flex-col pb-12">
       <div className="flex w-full flex-wrap items-start justify-between gap-3 pb-6 pt-8">
         <div className="min-w-0">
-          <h2 className="text-heading-sm font-bold text-ds-text-neutral-default-default">
-            连接器
-          </h2>
-          <p className="mt-1 text-body-sm text-ds-text-neutral-muted-default">
+          <p className="text-body-sm text-ds-text-neutral-muted-default">
             本地与远程 MCP
           </p>
         </div>

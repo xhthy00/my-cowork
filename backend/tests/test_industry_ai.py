@@ -55,6 +55,47 @@ async def test_query_exposes_storage_failure_as_terminal_snapshot(setup):
 
 
 @pytest.mark.asyncio
+async def test_recovery_returns_final_answer_without_reading_trace_pages(setup, monkeypatch):
+    client, store, _, app = setup
+    store.create_app_task('history', '旧问题', {'app_id': 'cn.test.one'})
+    store.create_app_task('other', '其他问题', {'app_id': 'cn.test.one'})
+    store.append_event('history', {'type': 'skills.loaded', 'skills': [{'id': 'risk', 'name': '分析', 'version': '1'}]})
+    for _ in range(1730):
+        store.append_event('history', {'type': 'step.delta', 'delta': '历史输出'})
+    store.append_event('history', {'type': 'graph.end', 'status': 'ok', 'summary': '完整答案'})
+    store.append_event('other', {'type': 'graph.end', 'summary': '其他答案'})
+    store.upsert('history', 'DONE')
+    cursor = store.recovery_snapshot('history')['cursor']
+    monkeypatch.setattr(store, 'events', lambda *_args, **_kwargs: pytest.fail('恢复不应读取 Trace 分页'))
+    response = await client.get('/api/industry-ai/cn.test.one/tasks/history?recovery=true')
+    assert response.status_code == 200
+    snapshot = response.json()
+    assert snapshot['events'] == []
+    assert snapshot['recovery']['cursor'] == cursor
+    assert snapshot['recovery']['end']['summary'] == '完整答案'
+    assert snapshot['loaded_skills'][0]['id'] == 'risk'
+    assert snapshot['status'] == 'DONE'
+    assert snapshot['waiting'] is False
+
+
+@pytest.mark.asyncio
+async def test_recovery_cursor_preserves_new_events_and_current_pending_questions(setup):
+    client, store, _, app = setup
+    store.create_app_task('live', '进行中的问题', {'app_id': 'cn.test.one'})
+    store.append_event('live', {'type': 'graph.start'})
+    store.upsert('live', 'RUNNING')
+    question = {'type': 'human.ask', 'question_id': 'q1', 'task_id': 'live', 'question': '收件人是谁？'}
+    app.state.human_input_hub = SimpleNamespace(pending=lambda tid: [question] if tid == 'live' else [])
+    restored = (await client.get('/api/industry-ai/cn.test.one/tasks/live?recovery=true')).json()
+    assert restored['recovery']['pending_questions'] == [question]
+    assert restored['waiting'] is True
+    store.append_event('live', {'type': 'graph.end', 'status': 'ok', 'summary': '新答案'})
+    current = (await client.get(f"/api/industry-ai/cn.test.one/tasks/live?after={restored['recovery']['cursor']}")).json()
+    assert len(current['events']) == 1
+    assert current['events'][0]['event']['summary'] == '新答案'
+
+
+@pytest.mark.asyncio
 async def test_create_is_idempotent_and_binds_scope(setup):
     client, store, submitted, app = setup
     first = await client.post('/api/industry-ai/cn.test.one/tasks', json=body())

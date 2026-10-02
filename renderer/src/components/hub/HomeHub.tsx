@@ -16,11 +16,10 @@ import {
   PlusCircle,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import SearchInput from "@/components/hub/SearchInput";
 import ScheduleView from "@/components/schedule/ScheduleView";
-import { automationApi, type Automation } from "@/api/automations";
 import AlertDialog from "@/components/ui/alertDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -143,14 +142,6 @@ export default function HomeHub() {
   const createFolderSpace = useSpacesStore((s) => s.createFolderSpace);
   const renameSpace = useSpacesStore((s) => s.renameSpace);
   const [query, setQuery] = useState("");
-  const [triggerCount, setTriggerCount] = useState(0);
-  useEffect(() => {
-    if (homeSection !== "triggers") return;
-    const load = () => { void automationApi<{ tasks: Automation[] }>("").then((data) => setTriggerCount(data.tasks.length)).catch(() => {}); };
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
-  }, [homeSection]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sortBy, setSortBy] = useState<SortBy>("updated");
   const [sortDesc, setSortDesc] = useState(true);
@@ -197,13 +188,11 @@ export default function HomeHub() {
     spaces: spaces.length,
     projects: sessions.filter((s) => !activeSpaceId || s.spaceId === activeSpaceId)
       .length,
-    triggers: triggerCount,
   };
 
   const menuItems: { id: HomeSection; name: string; count: number }[] = [
     { id: "spaces", name: "空间", count: counts.spaces },
     { id: "projects", name: "项目", count: counts.projects },
-    { id: "triggers", name: "触发器", count: counts.triggers },
   ];
 
   const searchPlaceholder =
@@ -224,10 +213,11 @@ export default function HomeHub() {
     setSortMenuOpen(false);
   };
 
+  if (homeSection === "triggers") return <ScheduleView standalone />;
+
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col">
-      {/* Adapted from eigent HomeHubToolbar sticky offset */}
-      <div className="sticky top-[var(--home-hub-history-tabs-offset,49px)] z-10 mb-3 flex w-full flex-wrap items-center justify-between gap-3 bg-ds-bg-neutral-subtle-default pb-3 pt-8">
+    <div className="home-hub flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
+      <div role="toolbar" aria-label="项目工具栏" className="home-hub-toolbar mb-4 flex w-full shrink-0 flex-wrap items-center justify-between gap-3 bg-ds-bg-neutral-subtle-default py-4">
         <Tabs
           value={homeSection}
           onValueChange={(v) => setHomeSection(v as HomeSection)}
@@ -336,6 +326,7 @@ export default function HomeHub() {
         </div>
       </div>
 
+      <div className="home-hub-results min-h-0 flex-1 overflow-y-auto" role="region" aria-label={homeSection === "spaces" ? "空间列表" : "项目列表"}>
       {homeSection === "spaces" && (
         <div
           className={cn(
@@ -488,9 +479,7 @@ export default function HomeHub() {
         </div>
       )}
 
-      {homeSection === "triggers" && (
-        <ScheduleView search={query} />
-      )}
+      </div>
 
       <AlertDialog
         open={deleteId != null}

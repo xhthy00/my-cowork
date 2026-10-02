@@ -1,3 +1,4 @@
+import { useCompactLayout } from "@/hooks/useCompactLayout";
 /**
  * Adapted from eigent Workspace shell: ProjectSidebar ↔ main drag resize
  * via react-resizable-panels v4 Group/Panel/Separator.
@@ -5,7 +6,7 @@
  * The sidebar width is user-draggable within generous bounds and persisted
  * across restarts (stored as the Group layout in localStorage).
  */
-import { useCallback } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import {
   Group,
   Panel,
@@ -52,11 +53,36 @@ function loadPersistedLayout(): Layout | undefined {
 export default function WorkspaceShell({
   sidebar,
   main,
+  industryFullscreen = false,
 }: {
   sidebar: React.ReactNode;
   main: React.ReactNode;
+  industryFullscreen?: boolean;
 }) {
-  const folded = usePageTabStore((s) => s.projectSidebarFolded);
+  const sidebarFolded = usePageTabStore((s) => s.projectSidebarFolded);
+  const compact = useCompactLayout();
+  const currentFolded = sidebarFolded || compact;
+  const previousFolded = useRef(currentFolded);
+  // The hidden sidebar must not switch the plugin into a new DOM tree on resize.
+  const folded = industryFullscreen ? previousFolded.current : currentFolded;
+  useLayoutEffect(() => {
+    if (!industryFullscreen) previousFolded.current = currentFolded;
+  }, [currentFolded, industryFullscreen]);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    const updateChromeWidth = () => {
+      const width = sidebar.getBoundingClientRect().width || (folded ? PROJECT_SIDEBAR_RAIL_WIDTH_PX : PROJECT_SIDEBAR_EXPANDED_WIDTH_PX);
+      document.documentElement.style.setProperty("--shell-sidebar-width", `${width}px`);
+    };
+    updateChromeWidth();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateChromeWidth) : null;
+    observer?.observe(sidebar);
+    window.addEventListener("resize", updateChromeWidth);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", updateChromeWidth); };
+  }, [folded]);
 
   const persistLayout = useCallback(
     (layout: Layout, meta: { isUserInteraction: boolean }) => {
@@ -74,7 +100,8 @@ export default function WorkspaceShell({
     return (
       <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-row overflow-hidden">
         <div
-          className="box-border flex h-full shrink-0 flex-col overflow-hidden pr-1"
+          ref={sidebarRef}
+          className="shell-sidebar-column box-border flex h-full shrink-0 flex-col overflow-hidden"
           style={{ width: PROJECT_SIDEBAR_RAIL_WIDTH_PX }}
         >
           {sidebar}
@@ -103,11 +130,12 @@ export default function WorkspaceShell({
         groupResizeBehavior="preserve-pixel-size"
         className="min-h-0 min-w-0 overflow-hidden"
       >
-        <div className="box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
+        <div ref={sidebarRef} className="shell-sidebar-column box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
           {sidebar}
         </div>
       </Panel>
       <Separator
+        style={{ width: 1 }}
         className="relative z-10 w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-ds-bg-brand-subtle-default data-[separator-state=active]:bg-ds-bg-brand-subtle-default before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-['']"
       />
       <Panel id="main" minSize={MAIN_MIN_WIDTH_PX} className="min-h-0 min-w-0">

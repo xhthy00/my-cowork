@@ -370,4 +370,57 @@ describe("ChatBar", () => {
       ).toBeTruthy();
     });
   });
+
+  it("opens cascading add menus and restores focus on Escape", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ skills: [], assistants: [], mcpServers: {} }) }) as unknown as typeof fetch;
+    render(<ChatBar layout="welcome" onEvent={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "添加内容" });
+    await userEvent.click(trigger);
+    for (const name of ["添加文件", "模式", "专家", "技能", "连接器"]) {
+      expect(screen.getByRole("menuitem", { name })).toBeVisible();
+    }
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("searches the cascading skill list and inserts its selected token", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ skills: [
+      { id: "report", name: "报告写作", description: "整理正式报告", enabled: true },
+      { id: "chart", name: "数据图表", description: "可视化数据", enabled: true },
+    ], assistants: [], mcpServers: {} }) }) as unknown as typeof fetch;
+    render(<ChatBar layout="welcome" onEvent={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "添加内容" }));
+    const submenu = screen.getByRole("menuitem", { name: "技能", exact: true });
+    submenu.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    const search = await screen.findByRole("textbox", { name: "搜索技能" });
+    await userEvent.type(search, "正式");
+    expect(screen.queryByRole("menuitem", { name: /数据图表/ })).toBeNull();
+    await userEvent.click(screen.getByRole("menuitem", { name: /报告写作/ }));
+    expect(screen.getByRole("textbox", { name: "任务内容" })).toHaveTextContent("#报告写作");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "任务内容" })).toHaveFocus());
+  });
+
+  it("sends a welcome draft to the workspace selected in its footer", async () => {
+    const { useSpacesStore } = await import("../../renderer/src/store/spaces");
+    const originalSpaces = useSpacesStore.getState();
+    useSpacesStore.setState({
+      spaces: [{ id: "space-report", name: "报告工作区", sourceType: "folder", rootPath: "/tmp/reports", createdAt: 1, updatedAt: 1 }],
+      activeSpaceId: "space-local",
+    });
+    useSessionsStore.setState({ sessions: [], activeId: null, messagesById: {} });
+    try {
+      render(<ChatBar layout="welcome" onEvent={vi.fn()} />);
+      await userEvent.type(screen.getByRole("textbox"), "整理报告");
+      await userEvent.click(screen.getByRole("button", { name: "选择工作空间" }));
+      await userEvent.click(screen.getByRole("menuitem", { name: "报告工作区" }));
+      expect(screen.getByRole("textbox")).toHaveTextContent("整理报告");
+      await userEvent.click(screen.getByTitle("发送"));
+      const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(c => String(c[0]).includes("/api/chat"));
+      expect(JSON.parse(call![1].body)).toMatchObject({ text: "整理报告", space_id: "space-report", workdir_mode: "direct-write" });
+    } finally {
+      useSpacesStore.setState({ spaces: originalSpaces.spaces, activeSpaceId: originalSpaces.activeSpaceId });
+    }
+  });
 });

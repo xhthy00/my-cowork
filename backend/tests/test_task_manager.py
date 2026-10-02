@@ -65,6 +65,19 @@ class TestTaskManagerSubmit:
 
 class TestTaskManagerHandle:
     @pytest.mark.asyncio
+    async def test_closing_at_terminal_event_cleans_nested_execution(self):
+        tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
+        stream = tm.handle(TaskRequest(text="hello", task_id="terminal-cleanup"))
+        async for event in stream:
+            if event["type"] == "graph.end":
+                break
+        await stream.aclose()
+        assert tm.status("terminal-cleanup") == "DONE"
+        assert tm.admission.status()["active"] == 0
+        assert "terminal-cleanup" not in tm._graph_tasks
+        assert "terminal-cleanup" not in tm._cancel_events
+
+    @pytest.mark.asyncio
     async def test_handle_yields_events_and_ends_done(self):
         tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
         req = TaskRequest(text="hello", task_id="t-handle")

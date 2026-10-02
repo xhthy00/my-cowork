@@ -65,6 +65,8 @@ export interface Project {
 }
 
 type CreateProjectOpts = {
+  createdAt?: number;
+  updatedAt?: number;
   background?: boolean;
   appOrigin?: Project["appOrigin"];
   id?: string;
@@ -195,8 +197,8 @@ export const useSessionsStore = create<SessionsState>()(
           title,
           spaceId,
           workdirMode,
-          createdAt: now,
-          updatedAt: now,
+          createdAt: opts?.createdAt ?? now,
+          updatedAt: opts?.updatedAt ?? now,
           status: "idle",
           assistantId: opts?.assistantId,
           assistantName:
@@ -290,7 +292,7 @@ export const useSessionsStore = create<SessionsState>()(
         touchSession: (id, patch) =>
           set((s) => ({
             sessions: s.sessions.map((x) =>
-              x.id === id ? { ...x, ...patch, updatedAt: Date.now() } : x,
+              x.id === id ? { ...x, ...patch, updatedAt: patch?.updatedAt ?? Date.now() } : x,
             ),
           })),
         setProjectWorkdirMode: (id, workdirMode) =>

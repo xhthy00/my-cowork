@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Boxes, RefreshCw, Upload, MoreHorizontal, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Boxes, RefreshCw, Upload, MoreHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -270,8 +270,8 @@ export default function IndustryWorkbench() {
     const needsRecovery = entry.status === "recovery_required" || (lifecycle.phase === "recovery_required" && lifecycle.appId === entry.id);
     return <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" disabled={working} aria-label={`管理 ${entry.manifest.name}`} onPointerDown={(event) => { returnFocus.current = event.currentTarget; }} onFocus={(event) => { returnFocus.current = event.currentTarget; }}>
-          管理<MoreHorizontal className="size-4" />
+        <Button variant="ghost" size="icon" className="!size-8" disabled={working} title={`管理 ${entry.manifest.name}`} aria-label={`管理 ${entry.manifest.name}`} onPointerDown={(event) => { returnFocus.current = event.currentTarget; }} onFocus={(event) => { returnFocus.current = event.currentTarget; }}>
+          <MoreHorizontal className="size-4" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -297,7 +297,7 @@ export default function IndustryWorkbench() {
         {!lifecycle.busy && <button type="button" aria-label="关闭提示" className="shrink-0 rounded p-1 hover:bg-ds-bg-neutral-subtle-default" onClick={() => setDismissedNotice(noticeKey)}><X className="size-4" /></button>}
       </div>
       {lifecycle.phase === "pending_activation" && <Button className="mt-2" variant="outline" size="sm" onClick={() => usePageTabStore.getState().setHubTab("settings")}>打开模型设置</Button>}
-      {lifecycle.phase === "draining" && <div className="mt-2 flex flex-wrap items-center gap-3">
+      {lifecycle.busy && lifecycle.phase === "draining" && <div className="mt-2 flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" onClick={() => usePageTabStore.getState().setWorkspaceView("workspace")}>查看任务</Button>
         <Button variant="outline" size="sm" onClick={() => void window.api.industryCancel()}>取消更新</Button>
         {!!lifecycle.tasks?.length && <details className="app-details"><summary>正在进行的工作</summary><ul>{lifecycle.tasks.map((task, index) => <li key={index}>{task}</li>)}</ul><p>可在原任务中继续回答或主动取消任务。</p></details>}
@@ -312,13 +312,13 @@ export default function IndustryWorkbench() {
 
   return (
     <section className={active ? "flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-ds-bg-neutral-default-default" : "w-full overflow-y-auto px-4 pb-12 pt-6 sm:px-6"}>
-      <div className={active ? "flex h-9 shrink-0 items-center justify-between gap-2 border-b border-ds-border-neutral-subtle-default px-2" : "mb-4 flex flex-wrap items-center justify-between gap-3"}>
+      <div className={active ? "industry-app-toolbar flex h-9 shrink-0 items-center justify-between gap-2 border-b border-ds-border-neutral-subtle-default px-2" : "mb-4 flex flex-wrap items-center justify-between gap-3"}>
         <div className="flex min-w-0 items-center gap-2">
           {active && <Button variant="ghost" size="sm" aria-label="返回应用列表" onClick={() => {
             if (!setActiveId(null)) return;
             setLoaded(false);
             window.requestAnimationFrame(() => document.getElementById(`industry-open-${active.id}`)?.focus());
-          }}><ArrowLeft className="size-4" />应用列表</Button>}
+          }}><ArrowLeft className="size-4" /><span className="industry-back-label">应用列表</span></Button>}
           <h2 className={active ? "m-0 truncate text-sm font-semibold" : "m-0 text-xl font-semibold"}>{active?.manifest.name || "行业工作台"}</h2>
           {active?.dev_revision && <span className="shrink-0 text-[11px] text-ds-text-neutral-muted-default" title={`开发修订：${active.dev_revision}`}>开发调试</span>}
           {active && active.status !== "ready" && <span className="shrink-0 text-xs text-ds-text-neutral-muted-default">{labels[active.status] || "待处理"}</span>}
@@ -348,13 +348,27 @@ export default function IndustryWorkbench() {
         </div>}
         {aiOpen && <IndustryAIPanel appId={active.id} selectedId={aiSelected} onSelect={setAiSelected} onClose={() => setAiOpen(false)} />}
       </div> : apps.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {apps.map(entry => <article key={entry.id} className="flex flex-col rounded-2xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default p-4">
-          <div className="flex items-center justify-between gap-3"><h3 className="m-0 min-w-0 truncate text-base font-semibold">{entry.manifest.name}</h3>{menu(entry)}</div>
-          {entry.manifest.description && <p className="mb-0 mt-2 line-clamp-2 text-sm text-ds-text-neutral-muted-default">{entry.manifest.description}</p>}
-          <div className="mt-auto flex items-center justify-between gap-3 pt-2">
-            <span className="text-xs text-ds-text-neutral-muted-default">{entry.version || entry.candidate?.version} · {entry.dev_revision && "开发调试 · "}{lifecycle.busy && lifecycle.appId === entry.id ? progress : labels[entry.status] || "待处理"}</span>
-            <Button id={`industry-open-${entry.id}`} variant="outline" size="sm" disabled={switching} aria-label={`打开 ${entry.manifest.name}`} onClick={() => { setActiveId(entry.id); setLoaded(false); }}>打开</Button>
-          </div>
+        {apps.map(entry => <article key={entry.id} className="industry-app-card" data-switching={switching || undefined}>
+          <button type="button" id={`industry-open-${entry.id}`} className="industry-app-entry" disabled={switching} aria-label={`打开 ${entry.manifest.name}`} onClick={() => {
+            if (setActiveId(entry.id)) setLoaded(false);
+          }}>
+            <span className="flex min-w-0 items-center gap-3.5 pr-10">
+              <span className="industry-app-icon"><Boxes className="size-6" aria-hidden="true" /></span>
+              <span className="min-w-0">
+                <span className="block truncate text-base font-semibold">{entry.manifest.name}</span>
+                <span className="mt-1 block text-xs text-ds-text-neutral-muted-default">v{entry.version || entry.candidate?.version || "—"}</span>
+              </span>
+            </span>
+            <span className="industry-app-description line-clamp-2 text-sm text-ds-text-neutral-muted-default">{entry.manifest.description || "行业应用"}</span>
+            <span className="industry-app-footer">
+              <span className="industry-app-status" data-status={lifecycle.busy && lifecycle.appId === entry.id ? "busy" : entry.status}>
+                <span className="industry-app-status-dot" aria-hidden="true" />
+                {entry.dev_revision && "开发调试 · "}{lifecycle.busy && lifecycle.appId === entry.id ? progress || "正在处理" : labels[entry.status] || "待处理"}
+              </span>
+              <span className="industry-app-arrow"><ArrowUpRight className="size-4" aria-hidden="true" /></span>
+            </span>
+          </button>
+          <div className="industry-app-management">{menu(entry)}</div>
         </article>)}
       </div> : <div className="flex min-h-60 flex-col items-center justify-center rounded-2xl border border-dashed border-ds-border-neutral-subtle-default text-center">
         <Boxes className="mb-3 size-8 text-ds-text-neutral-muted-default" /><p className="m-0 font-medium">还没有安装行业应用</p><p className="mt-2 text-sm text-ds-text-neutral-muted-default">从可信开发者获取 ZIP 后，在这里安装。</p>

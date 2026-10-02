@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from contextlib import aclosing
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
@@ -90,22 +91,27 @@ async def _event_stream(
         session_id=req.session_id or req.project_id,
     )
     task_id = task_req.task_id or "stream"
+    streaming_ids = {task_id}
     _active_tasks[task_id] = True
     try:
-        async for event in task_manager.handle(task_req):
-            if not _active_tasks.get(task_id, True):
-                # Best-effort cancel underlying graph if stop flipped the flag.
-                if hasattr(task_manager, "cancel"):
-                    task_manager.cancel(task_id)
-                yield f"data: {json.dumps({'type': 'graph.end', 'status': 'cancelled', 'task_id': task_id}, ensure_ascii=False)}\n\n"
-                break
-            tid = str(event.get("task_id") or task_id)
-            _active_tasks[tid] = _active_tasks.get(task_id, True)
-            yield f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
-            if event.get("type") == "graph.end":
-                break
+        # Breaking at graph.end does not close an async generator. Close it in
+        # this context so task cleanup and its admission lease finish promptly.
+        async with aclosing(task_manager.handle(task_req)) as stream:
+            async for event in stream:
+                if not _active_tasks.get(task_id, True):
+                    if hasattr(task_manager, "cancel"):
+                        task_manager.cancel(task_id)
+                    yield f"data: {json.dumps({'type': 'graph.end', 'status': 'cancelled', 'task_id': task_id}, ensure_ascii=False)}\n\n"
+                    break
+                tid = str(event.get("task_id") or task_id)
+                streaming_ids.add(tid)
+                _active_tasks[tid] = _active_tasks.get(task_id, True)
+                yield f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
+                if event.get("type") == "graph.end":
+                    break
     finally:
-        _active_tasks.pop(task_id, None)
+        for tid in streaming_ids:
+            _active_tasks.pop(tid, None)
 
 
 @router.post("/api/chat")

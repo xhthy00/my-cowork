@@ -6,6 +6,7 @@ import {
   Globe,
   LayoutTemplate,
   Plus,
+  PanelRight,
   RefreshCw,
   TerminalSquare,
   X,
@@ -124,6 +125,7 @@ function TabGlyph({ tab }: { tab: SessionPreviewTab }) {
 type CtxMenu = { x: number; y: number; tabId: string };
 
 export default function PreviewPanel() {
+  const sidePanelVisible = usePageTabStore(s => s.sidePanelVisible);
   const pageOpen = usePageTabStore((s) => s.previewOpen);
   const setPageOpen = usePageTabStore((s) => s.setPreviewOpen);
   const setSidePanelVisible = usePageTabStore((s) => s.setSidePanelVisible);
@@ -260,6 +262,12 @@ export default function PreviewPanel() {
             <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
+        <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0"
+          aria-label={sidePanelVisible ? "收起运行详情" : "展开运行详情"}
+          aria-expanded={sidePanelVisible}
+          onClick={() => setSidePanelVisible(!sidePanelVisible)}>
+          <PanelRight className="h-4 w-4" aria-hidden />
+        </Button>
         <Button
           size="icon"
           variant="ghost"

@@ -176,18 +176,22 @@ async def list_tasks(app_id: str, request: Request):
 
 
 @router.get('/tasks/{task_id}')
-async def get_task(app_id: str, task_id: str, request: Request, after: int = Query(default=0, ge=0)):
+async def get_task(app_id: str, task_id: str, request: Request, after: int = Query(default=0, ge=0), recovery: bool = False):
     record = _owned(request, app_id, task_id)
+    store = _store(request)
     error = getattr(request.app.state.task_manager, '_tasks', {}).get(task_id, {}).get('storage_error')
     if error:
         return {**record, 'status': 'FAILED', 'storage_error': error, 'events': [], 'waiting': False}
     hub = getattr(request.app.state, 'confirm_hub', None)
     human = getattr(request.app.state, 'human_input_hub', None)
-    operations = _store(request).operations(task_id)
-    loaded_skills = next((row['event']['skills'] for row in _store(request).events(task_id) if row['event'].get('type') == 'skills.loaded'), [])
-    return {**record, 'events': _store(request).events(task_id, after), 'files': _store(request).task_files(app_id, task_id),
+    confirms = hub.pending(task_id) if hub else []
+    questions = human.pending(task_id) if human else []
+    operations = store.operations(task_id)
+    loaded_skills = (store.latest_event(task_id, 'skills.loaded') or {}).get('skills', [])
+    restored = {'recovery': {**store.recovery_snapshot(task_id), 'pending_confirms': confirms, 'pending_questions': questions}} if recovery else {}
+    return {**record, **restored, 'events': [] if recovery else store.events(task_id, after), 'files': store.task_files(app_id, task_id),
             'loaded_skills': loaded_skills,
-            'waiting': bool((hub.pending(task_id) if hub else []) or (human.pending(task_id) if human else [])),
+            'waiting': bool(confirms or questions),
             'operations': operations}
 
 

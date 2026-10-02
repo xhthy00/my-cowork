@@ -118,9 +118,13 @@ function OptionSpinner({ active }: { active: boolean }) {
 export default function ChatConfirmCard({ confirm, projectId }: { confirm: ConfirmData; projectId?: string }) {
   const activeResolve = useSessionStore((state) => state.resolveConfirm);
   const activeAllow = useSessionStore((state) => state.addAlwaysAllowTool);
+  const activeRemoveAllow = useSessionStore((state) => state.removeAlwaysAllowTool);
+  const activeAllowed = useSessionStore((state) => state.alwaysAllowTools);
   const bound = projectId ? getProjectRuntime(projectId).session.getState() : undefined;
   const resolveConfirm = bound?.resolveConfirm || activeResolve;
   const addAlwaysAllowTool = bound?.addAlwaysAllowTool || activeAllow;
+  const removeAlwaysAllowTool = bound?.removeAlwaysAllowTool || activeRemoveAllow;
+  const alreadyAllowed = (bound?.alwaysAllowTools || activeAllowed).includes(confirm.tool);
 
   const [isResponding, setIsResponding] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -145,10 +149,14 @@ export default function ChatConfirmCard({ confirm, projectId }: { confirm: Confi
       setIsResponding(true);
       setSubmittingId(option.id);
       setHasError(false);
+      const newGrant = option.value === "proceed_always" && !alreadyAllowed;
 
       try {
         const backendUrl = await window.api.getBackendUrl();
         if (!backendUrl) throw new Error("后端未连接");
+        // Resuming the backend can emit the next request before this POST returns.
+        // Install the conversation grant first so that request is auto-approved.
+        if (newGrant) addAlwaysAllowTool(confirm.tool, confirm.call_id);
         {
           const response = await fetch(`${backendUrl}/api/tool/confirm/${encodeURIComponent(confirm.call_id)}`, {
             method: "POST",
@@ -157,16 +165,16 @@ export default function ChatConfirmCard({ confirm, projectId }: { confirm: Confi
           });
           if (!response.ok || !(await response.json()).resolved) throw new Error("此确认已失效");
         }
-        if (option.value === "proceed_always") addAlwaysAllowTool(confirm.tool);
         resolveConfirm(confirm.call_id, ok);
       } catch {
+        if (newGrant) removeAlwaysAllowTool(confirm.tool);
         setHasError(true);
       } finally {
         setIsResponding(false);
         setSubmittingId(null);
       }
     },
-    [confirm, isResponding, resolveConfirm, addAlwaysAllowTool],
+    [confirm, isResponding, resolveConfirm, addAlwaysAllowTool, removeAlwaysAllowTool, alreadyAllowed],
   );
 
   return (

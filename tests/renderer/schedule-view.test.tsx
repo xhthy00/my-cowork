@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import ScheduleView from "../../renderer/src/components/schedule/ScheduleView";
+import HomeHub from "../../renderer/src/components/hub/HomeHub";
+import { usePageTabStore } from "../../renderer/src/store/pageTab";
 
 const base = "http://127.0.0.1:8765";
 const json = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body });
@@ -16,6 +18,26 @@ beforeEach(() => {
 });
 
 afterEach(() => { globalThis.fetch = originalFetch; });
+
+it("uses a single automation toolbar and filters tasks without creating a project", async () => {
+  const tasks = ["每日资讯简报", "每周工作总结"].map((title, index) => ({
+    id: `auto-${index}`, title, instructions: title, enabled: false,
+    schedule_label: "每天 09:00", next_run: null, last_status: "ok", run_count: 7,
+  }));
+  globalThis.fetch = vi.fn().mockResolvedValue(json({ tasks })) as unknown as typeof fetch;
+  usePageTabStore.setState({homeSection: "triggers"});
+  render(<HomeHub />);
+  await screen.findByRole("button", {name: /每日资讯简报.*下次/});
+  expect(screen.getAllByRole("button", {name: "新建", exact: true})).toHaveLength(1);
+  expect(screen.queryByRole("tab", {name: /空间|项目|触发器/})).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", {name: "搜索自动化任务"}), {target: {value: "工作总结"}});
+  expect(screen.getByRole("button", {name: /每周工作总结.*下次/})).toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: /每日资讯简报.*下次/})).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", {name: "搜索自动化任务"}), {target: {value: "不存在"}});
+  expect(screen.getByRole("status")).toHaveTextContent("没有匹配的任务");
+  fireEvent.click(screen.getByRole("button", {name: "新建", exact: true}));
+  expect(screen.getByLabelText("任务名称")).toBeInTheDocument();
+});
 
 it("creates a task from labeled fields and converts weekly time to standard cron", async () => {
   const created = {

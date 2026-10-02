@@ -4,7 +4,7 @@
  *         → footer [mode | ring + model]
  */
 import {
-  ArrowRight,
+  ArrowUp,
   Boxes,
   ChevronDown,
   ChevronUp,
@@ -43,7 +43,9 @@ import {
 import { ensureActiveSession, getActiveProjectContext, useSessionsStore } from "../../store/sessions";
 import { useWorkforceStore } from "../../store/workforce";
 import { SessionMode } from "../../types/workforce";
+import ComposerAddMenu from "./ComposerAddMenu";
 import ChatModelSelect from "./ChatModelSelect";
+import ChatSpaceSelect from "./ChatSpaceSelect";
 import ContextUsageIndicator from "./ContextUsageIndicator";
 import { resolveContextUsage } from "@/lib/formatTokens";
 import { migrateLegacyMemorySetting } from "@/lib/memorySettingsMigration";
@@ -52,6 +54,7 @@ import { appSkillIdsInText } from "@/lib/richText";
 
 interface ChatBarProps {
   onEvent: (event: SSEvent, projectId?: string) => void;
+  layout?: "default" | "welcome";
   onSend?: (text: string) => void;
   onStop?: () => void;
   stopping?: boolean;
@@ -105,6 +108,7 @@ function extractMcpNames(text: string): string[] {
 
 export default function ChatBar({
   onEvent,
+  layout = "default",
   onSend,
   onStop,
   stopping = false,
@@ -113,6 +117,7 @@ export default function ChatBar({
   showFooter = true,
   modeInteractive = true,
 }: ChatBarProps) {
+  const welcomeLayout = layout === "welcome";
   const [input, setInput] = useState("");
   const [maintenanceBusy, setMaintenanceBusy] = useState(false);
   useEffect(() => {
@@ -466,7 +471,7 @@ export default function ChatBar({
   const remainingCount = files.length > 5 ? files.length - 5 : 0;
 
   return (
-    <div className="chat-composer relative z-50 flex w-full min-w-0 flex-col rounded-3xl bg-ds-bg-neutral-default-default">
+    <div data-layout={layout} className="chat-composer relative z-50 flex w-full min-w-0 flex-col rounded-3xl bg-ds-bg-neutral-default-default">
       {openPanel && (
         <div className="pointer-events-auto absolute inset-x-0 bottom-full z-[60] mb-1 flex flex-col gap-1">
           <div ref={panelRef}>
@@ -584,7 +589,7 @@ export default function ChatBar({
           </div>
         )}
 
-        <div className="relative flex w-full flex-1 items-start justify-center gap-2.5 pb-3">
+        <div className="chat-composer-editor relative flex w-full flex-1 items-start justify-center gap-2.5 pb-3">
           <RichChatInput
             ref={inputRef}
             value={input}
@@ -607,8 +612,19 @@ export default function ChatBar({
           <p className="mb-2 text-xs text-[var(--danger)]" role="alert">{replyError}</p>
         )}
 
-        <div className="flex w-full flex-wrap items-center justify-between gap-y-2">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="chat-composer-toolbar flex w-full flex-wrap items-center justify-between gap-y-2">
+          {welcomeLayout ? (
+            <ComposerAddMenu
+              disabled={disabled || Boolean(pendingQuestion)}
+              modeInteractive={modeInteractive}
+              inputValue={input}
+              onAddFiles={() => void handleAddFile()}
+              onToggleItem={toggleToken}
+              onKnowledge={() => togglePanel("knowledge")}
+              onIndustry={() => togglePanel("industry")}
+              onFocusInput={focusInputEnd}
+            />
+          ) : <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
               title="附件"
@@ -684,8 +700,10 @@ export default function ChatBar({
             >
               <Library className="h-4 w-4" />
             </button>
-          </div>
+          </div>}
 
+          <div className="chat-composer-actions flex min-w-0 items-center gap-3">
+          {welcomeLayout && showFooter && <ChatModelSelect compact />}
           {running && onStop && !pendingQuestion ? (
             <button
               type="button"
@@ -701,6 +719,7 @@ export default function ChatBar({
             <button
               type="button"
               title="发送"
+              aria-label="发送消息"
               disabled={!hasContent || disabled || isLoading || (maintenanceBusy && !pendingQuestion)}
               onClick={() => void handleSend()}
               className={cn(
@@ -710,53 +729,51 @@ export default function ChatBar({
                   : "bg-ds-text-neutral-default-default",
               )}
             >
-              <ArrowRight
-                className={cn(
-                  "h-4 w-4 transition-transform duration-200",
-                  hasContent && "-rotate-90",
-                )}
-                strokeWidth={2.2}
-              />
+              <ArrowUp className="chat-send-icon h-4 w-4" strokeWidth={2.4} aria-hidden="true" />
             </button>
           )}
+          </div>
         </div>
       </div>
 
       {maintenanceBusy && !pendingQuestion && <p role="status" className="mt-2 text-xs text-ds-text-neutral-muted-default">应用正在更新，稍后可继续。输入内容会保留。</p>}
       {showFooter && (
-        <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
-          <button
-            type="button"
-            disabled={!modeInteractive}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-xl px-2 py-1 font-medium text-ds-text-neutral-default-default",
-              modeInteractive &&
-                "bg-ds-bg-neutral-default-default hover:bg-ds-bg-neutral-subtle-default",
-              !modeInteractive && "pointer-events-none",
-            )}
-            onClick={() => {
-              if (!modeInteractive) return;
-              setSessionMode(
-                isSingle ? SessionMode.WORKFORCE : SessionMode.SINGLE_AGENT,
-              );
-            }}
-            title="会话模式"
-            aria-label={`会话模式: ${modeLabel}`}
-          >
-            <ModeIcon className="size-3.5 shrink-0" strokeWidth={2} aria-hidden />
-            <span className="text-label-xs">{modeLabel}</span>
-            {modeInteractive && (
-              <span className="inline-flex flex-col leading-none" aria-hidden>
-                <ChevronUp className="-mb-0.5 size-3 opacity-70" strokeWidth={2} />
-                <ChevronDown className="size-3 opacity-70" strokeWidth={2} />
-              </span>
-            )}
-          </button>
+        <div className="chat-composer-footer flex w-full items-center justify-between gap-2 px-3 py-1.5">
+          <div className="chat-composer-context">
+            <ChatSpaceSelect draft={welcomeLayout} disabled={disabled || running || Boolean(pendingQuestion)} />
+            <button
+              type="button"
+              disabled={!modeInteractive}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-xl px-2 py-1 font-medium text-ds-text-neutral-default-default",
+                modeInteractive &&
+                  "bg-ds-bg-neutral-default-default hover:bg-ds-bg-neutral-subtle-default",
+                !modeInteractive && "pointer-events-none",
+              )}
+              onClick={() => {
+                if (!modeInteractive) return;
+                setSessionMode(
+                  isSingle ? SessionMode.WORKFORCE : SessionMode.SINGLE_AGENT,
+                );
+              }}
+              title="会话模式"
+              aria-label={`会话模式: ${modeLabel}`}
+            >
+              <ModeIcon className="size-3.5 shrink-0" strokeWidth={2} aria-hidden />
+              <span className="text-label-xs">{modeLabel}</span>
+              {modeInteractive && (
+                welcomeLayout ? <ChevronDown size={13} aria-hidden /> : <span className="inline-flex flex-col leading-none" aria-hidden>
+                  <ChevronUp className="-mb-0.5 size-3 opacity-70" strokeWidth={2} />
+                  <ChevronDown className="size-3 opacity-70" strokeWidth={2} />
+                </span>
+              )}
+            </button>
+          </div>
 
-          <div className="flex min-w-0 items-center gap-1.5">
+          {!welcomeLayout && <div className="flex min-w-0 items-center gap-1.5">
             <ContextUsageIndicator used={contextUsage.used} limit={contextUsage.limit} />
             <ChatModelSelect />
-          </div>
+          </div>}
         </div>
       )}
     </div>

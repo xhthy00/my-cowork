@@ -29,6 +29,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** Kept in model history, but displayed within the associated question record. */
+  humanReplyTo?: string;
   artifacts?: FileArtifact[];
   /** Epoch ms — powers the AionUi-style hover copy/timestamp row. */
   createdAt?: number;
@@ -144,7 +146,8 @@ export interface SessionState {
   resolveConfirm: (call_id: string, ok?: boolean) => void;
   answerHumanQuestion: (questionId: string, answer: string) => void;
   cancelHumanQuestion: (questionId: string) => void;
-  addAlwaysAllowTool: (tool: string) => void;
+  addAlwaysAllowTool: (tool: string, excludeCallId?: string) => void;
+  removeAlwaysAllowTool: (tool: string) => void;
   /** Re-queue confirm_request still pending on the backend (queue empty / always-allow miss). */
   recoverPendingConfirms: () => void;
   replaceMessages: (messages: Message[]) => void;
@@ -779,7 +782,7 @@ export function createSessionStore(
               ? { ...m, humanQuestion: { ...m.humanQuestion, status: "answered" as const, answer } }
               : m,
           ),
-          { id: nextId(), role: "user" as const, content: answer, createdAt: Date.now() },
+          { id: nextId(), role: "user" as const, content: answer, humanReplyTo: questionId, createdAt: Date.now() },
         ],
       };
     }),
@@ -793,12 +796,25 @@ export function createSessionStore(
       ),
     })),
 
-  addAlwaysAllowTool: (tool) =>
-    set((state) => {
-      const name = tool.trim();
-      if (!name || state.alwaysAllowTools.includes(name)) return state;
-      return { alwaysAllowTools: [...state.alwaysAllowTools, name] };
-    }),
+  addAlwaysAllowTool: (tool, excludeCallId) => {
+    const name = tool.trim();
+    if (!name) return;
+    set((state) => ({ alwaysAllowTools: state.alwaysAllowTools.includes(name)
+      ? state.alwaysAllowTools : [...state.alwaysAllowTools, name] }));
+    // Parallel calls may already be waiting when the user grants this tool.
+    for (const request of get().confirmQueue) {
+      const callId = request.call_id;
+      if (request.tool !== name || callId === excludeCallId || get().autoApprovingConfirmIds.includes(callId)) continue;
+      set((state) => ({ autoApprovingConfirmIds: [...state.autoApprovingConfirmIds, callId] }));
+      void autoApproveConfirm(callId).then((ok) => {
+        if (ok) get().resolveConfirm(callId, true);
+        else set((state) => ({ autoApprovingConfirmIds: state.autoApprovingConfirmIds.filter((id) => id !== callId) }));
+      });
+    }
+  },
+
+  removeAlwaysAllowTool: (tool) =>
+    set((state) => ({ alwaysAllowTools: state.alwaysAllowTools.filter((name) => name !== tool.trim()) })),
 
   recoverPendingConfirms: () =>
     set((state) => {
@@ -1062,7 +1078,7 @@ export function createSessionStore(
         const args = (payload.args as Record<string, unknown>) ?? {};
         const callId = String(payload.call_id ?? "");
         const request = { call_id: callId, tool, args, ...(typeof payload.tool_title === "string" && payload.tool_title ? { tool_title: payload.tool_title } : {}) };
-        if (callId) {
+        if (callId && !state.settledConfirmIds.includes(callId) && !state.autoApprovingConfirmIds.includes(callId)) {
           if (tool && state.alwaysAllowTools.includes(tool)) {
             // Silent approve: do not enqueue (avoids card flash). Only show UI if POST fails.
             const approving = state.autoApprovingConfirmIds.includes(callId)

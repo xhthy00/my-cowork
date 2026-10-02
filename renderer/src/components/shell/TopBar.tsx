@@ -1,252 +1,40 @@
-/**
- * Adapted from eigent: TopBar — fold, home, SpaceSwitchDropdown, utilities.
- */
-import {
-  ChevronsUpDown,
-  Folder,
-  Home,
-  PanelLeft,
-  PanelLeftClose,
-  Search,
-  Settings,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-
-import SpaceSwitchDropdown from "@/components/shell/SpaceSwitchDropdown";
-import AlertDialog from "@/components/ui/alertDialog";
+import * as Dialog from "@radix-ui/react-dialog";
+import { useCompactLayout } from "@/hooks/useCompactLayout";
+import { PanelLeft, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { usePageTabStore } from "@/store/pageTab";
-import { ensureActiveSession, useSessionsStore } from "@/store/sessions";
-import { useSpacesStore } from "@/store/spaces";
+import { useSessionsStore } from "@/store/sessions";
+import { useIndustryNavigation } from "@/store/industryNavigation";
 
-const isElectron =
-  typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent);
-const isMac =
-  typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-
+/** Sidebar utilities stay available on every page. */
 export default function TopBar() {
-  const folded = usePageTabStore((s) => s.projectSidebarFolded);
-  const toggle = usePageTabStore((s) => s.toggleProjectSidebar);
-  const setWorkspaceView = usePageTabStore((s) => s.setWorkspaceView);
-  const setHubTab = usePageTabStore((s) => s.setHubTab);
-  const workspaceView = usePageTabStore((s) => s.workspaceView);
-  const sessions = useSessionsStore((s) => s.sessions);
-  const setActive = useSessionsStore((s) => s.setActive);
-  const createProject = useSessionsStore((s) => s.createProject);
-  const spaces = useSpacesStore((s) => s.spaces);
-  const activeSpaceId = useSpacesStore((s) => s.activeSpaceId);
-  const setActiveSpace = useSpacesStore((s) => s.setActiveSpace);
-  const createBlankSpace = useSpacesStore((s) => s.createBlankSpace);
-  const createFolderSpace = useSpacesStore((s) => s.createFolderSpace);
-  const renameSpace = useSpacesStore((s) => s.renameSpace);
-  const activeSpaceName =
-    spaces.find((x) => x.id === activeSpaceId)?.name || "工作区";
-
+  const sidebarFolded = usePageTabStore(s => s.projectSidebarFolded);
+  const compact = useCompactLayout();
+  const folded = sidebarFolded || compact;
+  const toggle = usePageTabStore(s => s.toggleProjectSidebar);
+  const sessions = useSessionsStore(s => s.sessions);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setSearchOpen((v) => !v);
-      }
+      const page = usePageTabStore.getState();
+      if (page.workspaceView === "hub" && page.hubTab === "workbench" && useIndustryNavigation.getState().activeId) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearchOpen(v => !v); }
       if (e.key === "Escape") setSearchOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return sessions.slice(0, 8);
-    return sessions.filter((s) => s.title.toLowerCase().includes(q)).slice(0, 8);
-  }, [query, sessions]);
-
-  function selectSpace(spaceId: string) {
-    setActiveSpace(spaceId);
-    const first = useSessionsStore.getState().projectsForSpace(spaceId)[0];
-    if (first) setActive(first.id);
-    else createProject("新对话", { spaceId });
-    setWorkspaceView("workspace");
-  }
-
-  async function pickFolderSpace() {
-    const dir = await window.api.selectDirectory?.();
-    if (!dir) return;
-    const name = dir.split(/[/\\]/).filter(Boolean).pop() || "文件夹工作区";
-    const spaceId = createFolderSpace(name, dir);
-    createProject(name, { spaceId, workdirMode: "direct-write" });
-    setWorkspaceView("workspace");
-  }
-
-  function openRename() {
-    setRenameValue(activeSpaceName);
-    setRenameOpen(true);
-  }
-
-  function confirmRename() {
-    const next = renameValue.trim();
-    if (!next || !activeSpaceId) return;
-    renameSpace(activeSpaceId, next);
-    setRenameOpen(false);
-  }
-
-  return (
-    <header
-      className={`app-topbar relative z-50 flex h-10 shrink-0 items-center gap-1 py-1 ${
-        isElectron ? (isMac ? "pl-[72px] pr-2" : "pl-2 pr-2") : "px-2"
-      }`}
-      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-    >
-      <div
-        className="flex min-w-0 items-center gap-0.5"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <Button size="icon" variant="ghost" title="折叠侧栏" onClick={() => toggle()}>
-          {folded ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </Button>
-        {workspaceView === "hub" ? (
-          <button
-            type="button"
-            onClick={() => setWorkspaceView("workspace")}
-            className="flex min-h-[28px] items-center gap-1.5 rounded-full px-2 text-label-sm font-bold text-ds-text-neutral-default-default outline-none transition-colors hover:bg-ds-bg-neutral-default-hover"
-          >
-            <Home className="h-4 w-4 shrink-0" aria-hidden />
-            返回工作区
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                setHubTab("home");
-                usePageTabStore.getState().setHomeSection("spaces");
-              }}
-              aria-label="AI 主页"
-              className="flex min-h-[28px] items-center gap-1.5 rounded-full px-2 text-label-sm font-bold text-ds-text-neutral-default-default outline-none transition-colors hover:bg-ds-bg-neutral-default-hover"
-            >
-              <Home className="h-4 w-4 shrink-0" aria-hidden />
-              AI 主页
-            </button>
-            <SpaceSwitchDropdown
-              contentAlign="start"
-              spaces={spaces}
-              activeSpaceId={activeSpaceId}
-              onSpaceSelect={selectSpace}
-              onRenameSpace={openRename}
-              onStartFromScratch={() => {
-                const id = createBlankSpace();
-                createProject("新对话", {
-                  spaceId: id,
-                  workdirMode: "artifact-only",
-                });
-                setWorkspaceView("workspace");
-              }}
-              onSelectFolder={() => void pickFolderSpace()}
-              trigger={
-                <button
-                  type="button"
-                  className="flex min-h-[28px] min-w-0 items-center gap-1.5 rounded-full px-2 text-label-sm font-bold text-ds-text-neutral-default-default outline-none transition-colors hover:bg-ds-bg-neutral-default-hover"
-                  aria-haspopup="menu"
-                  aria-label={activeSpaceName}
-                >
-                  <Folder className="h-4 w-4 shrink-0" aria-hidden />
-                  <span className="min-w-0 max-w-[220px] overflow-hidden text-ellipsis whitespace-nowrap">
-                    {activeSpaceName}
-                  </span>
-                  <ChevronsUpDown
-                    className="h-3.5 w-3.5 shrink-0 text-ds-icon-neutral-subtle-default"
-                    aria-hidden
-                  />
-                </button>
-              }
-            />
-          </>
-        )}
-      </div>
-
-      <div className="h-7 min-w-0 flex-1" aria-hidden />
-
-      <div
-        className="flex items-center gap-0.5"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <Button
-          size="icon"
-          variant="ghost"
-          title="搜索会话 (⌘K)"
-          onClick={() => setSearchOpen((v) => !v)}
-        >
-          <Search className="h-4 w-4" />
-        </Button>
-        <Button size="icon" variant="ghost" title="设置" onClick={() => setHubTab("settings")}>
-          <Settings className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {searchOpen && (
-        <div
-          className="absolute left-1/2 top-11 z-50 w-[min(420px,90vw)] -translate-x-1/2 rounded-2xl border border-ds-border-neutral-default-default bg-ds-bg-neutral-default-default p-3 shadow-soft"
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <input
-            autoFocus
-            className="mb-2 w-full rounded-xl border border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default px-3 py-2 text-sm outline-none"
-            placeholder="搜索会话…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="max-h-64 space-y-1 overflow-y-auto">
-            {filtered.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-ds-bg-neutral-subtle-default"
-                onClick={() => {
-                  setActive(s.id);
-                  setWorkspaceView("workspace");
-                  ensureActiveSession();
-                  setSearchOpen(false);
-                  setQuery("");
-                }}
-              >
-                <span className="truncate font-medium">{s.title}</span>
-                <span className="text-[11px] text-ds-text-neutral-subtle-default">
-                  {s.status}
-                </span>
-              </button>
-            ))}
-            {!filtered.length && (
-              <p className="px-2 py-3 text-xs text-ds-text-neutral-subtle-default">
-                无匹配会话
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      <AlertDialog
-        open={renameOpen}
-        title="重命名工作空间"
-        confirmLabel="保存"
-        confirmDisabled={!renameValue.trim()}
-        onCancel={() => setRenameOpen(false)}
-        onConfirm={confirmRename}
-      >
-        <input
-          autoFocus
-          value={renameValue}
-          placeholder="工作空间名称"
-          className="h-9 w-full rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default px-3 text-sm outline-none focus:ring-2 focus:ring-ds-ring-neutral-subtle-default"
-          onChange={(e) => setRenameValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && renameValue.trim()) confirmRename();
-          }}
-        />
-      </AlertDialog>
-    </header>
-  );
+  const filtered = useMemo(() => sessions.filter(s => s.title.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8), [query, sessions]);
+  return <header data-folded={folded} className="app-topbar flex shrink-0 items-center justify-end gap-2 px-4">
+    <Button size="icon" variant="ghost" disabled={compact} aria-label={folded ? "展开侧栏" : "折叠侧栏"} aria-expanded={!folded} onClick={toggle}><PanelLeft size={18} aria-hidden /></Button>
+    <Button ref={searchTriggerRef} size="icon" variant="ghost" aria-label="搜索任务" title="搜索任务 (⌘K)" aria-expanded={searchOpen} onClick={() => setSearchOpen(v => !v)}><Search size={18} aria-hidden /></Button>
+    <Dialog.Root open={searchOpen} onOpenChange={setSearchOpen}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[140] bg-black/15" /><Dialog.Content onCloseAutoFocus={event => { event.preventDefault(); searchTriggerRef.current?.focus(); }} aria-describedby={undefined} className="task-search-dialog">
+      <div className="mb-3 flex items-center justify-between"><Dialog.Title className="font-semibold">搜索任务</Dialog.Title><Button size="sm" variant="ghost" onClick={() => setSearchOpen(false)}>关闭</Button></div>
+      <input autoFocus aria-label="任务名称" className="mb-3 w-full rounded-xl border border-ds-border-neutral-default-default bg-ds-bg-neutral-subtle-default px-3 py-3 text-sm" placeholder="输入任务名称…" value={query} onChange={e => setQuery(e.target.value)} />
+      <div className="max-h-64 space-y-1 overflow-y-auto">{filtered.map(s => <button key={s.id} type="button" className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm hover:bg-ds-bg-neutral-subtle-default" onClick={() => { usePageTabStore.getState().setWorkspaceView("workspace"); if (usePageTabStore.getState().workspaceView !== "workspace") return; useSessionsStore.getState().setActive(s.id); setSearchOpen(false); setQuery(""); }}><span className="truncate">{s.title}</span></button>)}{!filtered.length && <p className="px-3 py-4 text-sm text-ds-text-neutral-muted-default">没有找到匹配的任务</p>}</div>
+    </Dialog.Content></Dialog.Portal></Dialog.Root>
+  </header>;
 }

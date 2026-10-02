@@ -8,23 +8,28 @@ import { leaveIndustryPage } from "./industryNavigation";
 import type { SessionPreviewTab } from "./preview";
 
 export type HubTab = "home" | "workbench" | "agents" | "knowledge" | "connectors" | "browser" | "settings";
+export type SettingsSection = "general" | "appearance" | "schedule" | "model" | "knowledge" | "browser" | "paths" | "channels" | "search" | "audit" | "about";
 export type HomeSection = "spaces" | "projects" | "triggers";
 export type WorkspaceView = "workspace" | "hub";
-export type AgentsSection = "skills" | "sub-agents" | "memory";
+export type AgentsSection = "skills" | "skill-store" | "sub-agents" | "memory";
 export type BrowserSection = "agent" | "cdp" | "extension" | "cookies";
 
-export function migratePageTabState(persisted: unknown): unknown {
-  const state = persisted as Partial<PageTabState> & { agentsSection?: string };
-  if (state?.agentsSection === "models") {
-    return { ...state, agentsSection: "skills" };
-  }
-  if (state?.browserSection === "cdp") {
-    return { ...state, browserSection: "agent" };
-  }
-  return persisted;
+export function migratePageTabState(persisted: unknown, version = 0): unknown {
+  const state = persisted as Partial<Omit<PageTabState, "agentsSection">> & { agentsSection?: string };
+  if (!state || typeof state !== "object") return persisted;
+  return {
+    ...state,
+    ...(state.agentsSection === "models" ? { agentsSection: "skills" } : {}),
+    ...(version < 2 && state.browserSection === "cdp" ? { browserSection: "agent" } : {}),
+    ...(["settings", "knowledge", "browser"].includes(state.hubTab || "") ? { hubTab: "home" } : {}),
+  };
 }
 
 interface PageTabState {
+  settingsOpen: boolean;
+  settingsSection: SettingsSection;
+  openSettings: (section?: SettingsSection) => void;
+  setSettingsOpen: (open: boolean) => void;
   workspaceView: WorkspaceView;
   hubTab: HubTab;
   homeSection: HomeSection;
@@ -50,7 +55,11 @@ interface PageTabState {
 export const usePageTabStore = create<PageTabState>()(
   persist(
     (set, get) => ({
-      workspaceView: "hub",
+      settingsOpen: false,
+      settingsSection: "general",
+      openSettings: (settingsSection = "general") => set({ settingsOpen: true, settingsSection }),
+      setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+      workspaceView: "workspace",
       hubTab: "home",
       homeSection: "spaces",
       agentsSection: "skills",
@@ -64,6 +73,8 @@ export const usePageTabStore = create<PageTabState>()(
         set({ workspaceView });
       },
       setHubTab: (hubTab) => {
+        if (hubTab === "settings") { get().openSettings(); return; }
+        if (hubTab === "knowledge" || hubTab === "browser") { get().openSettings(hubTab); return; }
         if (get().workspaceView === "hub" && get().hubTab === "workbench" && hubTab !== "workbench" && !leaveIndustryPage()) return;
         set({ hubTab, workspaceView: "hub" });
       },
@@ -81,12 +92,12 @@ export const usePageTabStore = create<PageTabState>()(
     }),
     {
       name: "my-cowork-page-tab",
-      version: 2,
-      migrate: (persisted) => migratePageTabState(persisted),
+      version: 3,
+      migrate: (persisted, version) => migratePageTabState(persisted, version),
       partialize: (s) => ({
         projectSidebarFolded: s.projectSidebarFolded,
         projectHistoryCollapsed: s.projectHistoryCollapsed,
-        hubTab: s.hubTab,
+        hubTab: ["settings", "knowledge", "browser"].includes(s.hubTab) ? "home" : s.hubTab,
         agentsSection: s.agentsSection,
         browserSection: s.browserSection,
       }),

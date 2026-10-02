@@ -111,10 +111,9 @@ export default function MemoryView() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-8">
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-6 pb-8 pt-2">
       <header className="mb-1">
-        <h2 className="text-xl font-semibold tracking-tight text-ds-text-neutral-default-default">记忆</h2>
-        <p className="mt-1 text-sm text-ds-text-neutral-muted-default">智能体可以跨会话记住关于你的有用信息。已记住的内容都列在这里。</p>
+        <p className="text-sm text-ds-text-neutral-muted-default">智能体可以跨会话记住关于你的有用信息。已记住的内容都列在这里。</p>
       </header>
 
       {error && <div role="alert" className="rounded-lg border border-[var(--danger)] bg-[var(--danger-soft)] px-3 py-2.5 text-sm text-ds-text-error-default-default">{error}</div>}

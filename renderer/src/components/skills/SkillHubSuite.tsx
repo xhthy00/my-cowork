@@ -123,12 +123,10 @@ export default function SkillHubSuite({
   }
 
   return (
-    <section className="mt-8">
+    <section className="skill-store-catalog mt-8" aria-label="SkillHub 技能目录">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ds-text-neutral-default-default">
-          推荐 SkillHub 套件
-        </h3>
-        <div className="flex items-center gap-3 text-xs text-ds-text-neutral-muted-default">
+        <h3 className="sr-only">SkillHub 技能目录</h3>
+        <div className="ml-auto flex items-center gap-3 text-xs text-ds-text-neutral-muted-default">
           {debouncedKeyword.trim() ? <span>共 {total} 个结果</span> : null}
           <span>综合评分</span>
           <a

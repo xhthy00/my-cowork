@@ -1,10 +1,10 @@
 /** @vitest-environment jsdom */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import HumanQuestionCard from "../../renderer/src/components/chat/HumanQuestionCard";
+import HumanQuestionCard, { HumanQuestionSummary } from "../../renderer/src/components/chat/HumanQuestionCard";
 import { getProjectRuntime } from "../../renderer/src/store/projectRuntime";
 import { useSessionsStore } from "../../renderer/src/store/sessions";
 
@@ -20,6 +20,7 @@ const question = {
 let originalFetch: typeof fetch;
 
 beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   originalFetch = globalThis.fetch;
   globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }) as unknown as typeof fetch;
   window.api = { ...window.api, getBackendUrl: vi.fn().mockResolvedValue(BACKEND_URL) };
@@ -27,6 +28,17 @@ beforeEach(() => {
   getProjectRuntime("project-question-test").session.setState({
     messages: [{ id: "ask-message", role: "assistant", content: "选哪种格式？", humanQuestion: question }],
   });
+});
+
+it("focuses and reveals the missing required field without scrolling its hidden input", async () => {
+  render(<HumanQuestionCard question={question} text="选哪种格式？" />);
+  const option = screen.getByRole("radio", { name: "PDF" });
+  const focus = vi.spyOn(option, "focus");
+  await userEvent.click(screen.getByRole("button", { name: "提交并继续" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("请回答这一项");
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(globalThis.fetch).not.toHaveBeenCalled();
 });
 
 afterEach(() => {
@@ -71,10 +83,19 @@ it("submits structured form choices and typed details together", async () => {
     ],
   };
   render(<HumanQuestionCard question={structured} text="请补充通知内容" />);
+  expect(screen.getAllByRole("group")).toHaveLength(1);
+  expect(screen.queryByRole("textbox", { name: "发送日期" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("radio", { name: "价格调整" }));
+  await userEvent.click(screen.getByRole("button", { name: "下一步" }));
   await userEvent.click(screen.getByRole("checkbox", { name: "时间" }));
   await userEvent.click(screen.getByRole("checkbox", { name: "自己填写" }));
   await userEvent.type(screen.getByRole("textbox", { name: "需要说明：自定义内容" }), "老用户不受影响");
+  await userEvent.click(screen.getByRole("button", { name: "上一题" }));
+  expect(screen.getByRole("radio", { name: "价格调整" })).toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByRole("checkbox", { name: "时间" })).toBeChecked();
+  expect(screen.getByRole("textbox", { name: "需要说明：自定义内容" })).toHaveValue("老用户不受影响");
+  await userEvent.click(screen.getByRole("button", { name: "下一步" }));
   await userEvent.type(screen.getByRole("textbox", { name: "发送日期" }), "10 月 1 日");
   await userEvent.click(screen.getByRole("button", { name: "提交并继续" }));
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -87,16 +108,39 @@ it("submits structured form choices and typed details together", async () => {
 });
 
 it("renders Markdown in a short question", () => {
-  const { container } = render(<HumanQuestionCard question={question} text="请确认 **通知事项** 和 *发送日期*。" />);
+  const { container } = render(<HumanQuestionSummary question={question} text="请确认 **通知事项** 和 *发送日期*。" />);
   expect(container.querySelector("strong")?.textContent).toBe("通知事项");
   expect(container.querySelector("em")?.textContent).toBe("发送日期");
   expect(screen.queryByText(/\*\*通知事项\*\*/)).not.toBeInTheDocument();
 });
 
+it("shows resolved answers and an expandable question in one compact record", async () => {
+  const resolved = { ...question, status: "answered" as const,
+    fields: [{ label: "收件人", kind: "text" as const, options: [], required: true },
+      { label: "邮件目的", kind: "text" as const, options: [], required: true }],
+    answer: "1. 收件人：领导\n2. 邮件目的：请假\n下周一" };
+  const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+  vi.stubGlobal("navigator", { ...navigator, clipboard });
+  const { container } = render(<HumanQuestionSummary question={resolved} text="请补充邮件信息" />);
+  expect(screen.getByRole("region", { name: "已补充的信息" })).toHaveTextContent("领导");
+  expect(container.querySelectorAll("dt")).toHaveLength(2);
+  expect(container.querySelectorAll("dd")[1]).toHaveTextContent("请假 下周一");
+  expect(container.querySelector("details")).not.toHaveAttribute("open");
+  await userEvent.click(screen.getByRole("button", { name: "复制补充信息" }));
+  expect(clipboard.writeText).toHaveBeenCalledWith(resolved.answer);
+  vi.unstubAllGlobals();
+});
+
+it("preserves a free-form legacy reply in the combined record", () => {
+  render(<HumanQuestionSummary question={{ ...question, status: "answered", answer: "用 Word，正文简洁一些。" }} text="选哪种格式？" />);
+  expect(screen.getByText("用 Word，正文简洁一些。")).toBeInTheDocument();
+});
+
 it("renders a long question once inside the expandable section", () => {
   const longQuestion = `请补充客户通知信息。\n\n1. **通知事项**：${"说明具体调整内容。".repeat(70)}`;
-  const { container } = render(<HumanQuestionCard question={question} text={longQuestion} />);
-  expect(screen.getByText("收起完整问题")).toBeInTheDocument();
+  const { container } = render(<HumanQuestionSummary question={question} text={longQuestion} />);
+  expect(screen.getByText("查看问题说明")).toBeInTheDocument();
+  expect(container.querySelector("details")).not.toHaveAttribute("open");
   expect(container.querySelectorAll("strong")).toHaveLength(1);
   expect(container.querySelector("strong")?.textContent).toBe("通知事项");
   expect(screen.queryByText(/\*\*通知事项\*\*/)).not.toBeInTheDocument();
@@ -131,19 +175,16 @@ it("turns a legacy numbered questionnaire into seven separate form fields", asyn
 选项参考（第 1 项常见场景）： A 价格调整通知|B 系统维护停机通知|C 服务升级通知`;
   render(<HumanQuestionCard question={legacy} text={text} />);
 
-  expect(screen.getAllByRole("group")).toHaveLength(7);
+  expect(screen.getAllByRole("group")).toHaveLength(1);
+  expect(screen.getByLabelText("第 1 题，共 7 题")).toBeInTheDocument();
   expect(screen.getByRole("radio", { name: "价格调整通知" })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "关键要素" })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "收件人身份" })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "发件人身份" })).toBeInTheDocument();
-  expect(screen.getByRole("radio", { name: "商务简洁" })).toBeInTheDocument();
-  expect(screen.getByRole("radio", { name: "Word 文件" })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "其他" })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "关键要素" })).not.toBeInTheDocument();
   expect(screen.queryByRole("radio", { name: "全量客户·价格调整通知" })).not.toBeInTheDocument();
-
   await userEvent.click(screen.getByRole("radio", { name: "价格调整通知" }));
+  await userEvent.click(screen.getByRole("button", { name: "下一步" }));
   await userEvent.type(screen.getByRole("textbox", { name: "关键要素" }), "10 月 1 日生效");
-  await userEvent.click(screen.getByRole("button", { name: "提交并继续" }));
+  await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+  for (let i = 0; i < 5; i++) await userEvent.click(screen.getByRole("button", { name: "跳过" }));
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
     `${BACKEND_URL}/api/chat/task-1/human-reply`,
     expect.objectContaining({ body: JSON.stringify({
@@ -151,4 +192,54 @@ it("turns a legacy numbered questionnaire into seven separate form fields", asyn
       answer: "1. 通知事项：价格调整通知\n2. 关键要素：10 月 1 日生效",
     }) }),
   ));
+});
+
+
+it("keeps a required question visible until it is answered", async () => {
+  const fields = { ...question, fields: [
+    { label: "收件人", kind: "text" as const, options: [], required: true },
+    { label: "备注", kind: "text" as const, options: [], required: false },
+  ] };
+  render(<HumanQuestionCard question={fields} text="请补充" />);
+  await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("请回答这一项");
+  expect(screen.getByRole("textbox", { name: "收件人" })).toHaveFocus();
+  expect(screen.queryByRole("button", { name: "跳过" })).toBeNull();
+  expect(globalThis.fetch).not.toHaveBeenCalled();
+});
+
+it("retains typed answers when the panel is closed and reopened", async () => {
+  const { rerender } = render(<HumanQuestionCard question={question} text="选哪种格式？" />);
+  await userEvent.click(screen.getByRole("radio", { name: "自己填写" }));
+  await userEvent.type(screen.getByRole("textbox"), "Markdown");
+  await act(async () => rerender(<HumanQuestionCard question={question} text="选哪种格式？" hidden />));
+  expect(screen.queryByRole("textbox")).toBeNull();
+  await act(async () => rerender(<HumanQuestionCard question={question} text="选哪种格式？" />));
+  expect(screen.getByRole("textbox")).toHaveValue("Markdown");
+});
+
+it("continues the original task when every optional question is skipped", async () => {
+  const optional = { ...question, fields: [
+    { label: "备注", kind: "text" as const, options: [], required: false },
+    { label: "格式", kind: "single" as const, options: ["Word"], required: false },
+  ] };
+  render(<HumanQuestionCard question={optional} text="请补充" />);
+  await userEvent.click(screen.getByRole("button", { name: "跳过" }));
+  await userEvent.click(screen.getByRole("button", { name: "跳过" }));
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+    `${BACKEND_URL}/api/chat/task-1/human-reply`, expect.objectContaining({ body: JSON.stringify({
+      question_id: "question-1", answer: "暂不补充，请根据已有信息继续处理，不确定的信息请标注待确认。",
+    }) }),
+  ));
+});
+
+it("keeps the selected answer after a failed submission and allows retry", async () => {
+  vi.mocked(globalThis.fetch).mockResolvedValueOnce({ ok: false } as Response);
+  render(<HumanQuestionCard question={question} text="选哪种格式？" />);
+  await userEvent.click(screen.getByRole("radio", { name: "Word" }));
+  await userEvent.click(screen.getByRole("button", { name: "提交并继续" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("回复发送失败");
+  expect(screen.getByRole("radio", { name: "Word" })).toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: "提交并继续" }));
+  await waitFor(() => expect(getProjectRuntime("project-question-test").session.getState().messages[0].humanQuestion?.status).toBe("answered"));
 });

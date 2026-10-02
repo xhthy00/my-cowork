@@ -64,6 +64,42 @@ beforeEach(() => {
 });
 
 describe("industry workbench", () => {
+  it("opens the plugin from the card content without a separate open control", async () => {
+    industryList.mockResolvedValue({ apps: [app] });
+    render(<IndustryWorkbench />);
+    const card = await screen.findByRole("button", { name: "打开 任务管理样例" });
+    expect(screen.queryByText("打开", { exact: true })).toBeNull();
+    expect(card).toContainElement(screen.getByText("本地任务管理"));
+    await userEvent.click(screen.getByText("本地任务管理"));
+    expect(screen.getByTitle("任务管理样例")).toBeInTheDocument();
+  });
+
+  it("keeps card management independent from opening the plugin", async () => {
+    industryList.mockResolvedValue({ apps: [app] });
+    render(<IndustryWorkbench />);
+    await userEvent.click(await screen.findByRole("button", { name: "管理 任务管理样例" }));
+    expect(await screen.findByRole("menuitem", { name: "从 ZIP 更新" })).toBeInTheDocument();
+    expect(useIndustryNavigation.getState().activeId).toBeNull();
+    expect(screen.queryByTitle("任务管理样例")).toBeNull();
+  });
+
+  it("supports keyboard entry and disables cards during runtime switching", async () => {
+    industryList.mockResolvedValue({ apps: [app] });
+    const view = render(<IndustryWorkbench />);
+    const card = await screen.findByRole("button", { name: "打开 任务管理样例" });
+    card.focus();
+    await userEvent.keyboard(" ");
+    expect(screen.getByTitle("任务管理样例")).toBeInTheDocument();
+    view.unmount();
+    useIndustryNavigation.setState({ activeId: null });
+    industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: true, phase: "restarting", appId: app.id } });
+    render(<IndustryWorkbench />);
+    const disabledCard = await screen.findByRole("button", { name: "打开 任务管理样例" });
+    expect(disabledCard).toBeDisabled();
+    await userEvent.click(disabledCard);
+    expect(useIndustryNavigation.getState().activeId).toBeNull();
+  });
+
   it("previews trusted Python code before installing a ZIP", async () => {
     render(<IndustryWorkbench />);
     await userEvent.click(screen.getByRole("button", { name: "安装 ZIP" }));
@@ -155,6 +191,16 @@ describe("industry workbench", () => {
     await userEvent.click(screen.getByRole("button", { name: "取消更新" }));
     expect(window.api.industryCancel).toHaveBeenCalledOnce();
     expect(window.api.restartBackend).not.toHaveBeenCalled();
+  });
+
+  it("does not display stale draining tasks after the operation has ended", async () => {
+    industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: false, phase: "draining",
+      active: 2, tasks: ["你好", "帮我写邮件"], message: "更新已结束" } });
+    render(<IndustryWorkbench />);
+    expect(await screen.findByRole("status")).toHaveTextContent("更新已结束");
+    expect(screen.queryByText("正在进行的工作")).toBeNull();
+    expect(screen.queryByRole("button", { name: "取消更新" })).toBeNull();
+    expect(screen.getByRole("button", { name: "安装 ZIP" })).toBeEnabled();
   });
 
   it("does not replay an old success notice on entry but shows a new operation result", async () => {

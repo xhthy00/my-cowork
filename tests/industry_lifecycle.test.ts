@@ -90,6 +90,8 @@ describe("industry lifecycle coordinator", () => {
     expect(events).toContain("cancel");
     expect(hooks.stop).not.toHaveBeenCalled();
     expect(lifecycle.status.phase).toBe("cancelled");
+    expect(lifecycle.status.active).toBe(0);
+    expect(lifecycle.status.tasks).toEqual([]);
   });
 
   it("leaves active work alone when ZIP validation fails before begin", async () => {

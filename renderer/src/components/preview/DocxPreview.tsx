@@ -23,6 +23,16 @@ export default function DocxPreview({ path }: { path: string }) {
     if (styleContainer) styleContainer.innerHTML = "";
     setLoading(true);
     setError("");
+    const fitPage = () => {
+      const page = container.querySelector<HTMLElement>("section.docx-preview-body");
+      if (!page) return;
+      const pageWidth = parseFloat(window.getComputedStyle(page).width);
+      if (pageWidth > 0 && container.clientWidth > 24) {
+        container.style.setProperty("--docx-preview-zoom", String(Math.min(1, (container.clientWidth - 24) / pageWidth)));
+      }
+    };
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fitPage) : null;
+    observer?.observe(container);
 
     void (async () => {
       try {
@@ -41,6 +51,7 @@ export default function DocxPreview({ path }: { path: string }) {
           breakPages: true,
           useBase64URL: true,
         });
+        fitPage();
         if (!cancelled) setLoading(false);
       } catch (e) {
         if (!cancelled) {
@@ -52,6 +63,7 @@ export default function DocxPreview({ path }: { path: string }) {
 
     return () => {
       cancelled = true;
+      observer?.disconnect();
       if (containerRef.current) containerRef.current.innerHTML = "";
       if (styleRef.current) styleRef.current.innerHTML = "";
     };

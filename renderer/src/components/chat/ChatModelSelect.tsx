@@ -22,7 +22,7 @@ import type { ModelProfile } from "@/window";
 
 /** Matches Eigent ModelSelect trigger shell. */
 const modelTriggerShellClass = cn(
-  "rounded-xl px-2 py-1 inline-flex min-w-0 max-w-[min(100%,280px)] items-center gap-1.5",
+  "chat-model-select rounded-xl px-2 py-1 inline-flex min-w-0 max-w-[min(100%,280px)] items-center gap-1.5",
   "bg-ds-bg-neutral-default-default text-ds-text-neutral-default-default",
 );
 
@@ -114,7 +114,7 @@ function ProfileRow({
   );
 }
 
-export default function ChatModelSelect() {
+export default function ChatModelSelect({ compact = false }: { compact?: boolean }) {
   const { models, active, setActive, switching, status } = useModels();
   const [open, setOpen] = useState(false);
 
@@ -184,7 +184,7 @@ export default function ChatModelSelect() {
           <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             {active && <VendorIcon profile={active} size="xs" />}
             <span className="min-w-0 flex-1 truncate text-left text-body-xs text-ds-text-neutral-default-default">
-              {triggerName}
+              {compact && active ? active.name : triggerName}
             </span>
           </span>
           <ChevronDown
