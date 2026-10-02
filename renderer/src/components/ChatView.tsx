@@ -570,7 +570,7 @@ export default function ChatView() {
     activeProject?.assistantName || activeProject?.title || "办公助手";
   const title = boundAssistant
     ? assistantLabel
-    : "把想法变成成果";
+    : "MyCoWork轻松搞定每一件事！";
   const skillIds = activeProject?.enabledSkillIds ?? [];
   const assistantPrompts = activeProject?.assistantPrompts ?? [];
 
