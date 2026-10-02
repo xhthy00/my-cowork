@@ -1,6 +1,6 @@
 {
   "name": "my-cowork",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Desktop office automation agent",
   "author": "MyCowork",
   "license": "MIT",
@@ -9,7 +9,9 @@
     "url": "https://github.com/xhthy00/my-cowork.git"
   },
   "main": "dist-electron/main.js",
-  "bin": { "mycowork-app": "scripts/mycowork-app.cjs" },
+  "bin": {
+    "mycowork-app": "scripts/mycowork-app.cjs"
+  },
   "scripts": {
     "app": "node scripts/mycowork-app.cjs",
     "dev": "node scripts/dev.js",
