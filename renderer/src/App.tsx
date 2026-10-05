@@ -11,7 +11,6 @@ import WorkspaceShell from "./components/workspace/WorkspaceShell";
 import HubView from "./components/hub/HubView";
 import ProjectSidebar from "./components/shell/ProjectSidebar";
 import StartupSplash from "./components/StartupSplash";
-import TopBar from "./components/shell/TopBar";
 import TitleBar from "./components/TitleBar";
 import SettingsDialog from "./components/settings/SettingsDialog";
 import { usePageTabStore } from "./store/pageTab";
@@ -132,7 +131,7 @@ export default function App() {
       <div className="body">
         <WorkspaceShell
           industryFullscreen={industryFullscreen}
-          sidebar={<div className="app-sidebar flex h-full min-h-0 flex-col"><TopBar /><ProjectSidebar fill /></div>}
+          sidebar={<div className="app-sidebar flex h-full min-h-0 flex-col"><ProjectSidebar fill /></div>}
           main={workspaceView === "hub" ? <HubView /> : (
             <WorkspaceSessionLayout
               chat={<ChatView />}

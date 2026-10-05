@@ -17,6 +17,7 @@ import appLogo from "@/assets/brand/app-logo.png";
 import { useMemo, useState } from "react";
 
 import AlertDialog from "@/components/ui/alertDialog";
+import TopBar from "@/components/shell/TopBar";
 import { cn } from "@/lib/utils";
 import {
   PROJECT_SIDEBAR_EXPANDED_WIDTH_PX,
@@ -128,8 +129,11 @@ export default function ProjectSidebar({
       style={fill ? { width: "100%" } : { width }}
     >
       <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
-        <div className="sidebar-brand">
-          {folded ? <img src={appLogo} alt="MyCowork" /> : <><span>MyCoWork</span><small>v{version}</small></>}
+        <div className="sidebar-header">
+          <div className="sidebar-brand">
+            {folded ? <img src={appLogo} alt="MyCowork" /> : <><span>MyCoWork</span><small>v{version}</small></>}
+          </div>
+          <TopBar />
         </div>
         <nav aria-label="主要导航" className="sidebar-navigation flex w-full shrink-0 flex-col gap-1">
           {[

@@ -218,7 +218,58 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
 .app-topbar { position: absolute; z-index: 50; top: 6px; left: 108px; width: calc(var(--shell-sidebar-width, 280px) - 122px); height: 36px; padding: 0; background: transparent; -webkit-app-region: no-drag; }
 .app-topbar[data-folded="true"] { position: static; width: auto; flex-shrink: 0; padding: 0 4px; }
+.sidebar-header { display: flex; flex-direction: column; flex-shrink: 0; }
+.project-sidebar[data-folded="true"] .sidebar-header .app-topbar { order: -1; margin-bottom: 10px; }
 .sidebar-brand { padding-bottom: 12px; }
+
+/* Windows already has native window chrome; use the top row for the brand and utilities. */
+html.electron-windows .titlebar { display: none; }
+html.electron-windows .app-sidebar { padding-top: 0; }
+html.electron-windows .sidebar-header {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+html.electron-windows .sidebar-header .sidebar-brand {
+  flex: 1 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  flex-wrap: wrap;
+  padding: 0 0 0 12px;
+  align-items: center;
+}
+html.electron-windows .sidebar-header .app-topbar {
+  position: static;
+  order: 0;
+  width: auto;
+  height: 36px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  gap: 4px;
+}
+html.electron-windows .project-sidebar[data-folded="true"] .sidebar-header {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+html.electron-windows .project-sidebar[data-folded="true"] .sidebar-brand {
+  flex: none;
+  padding: 0;
+  width: 100%;
+}
+html.electron-windows .project-sidebar[data-folded="true"] .sidebar-header .app-topbar {
+  order: 0;
+  width: 100%;
+  height: auto;
+  min-height: 36px;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0;
+}
+html.electron-windows .window[data-industry-fullscreen="true"] .industry-app-toolbar { padding-left: 20px; }
 
 .project-row > button:first-child > span:last-child { flex-direction: row; align-items: center; gap: 8px; }
 .project-row > button:first-child > span:last-child > span:first-child { min-width: 0; flex: 1; }

@@ -695,7 +695,7 @@ async function createWindow() {
     height: wh,
     title: "MyCowork",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     backgroundColor: "#f5fbff",
     show: false,
     webPreferences: {

@@ -21,6 +21,9 @@ initFontSize();
 // Real Electron already has a native window — fill it and hide the mock chrome.
 if (typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent)) {
   document.documentElement.classList.add("electron");
+  if (/Windows/i.test(navigator.userAgent)) {
+    document.documentElement.classList.add("electron-windows");
+  }
 }
 
 const container = document.getElementById("root");
