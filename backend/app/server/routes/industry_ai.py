@@ -186,6 +186,11 @@ async def get_task(app_id: str, task_id: str, request: Request, after: int = Que
     human = getattr(request.app.state, 'human_input_hub', None)
     confirms = hub.pending(task_id) if hub else []
     questions = human.pending(task_id) if human else []
+    manager = request.app.state.task_manager
+    if getattr(manager, 'uses_deepagents', False) is True and task_id in manager._workers:
+        pending = await manager.pending(task_id)
+        confirms = [item for item in pending if item['kind'] == 'approval']
+        questions = [{**item, 'question_id': item['interrupt_id']} for item in pending if item['kind'] == 'human']
     operations = store.operations(task_id)
     loaded_skills = (store.latest_event(task_id, 'skills.loaded') or {}).get('skills', [])
     restored = {'recovery': {**store.recovery_snapshot(task_id), 'pending_confirms': confirms, 'pending_questions': questions}} if recovery else {}

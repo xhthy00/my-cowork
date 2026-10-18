@@ -8,6 +8,28 @@ from app.main import create_app
 
 class TestModelValidateRoute:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize('name,url,expected', [
+        ('deepseek-flash', 'https://api.deepseek.com/v1', 1_000_000),
+        ('MiniMax-M3', 'https://api.minimaxi.com/v1', 1_000_000),
+        ('MiniMax-M3.1-Flash-Preview', 'https://api.minimax.io/v1', 1_000_000),
+        ('MiniMax-M2.5', 'https://api.minimaxi.com/v1', 204_800),
+        ('MiniMax-M3', 'http://localhost:11434/v1', None),
+        ('MiniMax-future-unknown', 'https://api.minimax.io/v1', None),
+        ('local-unknown', 'http://localhost:11434/v1', None),
+    ])
+    async def test_model_info_uses_local_profile_without_calling_a_model(self, name, url, expected):
+        app = create_app(task_manager=MagicMock(), bus=None, confirm_hub=MagicMock())
+        with patch('langchain_core.language_models.chat_models.BaseChatModel.ainvoke', side_effect=AssertionError('must not call a model')):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+                response = await client.post('/api/model/info', json={
+                    'provider': 'openai_compat', 'model': name, 'base_url': url,
+                })
+        assert response.status_code == 200
+        assert response.json()['model'] == name
+        assert response.json()['context_limit'] == expected
+        assert len(response.json()['context_key']) == 64
+
+    @pytest.mark.asyncio
     async def test_validate_success(self):
         llm = MagicMock()
         llm.ainvoke = AsyncMock(return_value=MagicMock())

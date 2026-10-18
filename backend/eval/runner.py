@@ -64,7 +64,7 @@ def load_goldens(root: Path = GOLDENS) -> list[dict[str, Any]]:
 
 
 def score_case(case: dict[str, Any]) -> dict[str, Any]:
-    from app.runtime.v2.critic import evidence_gate
+    from eval.quality import evidence_gate
 
     user = str(case.get("user") or "")
     fixture = case.get("fixture") or {}
@@ -94,7 +94,7 @@ def score_case(case: dict[str, Any]) -> dict[str, Any]:
         "next": verdict.next,
         "missing": verdict.missing,
         "reasons": reasons,
-        "runtime": "v2",
+        "runtime": "offline",
     }
 
 

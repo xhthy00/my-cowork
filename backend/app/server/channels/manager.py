@@ -726,17 +726,18 @@ class ChannelManager:
         question_id: str,
         answer: str,
     ) -> None:
-        hub = getattr(self.task_manager, "human_input_hub", None)
-        if hub is not None and answer.strip().isdigit():
-            match = next(
-                (q for q in hub.pending(task_id) if q["question_id"] == question_id),
-                None,
-            )
+        manager = self.task_manager
+        official = getattr(manager, 'uses_deepagents', False) is True
+        hub = getattr(manager, "human_input_hub", None)
+        pending = await manager.pending(task_id) if official else (hub.pending(task_id) if hub else [])
+        if answer.strip().isdigit():
+            match = next((q for q in pending if (q.get('interrupt_id') or q.get('question_id')) == question_id), None)
             choices = (match or {}).get("options") or []
             index = int(answer.strip()) - 1
             if 0 <= index < len(choices):
                 answer = str(choices[index])
-        if hub is None or not hub.reply(task_id, question_id, answer):
+        accepted = await manager.resolve(task_id, question_id, {'answer': answer}) if official else bool(hub and hub.reply(task_id, question_id, answer))
+        if not accepted:
             await self._send_text(key[2], "该问题已结束，请重新发送任务。", platform=key[0])
         queue = self._human_questions.get(key, [])
         self._human_questions[key] = [row for row in queue if row != (task_id, question_id)]

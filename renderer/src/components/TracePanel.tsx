@@ -129,18 +129,18 @@ export default function TracePanel({
 
   const budget = useMemo(() => {
     let tokens = 0;
-    let maxTokens = 200_000;
+    let maxTokens = 0;
     let exhausted = false;
     let dailyAlert: string | null = null;
     for (const ev of trace) {
       if (ev.type === "budget.update") {
         tokens = Number(ev.payload.tokens ?? tokens);
-        maxTokens = Number(ev.payload.max_tokens ?? maxTokens);
+        maxTokens = Number(ev.payload.max_tokens === null ? 0 : ev.payload.max_tokens ?? maxTokens);
       }
       if (ev.type === "budget.exhausted") {
         exhausted = true;
         tokens = Number(ev.payload.tokens ?? tokens);
-        maxTokens = Number(ev.payload.max_tokens ?? maxTokens);
+        maxTokens = Number(ev.payload.max_tokens === null ? 0 : ev.payload.max_tokens ?? maxTokens);
       }
       if (ev.type === "metrics.daily_exceeded") {
         const usd = Number(ev.payload.usd ?? 0);
@@ -212,9 +212,11 @@ export default function TracePanel({
                 <span className="label">预估成本</span>
                 <span className="value cost">${budget.usd.toFixed(4)}</span>
               </div>
-              <div className="usage-bar">
-                <div style={{ width: `${budget.pct}%` }} />
-              </div>
+              {budget.maxTokens > 0 && (
+                <div className="usage-bar">
+                  <div style={{ width: `${budget.pct}%` }} />
+                </div>
+              )}
             </>
           )}
           <div
@@ -222,7 +224,10 @@ export default function TracePanel({
               embedded ? "mt-1 text-ds-text-neutral-subtle-default" : "usage-cap"
             }
           >
-            预算 {(budget.maxTokens / 1000).toFixed(0)}k · {budget.pct}% · 事件{" "}
+            {budget.maxTokens > 0
+              ? `预算 ${(budget.maxTokens / 1000).toFixed(0)}k · ${budget.pct}% · `
+              : ""}
+            事件{" "}
             {eventCount} · 步骤 {stepCount}
             {budget.exhausted ? " · 已截断" : ""}
           </div>

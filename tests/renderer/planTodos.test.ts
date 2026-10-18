@@ -62,6 +62,16 @@ describe("buildProgressItems", () => {
     expect(buildStepExecutionDetails(trace, tasks).todo_1[0].done).toBe(true);
   });
 
+  it("keeps planning tools out of execution details", () => {
+    const tasks = [{ id: "todo_1", content: "检索材料", status: "running" as const }];
+    const trace = [
+      { id: "1", type: "todo_state", payload: { todos: [{ id: "todo_1", status: "in_progress" }] } },
+      { id: "2", type: "tool.result", payload: { agent_id: "single_agent", tool: "write_todos", call_id: "plan" } },
+      { id: "3", type: "tool.start", payload: { agent_id: "single_agent", tool: "web_search", call_id: "search" } },
+    ];
+    expect(buildStepExecutionDetails(trace, tasks).todo_1.map((item) => item.id)).toEqual(["search"]);
+  });
+
   it("uses explicit subtask ids for parallel workforce tools", () => {
     const tasks = [
       { id: "task_a", content: "检索", status: "running" as const },

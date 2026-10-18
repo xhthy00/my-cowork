@@ -21,6 +21,7 @@ from app.main import build_stack, create_app
 class _FakeChatModel(BaseChatModel):
     responses: list[BaseMessage] = Field(default_factory=list)
     idx: int = 0
+    model_name: str = "cowork:scripted"
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> "_FakeChatModel":
         return self

@@ -8,7 +8,6 @@ from langgraph.graph import END, START, StateGraph
 from app.observability.trace import TraceBus
 from app.runtime.budget import Budget, BudgetExhausted
 from app.runtime.checkpointer import get_checkpointer, get_latest_state
-from app.runtime.graph_runner import run_graph
 from tests.conftest import FakeChatModel, make_ai
 
 
@@ -21,6 +20,18 @@ class _Task:
 
 
 class TestBudget:
+    def test_default_tracks_tokens_without_a_cap(self):
+        budget = Budget(max_steps=2)
+        budget.consume_tokens(200_001)
+        budget.consume_tokens(300_000)
+        assert budget.tokens == 500_001
+        assert not budget.exhausted
+        budget.consume_step()
+        budget.consume_step()
+        assert budget.exhausted
+        with pytest.raises(BudgetExhausted):
+            budget.consume_step()
+
     def test_budget_raises_on_51st_step(self):
         budget = Budget(max_steps=50, max_total_tokens=10**9)
         for _ in range(50):
@@ -61,31 +72,6 @@ def _looping_graph(recursion_limit: int = 200):
     graph = builder.compile()
     graph.recursion_limit = recursion_limit
     return graph
-
-
-class TestRunGraphBudgetTruncation:
-    @pytest.mark.asyncio
-    async def test_run_graph_emits_budget_exhausted(self):
-        graph = _looping_graph(recursion_limit=200)
-
-        budget = Budget(max_steps=3, max_total_tokens=10**9)
-        bus = TraceBus()
-        received = []
-        bus.subscribe(lambda ev: received.append(ev))
-
-        events = []
-        with pytest.raises(BudgetExhausted):
-            async for ev in run_graph(
-                _Task(task_id="t", text="loop forever please", session_mode="single-agent"),
-                graph,
-                bus,
-                budget=budget,
-            ):
-                events.append(ev)
-
-        assert any(e["type"] == "budget.exhausted" for e in events)
-        assert events[-1]["type"] == "graph.end"
-        assert "budget exhausted" in events[-1]["error"].lower() or "exhausted" in events[-1]["error"].lower()
 
 
 class TestCheckpointer:

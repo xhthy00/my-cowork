@@ -1,64 +1,45 @@
 [importlinter]
-root_package = app
+root_packages =
+    app
+    cowork_harness
+    runtime_contract
+    model_integrations
 
-[importlinter:contract:harness-layers]
-name = Harness layered dependency direction
-type = layers
-layers =
-    app.server
-    app.orchestrator
-    app.graphs
-    app.runtime
-    app.agents
-    app.memory
-    app.observability
-    app.tools
-    app.guardrails
-    app.llm
-    app.sandbox
-
-[importlinter:contract:cross-cut-forbidden]
-name = Cross-cutting layers must not import business layers
+[importlinter:contract:harness-independent]
+name = Harness must not import product implementation
 type = forbidden
 source_modules =
-    app.observability
-    app.guardrails
+    cowork_harness
 forbidden_modules =
-    app.server
-    app.orchestrator
-    app.graphs
-    app.runtime
-    app.agents
+    app
 
-[importlinter:contract:sandbox-forbidden]
-name = Sandbox layer must not import business layers
+[importlinter:contract:contract-independent]
+name = JSON contract has no product or harness implementation dependency
 type = forbidden
 source_modules =
-    app.sandbox
+    runtime_contract
 forbidden_modules =
-    app.server
-    app.orchestrator
-    app.graphs
-    app.runtime
-    app.agents
-    app.memory
-    app.observability
-    app.guardrails
-    app.tools
-    app.llm
+    app
+    cowork_harness
 
-[importlinter:contract:llm-forbidden]
-name = LLM layer must not import business layers
+[importlinter:contract:business-independent]
+name = Product execution uses the runtime client, not harness internals
 type = forbidden
 source_modules =
-    app.llm
-forbidden_modules =
-    app.server
     app.orchestrator
-    app.graphs
-    app.runtime
-    app.agents
-    app.memory
-    app.observability
-    app.guardrails
-    app.tools
+    app.runtime_client
+    app.server
+    app.automation
+    app.industry_apps
+    app.host_capabilities
+forbidden_modules =
+    cowork_harness
+
+[importlinter:contract:providers-independent]
+name = Shared model providers have no product or agent implementation dependency
+type = forbidden
+source_modules =
+    model_integrations
+forbidden_modules =
+    app
+    cowork_harness

@@ -1,6 +1,5 @@
 """Decompose + retry helpers."""
 
-from app.graphs.routing import MAX_RETRIES, apply_retry_or_fail
 from app.runtime.decompose import (
     align_subtasks_to_user_format,
     fallback_subtasks,
@@ -74,28 +73,6 @@ def test_normalize_keeps_worker_substeps():
         "substeps": [{"content": "查找官方来源"}, {"content": "核对日期"}],
     }])
     assert [step["content"] for step in tasks[0]["substeps"]] == ["查找官方来源", "核对日期"]
-
-
-def test_retry_resets_failed_under_budget():
-    subtasks = [
-        {
-            "id": "a",
-            "content": "x",
-            "assignee": "browser_agent",
-            "dependencies": [],
-            "status": "failed",
-            "result": "boom",
-            "retries": 0,
-        }
-    ]
-    out = apply_retry_or_fail(subtasks)
-    assert out[0]["status"] == "waiting"
-    assert out[0]["retries"] == 1
-
-    subtasks[0]["retries"] = MAX_RETRIES
-    subtasks[0]["status"] = "failed"
-    out2 = apply_retry_or_fail(subtasks)
-    assert out2[0]["status"] == "failed"
 
 
 def test_align_md_only_rewrites_invented_word_brief():

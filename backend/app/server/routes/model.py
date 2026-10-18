@@ -27,6 +27,25 @@ class ValidateResult(BaseModel):
     latency_ms: int | None = None
 
 
+class ModelInfoBody(BaseModel):
+    provider: str
+    model: str
+    base_url: str | None = None
+
+
+@router.post('/api/model/info')
+def model_info(body: ModelInfoBody) -> dict[str, Any]:
+    """Local SDK metadata only; never contact a provider or read user keys."""
+    from model_integrations.context import context_limit, selection_key
+    if body.provider not in gateway.PROVIDERS:
+        return {'model': body.model, 'context_limit': None}
+    try:
+        llm = gateway.create_model(body.provider, body.model, 'metadata-only', base_url=body.base_url)
+        return {'model': body.model, 'context_limit': context_limit(llm), 'context_key': selection_key(body.model_dump())}
+    except (ValueError, TypeError):
+        return {'model': body.model, 'context_limit': None}
+
+
 @router.post("/api/model/validate", response_model=ValidateResult)
 async def validate_model(body: ValidateBody) -> dict[str, Any]:
     """Probe a provider with a short completion (Eigent-style validate)."""
@@ -43,7 +62,7 @@ async def validate_model(body: ValidateBody) -> dict[str, Any]:
         }
 
     kwargs: dict[str, Any] = {}
-    if body.base_url and provider == "openai_compat":
+    if body.base_url:
         kwargs["base_url"] = body.base_url
 
     try:

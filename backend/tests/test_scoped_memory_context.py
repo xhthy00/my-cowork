@@ -7,7 +7,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.memory.long_term import LongTermStore
 from app.memory.settings import MemorySettings
 from app.memory.tools import make_memory_tools
-from app.runtime.v2.compact import compact_session_history
 from app.runtime.v2.context_tools import make_context_tools
 from app.runtime.v2.session import SessionStore
 from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
@@ -83,54 +82,6 @@ def test_save_setting_controls_agent_writes_but_not_reads(tmp_path):
     store.close()
 
 
-@pytest.mark.asyncio
-async def test_compaction_preserves_canonical_transcript_and_reload(tmp_path):
-    store = SessionStore(tmp_path / "sessions.db")
-    original = [message for i in range(8) for message in
-                (HumanMessage(content=f"request {i} " + "x" * 100),
-                 AIMessage(content=f"answer {i} " + "y" * 100))]
-    store.save("s", original)
-
-    async def summarize(messages):
-        return f"Summary of {len(messages)} messages"
-
-    outbound, state = await compact_session_history(
-        store.load("s"), threshold=100, summarize=summarize,
-    )
-    assert state is not None and state["boundary_index"] > 0
-    assert outbound[0].type == "system"
-    assert "request 0" in outbound[0].content
-    store.save_compaction("s", state)
-    transcript = store.write_compaction_transcript("s", store.load("s"), state["boundary_index"])
-    assert "request 0" in open(transcript, encoding="utf-8").read()
-    reloaded = SessionStore(tmp_path / "sessions.db")
-    assert len(reloaded.load("s")) == len(original)
-    assert reloaded.load_compaction("s") == state
-    reloaded.clear("s")
-    assert reloaded.load_compaction("s") is None
-
-
-@pytest.mark.asyncio
-async def test_second_compaction_carries_previous_summary_forward():
-    original = [message for i in range(6) for message in
-                (HumanMessage(content=f"turn {i}"), AIMessage(content="answer " + "x" * 300))]
-    first, state = await compact_session_history(original, threshold=100,
-        summarize=lambda messages: _summary(f"First span: {len(messages)}"))
-    assert state is not None and first[0].type == "system"
-    extended = [*original, *[message for i in range(6, 12) for message in
-                (HumanMessage(content=f"turn {i}"), AIMessage(content="answer " + "y" * 300))]]
-    seen: list[str] = []
-
-    async def summarize(messages):
-        seen.extend(str(message.content) for message in messages)
-        return "Second summary"
-
-    _, second = await compact_session_history(extended, state, threshold=100, summarize=summarize)
-    assert second is not None and second["boundary_index"] > state["boundary_index"]
-    assert any("First span" in text for text in seen)
-    assert "turn 0" in second["summary_text"]
-
-
 async def _summary(text: str) -> str:
     return text
 
@@ -150,37 +101,3 @@ def test_conversation_read_is_scoped_to_current_session(tmp_path, monkeypatch):
         assert "second private detail" not in str(result)
     finally:
         reset_todo_runtime(token)
-
-
-@pytest.mark.asyncio
-async def test_single_agent_compaction_keeps_full_saved_history(tmp_path, monkeypatch):
-    from app.graphs import single_agent as single_module
-    from app.graphs.state import WorkforceState
-    from app.runtime.v2 import session as session_module
-    from tests.conftest import FakeChatModel, make_ai
-
-    store = SessionStore(tmp_path / "sessions.db")
-    monkeypatch.setattr(session_module, "_STORE", store)
-    old = [message for i in range(5) for message in
-           (HumanMessage(content=f"old request {i}"),
-            AIMessage(content="old answer " + "x" * 300))]
-    store.save("conversation", old)
-    original_compact = single_module.compact_session_history
-
-    async def force_compact(messages, state, *, llm, threshold):
-        return await original_compact(messages, state, threshold=100,
-                                      summarize=lambda _: _summary("之前已完成调研"))
-
-    monkeypatch.setattr(single_module, "compact_session_history", force_compact)
-    model = FakeChatModel(responses=[make_ai("这是本轮回答。") for _ in range(8)])
-    graph = single_module.compile_single_agent_graph(model=model, tools=[])
-    await graph.ainvoke(WorkforceState(
-        messages=[HumanMessage(content="继续")], task_id="new-task",
-        session_id="conversation", session_mode="single-agent",
-        user_text="继续", round=0,
-    ))
-    saved = store.load("conversation")
-    assert [message.content for message in saved[:len(old)]] == [message.content for message in old]
-    assert sum(1 for message in saved if message.type == "human" and message.content == "继续") == 1
-    assert any(message.type == "ai" and "本轮回答" in message.content for message in saved)
-    assert store.load_compaction("conversation") is not None

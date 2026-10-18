@@ -14,6 +14,8 @@ from PyInstaller.utils.hooks import collect_dynamic_libs, collect_all
 block_cipher = None
 
 HIDDEN = [
+    "cowork_harness.server",
+    "runtime_contract",
     "app.llm.providers.anthropic",
     "app.llm.providers.openai_compat",
     "app.tools.builtin.fs",
@@ -40,7 +42,7 @@ HIDDEN = [
     "uvicorn.lifespan.on",
 ]
 
-datas = []
+datas = [(str((Path(SPECPATH) / ".." / ".." / "backend" / "uv.lock").resolve()), ".")]
 # Runtime-loaded markdown is not collected from imports. An empty glob here
 # silently ships a backend whose workforce decompose collapses to 1 task.
 _prompts = (Path(SPECPATH) / ".." / ".." / "backend" / "app" / "agents" / "prompts").resolve()
@@ -66,6 +68,13 @@ binaries += [
     if "/.local-browsers/" not in item[0].replace("\\", "/")
 ]
 HIDDEN += tmp_browser[2]
+
+# Upstream middleware, prompts and serializers contain dynamic imports.
+for package in ("deepagents", "langchain", "langchain_deepseek", "langchain_openrouter", "openrouter", "langgraph", "langgraph.checkpoint.sqlite"):
+    collected = collect_all(package)
+    datas += collected[0]
+    binaries += collected[1]
+    HIDDEN += collected[2]
 
 a = Analysis(
     ["..\\..\\backend\\app\\main.py"],

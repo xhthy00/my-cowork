@@ -14,9 +14,7 @@ from app.industry_apps.package import AppManifest
 from app.industry_apps.sdk import AppContribution, AppTool, LoadedAppTool
 from app.industry_apps.tooling import make_agent_tool, validate_app_tools
 from app.observability.trace import TraceBus
-from app.runtime.graph_runner import _tool_result_events
 from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
-from app.runtime.v2.loop import _emit_tool_event
 
 
 class Args(BaseModel):
@@ -67,27 +65,3 @@ def test_write_tool_uses_host_confirmation() -> None:
     finally:
         reset_remote_channel(token)
     assert writes == ["B"]
-
-
-def test_industry_tool_trace_carries_app_identity() -> None:
-    bus = TraceBus()
-    name = "industry__cn_example_taskboard__list_tasks"
-    bus.tool_metadata[name] = {
-        "tool_source": "industry_app", "app_id": "cn.example.taskboard",
-        "app_name": "任务管理样例", "tool_title": "查询任务", "tool_access": "read",
-    }
-    events: list[dict] = []
-    bus.subscribe(events.append)
-    token = set_todo_runtime(TodoRuntime(task_id="run-1", bus=bus))
-    try:
-        _emit_tool_event("tool.start", name=name, call_id="call-1", args={})
-        _emit_tool_event("tool.result", name=name, call_id="call-1", result="done")
-    finally:
-        reset_todo_runtime(token)
-    assert [event["type"] for event in events] == ["tool.start", "tool.result"]
-    assert all(event["payload"]["app_name"] == "任务管理样例" for event in events)
-    worker_events = _tool_result_events(bus, "run-2", {
-        "messages": [ToolMessage(content="{}", name=name, tool_call_id="call-2")],
-    })
-    assert worker_events[-1]["payload"]["tool_source"] == "industry_app"
-    assert worker_events[-1]["payload"]["tool_title"] == "查询任务"

@@ -307,6 +307,36 @@ describe("normalizeMarkdown", () => {
 });
 
 describe("beautifyChatMarkdown", () => {
+  it('renders the FED conclusions as one numbered list with separate bold phrases', () => {
+    const raw = [
+      '## 报告核心结论', '',
+      '1. **市场规模**：全球前端市场 2025 年约 **320 亿美元**，CAGR 保持 **9.2%**',
+      '2. **AI 冲击**：基础切图被替代，但"工程化+部署+AI协同"的高级 FED 缺口仍达 **40万+**',
+      '3. **薪资分化**：初级 8-15K → 高级 30-50K → 架构师/AI 方向 **50-90K+**',
+      '4. **技术拐点**：构建工具从 Webpack 迈向 **Vite/Rspack**；部署从"手动CI"迈向 **边缘+Serverless**',
+      '5. **未来主线**：AI Agent 编排、Edge Functions、WebGPU、可观测性将成为新红利',
+    ].join('\n');
+    expect(beautifyChatMarkdown(raw)).toBe(raw);
+    const { container } = render(<MessageContent content={raw} role="assistant" hideThink verbatim />);
+    expect(container.querySelectorAll('.aion-md > ol')).toHaveLength(1);
+    expect(container.querySelectorAll('.aion-md > ol > li')).toHaveLength(5);
+    expect(container.querySelectorAll('h3')).toHaveLength(0);
+    expect([...container.querySelectorAll('strong')].map(element => element.textContent)).toEqual([
+      '市场规模', '320 亿美元', '9.2%', 'AI 冲击', '40万+', '薪资分化', '50-90K+',
+      '技术拐点', 'Vite/Rspack', '边缘+Serverless', '未来主线',
+    ]);
+    expect(container.textContent).not.toContain('**');
+  });
+
+  it('preserves inline-code and fenced examples of numbered bold Markdown', () => {
+    const raw = '## 示例\n\n1. **结果**：保留 `**字面星号**` 和 **结论**\n\n```markdown\n1. **标题** 和 **数值**\n```';
+    const result = beautifyChatMarkdown(raw);
+    expect(result).toBe(raw);
+    const { container } = render(<MessageContent content={raw} hideThink verbatim />);
+    expect(container.querySelector('.aion-md > ol > li code')?.textContent).toBe('**字面星号**');
+    expect(container.querySelectorAll('.aion-md > ol > li strong')).toHaveLength(2);
+  });
+
   it("promotes a short title line and quotes 来源 lines", () => {
     const raw = [
       "核心政策结论（含出处）",

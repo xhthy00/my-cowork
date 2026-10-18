@@ -32,6 +32,7 @@ describe("formatTokenK", () => {
     expect(formatTokenK(98200)).toBe("98.2K");
     expect(formatTokenK(192000)).toBe("192.0K");
     expect(formatTokenK(400)).toBe("400");
+    expect(formatTokenK(1_000_000)).toBe('1.0M');
   });
 });
 
@@ -45,6 +46,13 @@ describe("formatContextUsedLabel", () => {
 });
 
 describe("resolveContextUsage", () => {
+  it("keeps model context capacity independent of a task token cap", () => {
+    const usage = resolveContextUsage({ contextTokens: 50_000, budgetMaxTokens: 10_000 });
+    expect(usage.limit).toBe(DEFAULT_CONTEXT_LIMIT);
+    expect(usage.percentage).toBe(0);
+    expect(formatContextUsedLabel(usage.used, usage.limit)).toBe('约 50.0K tokens · 上下文窗口未知');
+  });
+
   it("shows zero occupancy for an empty conversation", () => {
     const empty = resolveContextUsage({ messages: [] });
     expect(empty.limit).toBe(DEFAULT_CONTEXT_LIMIT);
@@ -61,5 +69,12 @@ describe("resolveContextUsage", () => {
     expect(live.used).toBe(98200);
     expect(live.limit).toBe(192000);
     expect(live.percentage).toBeCloseTo(51.1458, 3);
+  });
+
+  it('allows occupancy to decrease after compaction despite a long saved transcript', () => {
+    const usage = resolveContextUsage({ messages: [{content: '历史'.repeat(30_000)}],
+      contextTokens: 2_000, contextLimit: 1_000_000 });
+    expect(usage.used).toBe(2_000);
+    expect(usage.percentage).toBeCloseTo(0.2);
   });
 });

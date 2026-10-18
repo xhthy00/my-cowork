@@ -48,6 +48,7 @@ import {
 } from "./updater";
 import {
   fileToDataUrl,
+  existingPreviewFiles,
   openPreviewFile,
   readPreviewFileBuffer,
   writePreviewFileBuffer,
@@ -546,6 +547,11 @@ ipcMain.handle("read-text-file", async (_event, filePath: string) => {
 });
 
 /** Eigent: open-file — office/csv → HTML; md/html/text → string; pdf → path. */
+ipcMain.handle("existing-preview-files", async (event, paths: unknown) => {
+  requireHostWindow(event.sender, event.senderFrame);
+  return existingPreviewFiles(paths);
+});
+
 ipcMain.handle(
   "open-file",
   async (_event, type: string, filePath: string, _showSource?: boolean) => {
@@ -642,6 +648,15 @@ ipcMain.handle("updater:install", async () => {
   if (lifecycle.status.busy) return { ok: false, message: "请等待行业应用操作完成后再重启更新" };
   if (getUpdaterStatus().state !== "downloaded") {
     return { ok: false, message: "no update downloaded" };
+  }
+  try {
+    const state = await industryBackendRequest("/api/industry-apps/runtime/drain", { method: "POST" }) as RuntimeState;
+    if (state.active > 0) {
+      await industryBackendRequest("/api/industry-apps/runtime/open", { method: "POST" });
+      return { ok: false, message: `还有 ${state.active} 项任务正在执行或等待答复，请完成或停止后再更新` };
+    }
+  } catch (err) {
+    return { ok: false, message: `无法确认后端已停止接收任务：${String(err)}` };
   }
   if (backendProc) {
     stopPythonBackend(backendProc);

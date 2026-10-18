@@ -121,6 +121,8 @@ export interface SessionState {
   outputTokens: number;
   /** Model context window size (sent by backend when known). */
   contextLimit: number;
+  contextModel: string;
+  contextKey: string;
   /** Last prompt occupancy from ``budget.update`` (context window fill, not run total). */
   contextTokens: number;
   /** Last model token / tool progress (heartbeats ignored). */
@@ -345,9 +347,9 @@ function flushArtifactsToMessages(
 ): void {
   const pending = updates.pendingArtifacts ?? state.pendingArtifacts;
   const base = updates.messages ?? state.messages;
-  // Only files the run actually wrote (`artifact.file` / write-tool results).
-  // Paths mentioned in the summary are often drafts the model never saved
-  // (e.g. tank-battle-part2.html next to a real tank-battle.html).
+  // Only host-verified files (`artifact.file` / write-tool results), including
+  // existing reports explicitly returned again. Summary text alone is not proof
+  // that a file exists (e.g. an unsaved draft next to the real report).
   const arts = pending.map(({ call_id: _c, ...a }) => a);
   if (!arts.length) {
     updates.pendingArtifacts = [];
@@ -700,12 +702,14 @@ export function createSessionStore(
   taskStartedAt: null,
   taskElapsedMs: 0,
   budgetTokens: 0,
-  budgetMaxTokens: 200_000,
+  budgetMaxTokens: 0,
   budgetSteps: 0,
   inputTokens: 0,
   outputTokens: 0,
   contextLimit: 0,
-  contextTokens: 0,
+  contextTokens: -1,
+  contextModel: '',
+  contextKey: '',
   lastContentAt: null,
   lastBeatAt: null,
   thinking: null,
@@ -862,12 +866,14 @@ export function createSessionStore(
       taskStartedAt: null,
       taskElapsedMs: 0,
       budgetTokens: 0,
-      budgetMaxTokens: 200_000,
+      budgetMaxTokens: 0,
       budgetSteps: 0,
       inputTokens: 0,
       outputTokens: 0,
       contextLimit: 0,
-      contextTokens: 0,
+      contextTokens: -1,
+      contextModel: '',
+      contextKey: '',
       lastContentAt: null,
       lastBeatAt: null,
       thinking: null,
@@ -882,7 +888,7 @@ export function createSessionStore(
         taskStartedAt: Date.now(),
         taskElapsedMs: 0,
         budgetTokens: 0,
-        budgetMaxTokens: state.budgetMaxTokens || 200_000,
+        budgetMaxTokens: 0,
         budgetSteps: 0,
         inputTokens: 0,
         outputTokens: 0,
@@ -978,7 +984,7 @@ export function createSessionStore(
           taskStartedAt: state.taskStartedAt ?? Date.now(),
           taskElapsedMs: state.taskStartedAt ? state.taskElapsedMs : 0,
           budgetTokens: 0,
-          budgetMaxTokens: state.budgetMaxTokens || 200_000,
+          budgetMaxTokens: 0,
           budgetSteps: 0,
           inputTokens: 0,
           outputTokens: 0,
@@ -1054,7 +1060,7 @@ export function createSessionStore(
       } else if (event.type === "budget.update" || event.type === "budget.exhausted") {
         updates.budgetTokens = Number(payload.tokens ?? state.budgetTokens);
         updates.budgetMaxTokens = Number(
-          payload.max_tokens ?? state.budgetMaxTokens,
+          payload.max_tokens === null ? 0 : payload.max_tokens ?? state.budgetMaxTokens,
         );
         if (payload.steps != null) {
           updates.budgetSteps = Number(payload.steps);
@@ -1065,9 +1071,9 @@ export function createSessionStore(
         if (payload.output_tokens != null) {
           updates.outputTokens = Number(payload.output_tokens);
         }
-        if (payload.context_limit != null) {
-          updates.contextLimit = Number(payload.context_limit);
-        }
+        if ('context_limit' in payload) updates.contextLimit = Number(payload.context_limit ?? 0);
+        if (typeof payload.context_model === 'string') updates.contextModel = payload.context_model;
+        if (typeof payload.context_key === 'string') updates.contextKey = payload.context_key;
         if (payload.context_tokens != null) {
           updates.contextTokens = Number(payload.context_tokens);
         }

@@ -2,6 +2,7 @@ import pytest
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from langchain_openrouter import ChatOpenRouter
 
 from app.llm.gateway import create_model
 from app.llm import token_counter
@@ -32,8 +33,8 @@ class TestCreateModel:
 
     def test_openai_compat_with_base_url(self):
         model = create_model("openai_compat", "gpt-4o", "sk-key", base_url="https://openrouter.ai/api/v1")
-        assert isinstance(model, ChatOpenAI)
-        assert str(model.openai_api_base) == "https://openrouter.ai/api/v1"
+        assert isinstance(model, ChatOpenRouter)
+        assert str(model.openrouter_api_base) == "https://openrouter.ai/api/v1"
 
     def test_unknown_provider_raises(self):
         with pytest.raises(ValueError, match="Unknown provider"):

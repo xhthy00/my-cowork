@@ -16,7 +16,7 @@ describe('plugin developer commands', () => {
     expect(env.MY_COWORK_DISABLE_CHANNELS).toBe('1');
   });
   it('creates consistent identities and refuses a nonempty destination', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mcapp-init-'));
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'mcapp-init-'));
     const project = path.join(root, '中文 空格');
     cli.initProject(project, 'cn.example.inventory', '库存管理');
     const manifest = fs.readFileSync(path.join(project, 'mycowork-app.yaml'), 'utf8');

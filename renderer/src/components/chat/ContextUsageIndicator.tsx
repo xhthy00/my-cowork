@@ -50,10 +50,14 @@ export default function ContextUsageIndicator({
       style={{ width: size, height: size }}
       title={label}
       aria-label={label}
-      role="meter"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={Math.round(percentage)}
+      role={hasDenominator ? 'meter' : 'status'}
+      aria-valuemin={hasDenominator ? 0 : undefined}
+      aria-valuemax={hasDenominator ? 100 : undefined}
+      aria-valuenow={hasDenominator ? Math.round(percentage) : undefined}
+      aria-valuetext={label}
+      tabIndex={0}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >

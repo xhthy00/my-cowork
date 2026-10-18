@@ -8,6 +8,11 @@ from typing import Iterable
 
 
 OFFICE_EXT = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".pdf"}
+DELIVERABLE_EXT = OFFICE_EXT | {
+    '.html', '.htm', '.md', '.txt', '.csv', '.tsv', '.json', '.zip',
+    '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp',
+    '.mp3', '.wav', '.mp4', '.webm',
+}
 SKIP_DIRS = {
     "camel_logs",
     ".venv",
@@ -22,6 +27,7 @@ def list_new_office_files(
     *,
     min_mtime: float,
     already: Iterable[str | Path] = (),
+    extensions: set[str] | None = None,
 ) -> list[str]:
     """Office files under *workdir* written at/after *min_mtime*.
 
@@ -60,7 +66,7 @@ def list_new_office_files(
                 continue
             if not resolved.is_file():
                 continue
-            if resolved.suffix.lower() not in OFFICE_EXT:
+            if resolved.suffix.lower() not in (extensions if extensions is not None else OFFICE_EXT):
                 continue
             try:
                 if resolved.stat().st_mtime < min_mtime - 5.0:
@@ -71,3 +77,8 @@ def list_new_office_files(
             found.append(key)
     found.sort()
     return found
+
+
+def list_new_output_files(workdir: Path | str, *, min_mtime: float) -> list[str]:
+    """Fallback discovery for command-written reports, not just Office files."""
+    return list_new_office_files(workdir, min_mtime=min_mtime, extensions=DELIVERABLE_EXT)

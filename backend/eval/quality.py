@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.agents.factory import load_prompt
 from app.runtime.context import last_ai_text, looks_like_plan_only, strip_think_blocks
 from app.runtime.v2.office import validate_messages
-from app.runtime.v2.synthesize import best_user_facing_text, current_turn_messages
+from app.runtime.output_text import best_user_facing_text, current_turn_messages
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 QUALITY_THRESHOLD = 60

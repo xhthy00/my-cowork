@@ -18,7 +18,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { trackChatStream, abortChatStream } from "../../api/chatStream";
 import { submitHumanReply } from "../../api/humanReply";
@@ -154,6 +154,10 @@ export default function ChatBar({
   )?.humanQuestion;
   const contextTokens = useSessionStore((s) => s.contextTokens);
   const contextLimit = useSessionStore((s) => s.contextLimit);
+  const contextKey = useSessionStore((s) => s.contextKey);
+  const [selectedContext, setSelectedContext] = useState<{model: string; limit: number; key?: string}>({ model: '', limit: 0 });
+  const onContextChange = useCallback((info: { model: string; limit: number; key?: string }) => setSelectedContext(info), []);
+  const matchesContext = Boolean(selectedContext.key && selectedContext.key === contextKey);
   const budgetMaxTokens = useSessionStore((s) => s.budgetMaxTokens);
   const runStatus = useSessionStore((s) => s.runStatus);
   const running = runStatus === "running";
@@ -162,11 +166,12 @@ export default function ChatBar({
       resolveContextUsage({
         messages: sessionMessages,
         draft: input,
-        contextTokens,
-        contextLimit,
+        contextTokens: selectedContext.model && !matchesContext ? undefined : contextTokens,
+        contextLimit: selectedContext.model
+          ? (matchesContext ? contextLimit : selectedContext.limit) : contextLimit,
         budgetMaxTokens,
       }),
-    [sessionMessages, input, contextTokens, contextLimit, budgetMaxTokens],
+    [sessionMessages, input, contextTokens, contextLimit, matchesContext, selectedContext, budgetMaxTokens],
   );
 
   useEffect(() => {
@@ -703,7 +708,7 @@ export default function ChatBar({
           </div>}
 
           <div className="chat-composer-actions flex min-w-0 items-center gap-3">
-          {welcomeLayout && showFooter && <ChatModelSelect compact />}
+          {welcomeLayout && showFooter && <ChatModelSelect compact onContextChange={onContextChange} />}
           {running && onStop && !pendingQuestion ? (
             <button
               type="button"
@@ -772,7 +777,7 @@ export default function ChatBar({
 
           {!welcomeLayout && <div className="flex min-w-0 items-center gap-1.5">
             <ContextUsageIndicator used={contextUsage.used} limit={contextUsage.limit} />
-            <ChatModelSelect />
+            <ChatModelSelect onContextChange={onContextChange} />
           </div>}
         </div>
       )}

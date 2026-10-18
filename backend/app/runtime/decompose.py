@@ -1,34 +1,13 @@
-"""Task decomposition for Eigent-style Workforce (LangGraph, no CAMEL)."""
+"""Legacy plan JSON normalization for product API compatibility."""
 
 from __future__ import annotations
 
 import json
-import logging
 import re
 from typing import Any
 
 from app.agents.workers import WORKER_IDS, normalize_worker_id
 from app.runtime.todo_planner import is_office_plan_text
-
-_LOG = logging.getLogger(__name__)
-_DECOMPOSE_SYSTEM = None
-
-
-def _decompose_system() -> str:
-    global _DECOMPOSE_SYSTEM
-    if _DECOMPOSE_SYSTEM:
-        return _DECOMPOSE_SYSTEM
-    from app.agents.factory import load_prompt
-
-    text = load_prompt("planner") or ""
-    if text:
-        _DECOMPOSE_SYSTEM = text
-    else:
-        _LOG.warning(
-            "planner.md missing; workforce decompose will fall back to 1 task"
-        )
-    return text
-
 
 def _is_trivial(text: str) -> bool:
     q = (text or "").strip()
@@ -204,41 +183,3 @@ def align_subtasks_to_user_format(
             row["content"] = _MD_ONLY_BRIEF
         out.append(row)
     return out
-
-
-async def decompose_subtasks(text: str, llm: Any | None) -> list[dict[str, Any]]:
-    q = (text or "").strip()
-    if _is_trivial(q):
-        return []
-    if llm is None:
-        return align_subtasks_to_user_format(q, fallback_subtasks(q))
-    prompt = f"User request:\n{q}\n\nReturn the JSON subtask array now."
-    try:
-        if hasattr(llm, "ainvoke"):
-            msg = await llm.ainvoke(
-                [
-                    {"role": "system", "content": _decompose_system()},
-                    {"role": "user", "content": prompt},
-                ]
-            )
-        elif hasattr(llm, "invoke"):
-            msg = llm.invoke(
-                [
-                    {"role": "system", "content": _decompose_system()},
-                    {"role": "user", "content": prompt},
-                ]
-            )
-        else:
-            msg = None
-        todos: list[dict[str, Any]] = []
-        if msg is not None:
-            for blob in _llm_blobs(msg):
-                todos = parse_subtasks_json(blob)
-                if todos:
-                    break
-        if todos:
-            return align_subtasks_to_user_format(q, todos)
-        _LOG.warning("decompose produced no JSON subtasks; using single-task fallback")
-    except Exception:
-        _LOG.exception("decompose llm failed; using single-task fallback")
-    return align_subtasks_to_user_format(q, fallback_subtasks(q))

@@ -12,8 +12,6 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool as langchain_tool
 
 from app.agents.sanitize import ensure_tool_responses, prepare_model_messages, strip_model_junk
-from app.graphs.single_agent import compile_single_agent_graph
-from app.graphs.state import WorkforceState
 from tests.conftest import FakeChatModel, make_ai
 
 
@@ -279,57 +277,6 @@ class OpenAIValidatorModel(BaseChatModel):
 def _mock_tool(query: str) -> str:
     """A mock tool for agent tests."""
     return f"mock:{query}"
-
-
-class TestAgentRoundTrip:
-    @pytest.mark.asyncio
-    async def test_invalid_tool_call_does_not_400(self):
-        """Single agent with a malformed tool call must still complete."""
-        model = OpenAIValidatorModel(
-            responses=[
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "mock_tool",
-                            "args": {"query": "hi"},
-                            "id": "call_ok",
-                            "type": "tool_call",
-                        }
-                    ],
-                    invalid_tool_calls=[
-                        {
-                            "name": "load_skill",
-                            "args": '{"name": officecli}',
-                            "id": "call_bad",
-                            "error": None,
-                        }
-                    ],
-                ),
-                AIMessage(content="done"),
-                AIMessage(content="done"),
-                AIMessage(content="done"),
-                AIMessage(content="done"),
-            ]
-        )
-        graph = compile_single_agent_graph(
-            model=model,
-            tools=[_mock_tool],
-            synthesize_llm=FakeChatModel(responses=[make_ai("done")] * 8),
-        )
-        result = await graph.ainvoke(
-            WorkforceState(
-                messages=[HumanMessage(content="do the thing")],
-                task_id="sa-sanitize",
-                session_mode="single-agent",
-                user_text="do the thing",
-                round=0,
-            )
-        )
-        texts = " ".join(
-            str(m.content) for m in result["messages"] if m.content
-        )
-        assert "done" in texts
 
 
 class TestPrepareModelMessages:

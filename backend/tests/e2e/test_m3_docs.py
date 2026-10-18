@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
+import asyncio
 import pytest
 import respx
 from docx import Document
@@ -92,16 +93,8 @@ async def test_m3_pptx_via_chat_route(tmp_path: Path, monkeypatch: pytest.Monkey
     out = tmp_path / "via-chat.pptx"
     desk = str(out)
 
-    planner = FakeChatModel(
-        responses=[
-            make_ai(
-                content=(
-                    '[{"id":"task_1","content":"生成 PPT《2026Q1》2 页",'
-                    '"assignee":"document_agent","dependencies":[]}]'
-                )
-            ),
-        ]
-    )
+    planner = FakeChatModel(responses=[make_ai(tool_calls=[{'id': 'delegate', 'name': 'task',
+        'args': {'subagent_type': 'document_agent', 'description': '生成 PPT《2026Q1》2 页'}}]), make_ai('PPT 已生成。')])
     document = FakeChatModel(
         responses=[
             make_ai(
@@ -138,14 +131,11 @@ async def test_m3_pptx_via_chat_route(tmp_path: Path, monkeypatch: pytest.Monkey
     bus = stack["bus"]
     confirm_hub = stack["confirm_hub"]
 
-    def _auto_approve(event: dict) -> None:
-        if event.get("type") == "tool.confirm_request":
-            confirm_hub.resolve(event["call_id"], True)
-        if event.get("type") == "to_sub_tasks":
-            confirm_hub.resolve_plan(
-                event.get("task_id") or "",
-                event.get("subtasks") or [],
-            )
+    def _auto_approve(event):
+        if event.get('type') == 'tool.confirm_request':
+            asyncio.create_task(task_manager.resolve(event['task_id'], event['call_id'], {'ok': True}))
+        elif event.get('type') == 'to_sub_tasks':
+            asyncio.create_task(task_manager.resolve(event['task_id'], event['interrupt_id'], {'subtasks': event['subtasks']}))
 
     bus.subscribe(_auto_approve)
     app = create_app(task_manager=task_manager, bus=bus, confirm_hub=confirm_hub)

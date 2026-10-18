@@ -10,7 +10,6 @@ from app.runtime.todo_planner import (
     reconcile_todos,
     pick_todo_for_worker,
     plan_todos,
-    plan_todos_llm,
     without_office_todos,
 )
 
@@ -117,48 +116,6 @@ def test_reconcile_reordered_steps_follows_titles_not_positions():
     assert result[1]["status"] == "completed"
 
 
-def test_workforce_substep_updates_survive_plan_refresh():
-    from app.runtime.graph_runner import _subtasks_to_todos
-    from app.runtime.todo_context import (
-        TodoRuntime, reset_todo_runtime, set_todo_runtime, todo_subtask_scope,
-    )
-    from app.tools.builtin.todo import substep_update
-
-    class _Bus:
-        events: list[dict] = []
-
-        def emit(self, event):
-            self.events.append(event)
-
-    subtasks = [{
-        "id": "research", "content": "检索资料", "status": "running",
-        "substeps": [{"content": "查找官网"}, {"content": "核对来源"}],
-    }]
-    bus = _Bus()
-    bus.events = []
-    runtime = TodoRuntime(task_id="run-1", bus=bus)
-    runtime.todos = _subtasks_to_todos(subtasks)
-    token = set_todo_runtime(runtime)
-    try:
-        with todo_subtask_scope("research"):
-            assert substep_update(1, "completed") == "Updated substep 1 to completed."
-            assert substep_update(3, "completed").startswith("[ERROR]")
-        assert bus.events[-1]["substep_id"] == "research_step_1"
-        refreshed = _subtasks_to_todos(subtasks, runtime.substep_status)
-        assert [step["status"] for step in refreshed[0]["substeps"]] == ["completed", "pending"]
-        checkpointed = [{**subtasks[0], "substeps": [
-            {"content": step["content"], "status": step["status"]}
-            for step in refreshed[0]["substeps"]
-        ]}]
-        resumed = _subtasks_to_todos(checkpointed)
-        assert [step["status"] for step in resumed[0]["substeps"]] == ["completed", "pending"]
-        subtasks[0]["status"] = "completed"
-        completed = _subtasks_to_todos(subtasks, runtime.substep_status)
-        assert all(step["status"] == "completed" for step in completed[0]["substeps"])
-    finally:
-        reset_todo_runtime(token)
-
-
 @pytest.mark.asyncio
 async def test_substep_tool_keeps_worker_scope_when_invoked_async():
     from app.runtime.todo_context import (
@@ -248,91 +205,6 @@ def test_without_office_todos_drops_create_word_document():
     )
     kept = without_office_todos(todos)
     assert [t["content"] for t in kept] == ["写入 Markdown 文件"]
-
-
-@pytest.mark.asyncio
-async def test_plan_todos_llm_rewrites_word_plan_when_user_asked_md():
-    import json
-
-    class _LLM:
-        async def ainvoke(self, _messages):
-            return type(
-                "M",
-                (),
-                {
-                    "content": json.dumps(
-                        [
-                            {
-                                "content": "创建 Word 文档并搭建标题与元信息",
-                                "active_form": "正在创建 Word 文档",
-                                "status": "in_progress",
-                            },
-                            {
-                                "content": "填写章节正文",
-                                "active_form": "正在填写章节正文",
-                                "status": "pending",
-                            },
-                        ],
-                        ensure_ascii=False,
-                    )
-                },
-            )()
-
-    todos = await plan_todos_llm(
-        "帮我将内容转成md文件",
-        _LLM(),
-        session_mode="single-agent",
-    )
-    blob = " ".join(t["content"] for t in todos)
-    assert "Word" not in blob
-    assert "docx" not in blob.lower()
-    assert todos
-    assert any("md" in t["content"].lower() or "Markdown" in t["content"] or "填写" in t["content"] for t in todos)
-
-
-@pytest.mark.asyncio
-async def test_plan_todos_llm_rejects_office_on_research_question():
-    import json
-
-    class _LLM:
-        async def ainvoke(self, _messages):
-            return type(
-                "M",
-                (),
-                {
-                    "content": json.dumps(
-                        [
-                            {
-                                "content": "检查 officecli 是否可用",
-                                "active_form": "正在检查 officecli",
-                                "status": "in_progress",
-                            },
-                            {
-                                "content": "调用 officecli 生成 .docx 到 AIS",
-                                "active_form": "正在生成文档",
-                                "status": "pending",
-                            },
-                            {
-                                "content": "核对文件路径与大小",
-                                "active_form": "正在核对文件",
-                                "status": "pending",
-                            },
-                        ],
-                        ensure_ascii=False,
-                    )
-                },
-            )()
-
-    todos = await plan_todos_llm(
-        "大模型备案是什么流程",
-        _LLM(),
-        session_mode="single-agent",
-    )
-    blob = " ".join(t["content"] for t in todos).lower()
-    assert "officecli" not in blob
-    assert ".docx" not in blob
-    assert todos
-    assert any("拆解" in t["content"] or "执行" in t["content"] or "交付" in t["content"] for t in todos)
 
 
 def test_todos_match_user_language_rejects_english_titles():

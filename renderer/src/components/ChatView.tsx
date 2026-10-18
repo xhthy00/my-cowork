@@ -30,6 +30,7 @@ import { dispatchProjectEvent, getProjectTaskId } from "../store/livePark";
 import { getProjectRuntime } from "../store/projectRuntime";
 import { isVisibleAgentPath } from "@/lib/outputFiles";
 import { artifactIdentity, fileBasename, isCorruptBasename, normalizeFsPath } from "@/lib/fsPath";
+import { recoverReferencedArtifacts } from '@/lib/deliverablePaths';
 import { cn } from "@/lib/utils";
 import { announceMemoryChanged } from "@/lib/memoryEvents";
 import { usePreviewStore } from "../store/preview";
@@ -58,7 +59,7 @@ function ArtifactChip({ artifact }: { artifact: FileArtifact }) {
   return (
     <button
       type="button"
-      className="group flex max-w-full min-w-[200px] cursor-pointer items-center gap-2.5 rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default px-3 py-2.5 text-left shadow-[var(--shadow-button)] transition-colors hover:border-ds-border-neutral-default-default hover:bg-ds-bg-neutral-default-hover"
+      className="group flex max-w-full min-w-[200px] cursor-pointer items-center gap-2.5 rounded-xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-subtle-default px-3 py-2.5 text-left shadow-[var(--shadow-button)] transition-colors hover:border-ds-border-neutral-default-default hover:bg-ds-bg-neutral-default-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
       title={path}
       onClick={() => {
         usePageTabStore.getState().openPreviewFoldSide();
@@ -419,7 +420,6 @@ function bindChatHandlers(
 export default function ChatView() {
   const appOrigin = useSessionsStore(state => state.sessions.find(project => project.id === state.activeId)?.appOrigin);
   const appTask = useAppTasks(state => appOrigin ? state.records[appOrigin.taskId] : undefined);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const wasRunningRef = useRef(false);
@@ -452,6 +452,23 @@ export default function ChatView() {
   const sessions = useSessionsStore((s) => s.sessions);
   const [stopping, setStopping] = useState(false);
   const sessionMode = useWorkforceStore((s) => s.sessionMode);
+
+  useEffect(() => {
+    const verify = window.api?.existingPreviewFiles;
+    if (!verify || runStatus === 'running' || !activeId) return;
+    let cancelled = false;
+    const store = getProjectRuntime(activeId).session;
+    void recoverReferencedArtifacts(messages, verify).then(recovered => {
+      if (cancelled || !recovered.size) return;
+      store.setState(state => ({ messages: state.messages.map(message => {
+        const original = messages.find(item => item.id === message.id);
+        const artifacts = recovered.get(message.id);
+        return artifacts && !message.artifacts?.length && original?.content === message.content
+          ? { ...message, artifacts } : message;
+      }) }));
+    }).catch(() => { /* Keep the answer available if a file was moved or the host is older. */ });
+    return () => { cancelled = true; };
+  }, [activeId, messages, runStatus]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -718,7 +735,7 @@ export default function ChatView() {
           );
           const hasContent = hasConfirm || hasAnswer;
           return (
-            <div key={turn.user.id} className="group chat-surface-fluid flex w-full min-w-0 flex-col gap-1">
+            <div key={turn.user.id} className="group chat-surface-fluid flex w-full min-w-0 shrink-0 flex-col gap-1">
               {turn.user.content.trim() ? (
                 <UserMessageBubble content={turn.user.content} />
               ) : null}
@@ -763,7 +780,6 @@ export default function ChatView() {
             </div>
           );
         })}
-        <div ref={messagesEndRef} />
       </div>
 
       {showScrollBottom && (
@@ -776,7 +792,11 @@ export default function ChatView() {
             onClick={() => {
               nearBottomRef.current = true;
               setShowScrollBottom(false);
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              // Target this viewport directly. An empty sentinel can be laid out
+              // before overflowing flex content, and scrollIntoView also moves
+              // scrollable ancestors instead of only the conversation.
+              const viewport = messagesScrollRef.current;
+              if (viewport) viewport.scrollTop = viewport.scrollHeight;
             }}
           >
             <ChevronDown className="h-5 w-5 text-ds-text-neutral-muted-default" />

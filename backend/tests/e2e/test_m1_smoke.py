@@ -1,20 +1,17 @@
 import pytest
+import asyncio
 
 from app.main import build_stack, create_app
 from tests.conftest import FakeChatModel, make_ai
 
 
-def _auto_approve_all(confirm_hub):
-    def _auto_approve(event: dict) -> None:
-        if event.get("type") == "tool.confirm_request":
-            confirm_hub.resolve(event["call_id"], True)
-        if event.get("type") == "to_sub_tasks":
-            confirm_hub.resolve_plan(
-                event.get("task_id") or "",
-                event.get("subtasks") or [],
-            )
-
-    return _auto_approve
+def _auto_approve_all(manager):
+    def approve(event):
+        if event.get('type') == 'tool.confirm_request':
+            asyncio.create_task(manager.resolve(event['task_id'], event['call_id'], {'ok': True}))
+        elif event.get('type') == 'to_sub_tasks':
+            asyncio.create_task(manager.resolve(event['task_id'], event['interrupt_id'], {'subtasks': event['subtasks']}))
+    return approve
 
 
 class TestM1Smoke:
@@ -22,17 +19,13 @@ class TestM1Smoke:
     async def test_chat_writes_file_end_to_end(self, tmp_path):
         target_path = tmp_path / "hello.txt"
 
-        # planner_llm used by decompose_subtasks
-        planner = FakeChatModel(
-            responses=[
-                make_ai(
-                    content=(
-                        '[{"id":"task_1","content":"写 hello.txt 内容 hi",'
-                        '"assignee":"developer_agent","dependencies":[]}]'
-                    )
-                ),
-            ]
-        )
+        planner = FakeChatModel(responses=[
+            make_ai(tool_calls=[{'id': 'plan', 'name': 'propose_plan', 'args': {'subtasks': [
+                {'id': 'task_1', 'content': '写 hello.txt 内容 hi', 'assignee': 'developer_agent'}]}}]),
+            make_ai(tool_calls=[{'id': 'delegate', 'name': 'task', 'args': {
+                'subagent_type': 'developer_agent', 'description': '写 hello.txt 内容 hi'}}]),
+            make_ai('文件已写入。'),
+        ])
         developer = FakeChatModel(
             responses=[
                 make_ai(
@@ -61,7 +54,7 @@ class TestM1Smoke:
         task_manager = stack["task_manager"]
         bus = stack["bus"]
         confirm_hub = stack["confirm_hub"]
-        bus.subscribe(_auto_approve_all(confirm_hub))
+        bus.subscribe(_auto_approve_all(task_manager))
         app = create_app(task_manager=task_manager, bus=bus, confirm_hub=confirm_hub)
 
         import httpx
@@ -120,7 +113,7 @@ class TestM1Smoke:
         task_manager = stack["task_manager"]
         bus = stack["bus"]
         confirm_hub = stack["confirm_hub"]
-        bus.subscribe(_auto_approve_all(confirm_hub))
+        bus.subscribe(_auto_approve_all(task_manager))
         app = create_app(task_manager=task_manager, bus=bus, confirm_hub=confirm_hub)
 
         import httpx

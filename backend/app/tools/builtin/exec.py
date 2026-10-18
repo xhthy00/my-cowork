@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import subprocess
+import signal
 import sys
 import uuid
 
@@ -137,23 +138,38 @@ def make_bash(
         child_env.setdefault("PYTHONUTF8", "1")
         child_env.setdefault("PYTHONIOENCODING", "utf-8")
         run_kwargs: dict = {
-            "shell": True,
             "cwd": cwd,
-            "capture_output": True,
-            "timeout": timeout,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
             "env": child_env,
         }
         if _CREATE_NO_WINDOW:
             run_kwargs["creationflags"] = _CREATE_NO_WINDOW
+        else:
+            run_kwargs['start_new_session'] = True
+        child = await asyncio.create_subprocess_shell(run_cmd, **run_kwargs)
+        async def stop_child():
+            if child.returncode is not None:
+                return
+            if sys.platform == 'win32':
+                killer = await asyncio.create_subprocess_exec('taskkill', '/PID', str(child.pid), '/T', '/F',
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                await killer.wait()
+            else:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            await child.wait()
         try:
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                run_cmd,
-                **run_kwargs,
-            )
-        except subprocess.TimeoutExpired as exc:
-            out = decode_subprocess_output(exc.stdout)
-            err = decode_subprocess_output(exc.stderr)
+            stdout, stderr = await asyncio.wait_for(child.communicate(), timeout=timeout)
+            proc = subprocess.CompletedProcess(run_cmd, child.returncode, stdout, stderr)
+        except asyncio.CancelledError:
+            await asyncio.shield(stop_child())
+            raise
+        except asyncio.TimeoutError:
+            await stop_child()
+            out, err = '', ''
             return json.dumps(
                 {
                     "stdout": out,

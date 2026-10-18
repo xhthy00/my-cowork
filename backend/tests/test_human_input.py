@@ -8,7 +8,6 @@ from app.main import create_app
 from app.server.channels.manager import ChannelManager
 from app.server.channels.store import ChannelStore
 from app.runtime.todo_context import TodoRuntime, reset_todo_runtime, set_todo_runtime
-from app.runtime.v2.loop import run_act_loop
 from app.tools.builtin.human import make_ask_human_tool
 from tests.conftest import FakeChatModel, make_ai
 
@@ -110,34 +109,6 @@ async def test_other_branches_wait_until_user_decides():
     assert hub.reply("task-a", events[0]["question_id"], "B")
     assert await asking == "B"
     await asyncio.wait_for(other_branch, timeout=1)
-
-
-@pytest.mark.asyncio
-async def test_act_loop_continues_after_human_answer():
-    events = []
-    hub = HumanInputHub(events.append)
-    model = FakeChatModel(responses=[
-        make_ai(tool_calls=[{
-            "name": "ask_human",
-            "args": {"question": "选哪种？", "options": ["A", "B"]},
-            "id": "call-1",
-        }]),
-        make_ai("按 B 继续完成"),
-    ])
-    token = set_todo_runtime(TodoRuntime(task_id="task-loop", bus=None))
-    try:
-        running = asyncio.create_task(run_act_loop(model, [make_ask_human_tool(hub)], []))
-        for _ in range(100):
-            if events:
-                break
-            await asyncio.sleep(0.01)
-        assert events and not running.done()
-        assert hub.reply("task-loop", events[0]["question_id"], "B")
-        result = await asyncio.wait_for(running, timeout=2)
-        assert result[-1].content == "按 B 继续完成"
-        assert any(getattr(item, "content", "") == "B" for item in result)
-    finally:
-        reset_todo_runtime(token)
 
 
 @pytest.mark.asyncio

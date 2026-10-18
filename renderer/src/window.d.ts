@@ -146,6 +146,7 @@ export interface ElectronAPI {
     fileCount?: number;
   }>;
   readTextFile?(path: string): Promise<{ content?: string; error?: string }>;
+  existingPreviewFiles?(paths: string[]): Promise<string[]>;
   /** Eigent open-file: returns HTML/text (or path for pdf). */
   openFile?(type: string, path: string, showSource?: boolean): Promise<string>;
   /** Eigent read-file-dataurl for PDF/images. */

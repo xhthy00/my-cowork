@@ -1,16 +1,16 @@
 """Model selection for task kinds."""
 
 PRIMARY = {
-    "supervisor": "claude-sonnet-4-20250514",
-    "developer_agent": "claude-sonnet-4-20250514",
-    "browser_agent": "claude-sonnet-4-20250514",
-    "document_agent": "claude-sonnet-4-20250514",
-    "multi_modal_agent": "claude-sonnet-4-20250514",
+    "supervisor": "claude-sonnet-5-5",
+    "developer_agent": "claude-sonnet-5-5",
+    "browser_agent": "claude-sonnet-5-5",
+    "document_agent": "claude-sonnet-5-5",
+    "multi_modal_agent": "claude-sonnet-5-5",
     # legacy aliases
-    "file_worker": "claude-sonnet-4-20250514",
-    "doc_worker": "claude-sonnet-4-20250514",
-    "web_worker": "claude-sonnet-4-20250514",
-    "msg_worker": "claude-sonnet-4-20250514",
+    "file_worker": "claude-sonnet-5-5",
+    "doc_worker": "claude-sonnet-5-5",
+    "web_worker": "claude-sonnet-5-5",
+    "msg_worker": "claude-sonnet-5-5",
 }
 
 COMPRESS = {
@@ -23,7 +23,7 @@ _MODEL_MAP = {
 }
 
 _PROVIDER_MAP = {
-    "claude-sonnet-4-20250514": "anthropic",
+    "claude-sonnet-5-5": "anthropic",
     "gpt-4o-mini": "openai_compat",
 }
 

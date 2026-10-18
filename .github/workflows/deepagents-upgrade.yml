@@ -1,0 +1,79 @@
+name: Deep Agents upstream upgrade
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: deepagents-upgrade
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install shared backend and test dependencies
+        working-directory: backend
+        run: uv sync --locked --extra dev
+      - name: Save baseline checkpoint and completed disposable effect
+        run: backend/.venv/bin/python scripts/check-harness-upgrade.py prepare --data-dir "$RUNNER_TEMP/harness-upgrade"
+      - name: Select stable upstream candidate
+        id: candidate
+        run: |
+          candidate=$(backend/.venv/bin/python scripts/upgrade-deepagents.py)
+          echo "version=$candidate" >> "$GITHUB_OUTPUT"
+      - name: Resolve and verify complete shared backend
+        if: steps.candidate.outputs.version != 'unchanged'
+        working-directory: backend
+        run: |
+          uv lock --upgrade-package deepagents
+          uv sync --locked --extra dev
+          uv run python ../scripts/check-harness-upgrade.py verify --data-dir "$RUNNER_TEMP/harness-upgrade"
+          uv run pytest -q
+          uv run python ../scripts/smoke-harness.py
+      - name: Prepare normal project release version
+        if: steps.candidate.outputs.version != 'unchanged'
+        run: npm version patch --no-git-tag-version --ignore-scripts
+      - name: Create or update reviewed dependency change
+        if: steps.candidate.outputs.version != 'unchanged'
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN || github.token }}
+          branch: codex/deepagents-upgrade
+          commit-message: 'Update Deep Agents in the shared backend environment'
+          title: 'Update Deep Agents to ${{ steps.candidate.outputs.version }}'
+          body: |
+            Updates the official Deep Agents pin and the shared backend lock.
+            The whole backend suite and authenticated sidecar smoke passed before submission.
+            macOS and Windows frozen builds must pass before merging.
+            Uses the normal project release and updater; no separate Python environment.
+          add-paths: |
+            backend/pyproject.toml
+            backend/uv.lock
+            package.json
+            package-lock.json
+      - name: Enable merge after required checks
+        if: steps.pr.outputs.pull-request-number && vars.DEEPAGENTS_AUTO_MERGE == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN || github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/branches/$BASE_BRANCH/protection/required_status_checks" > "$RUNNER_TEMP/required-checks.json"
+          python - <<'PY_CHECKS'
+          import json, os
+          from pathlib import Path
+          data = json.loads((Path(os.environ['RUNNER_TEMP']) / 'required-checks.json').read_text())
+          actual = set(data.get('contexts', [])) | {item['context'] for item in data.get('checks', [])}
+          required = {'quality', 'python-macos', 'python-windows', 'electron', 'electron-windows'}
+          if not required <= actual:
+              raise SystemExit('Configure all shared-backend and frozen platform checks before auto merge: ' + str(required - actual))
+          PY_CHECKS
+          gh pr merge "$PR_NUMBER" --auto --squash

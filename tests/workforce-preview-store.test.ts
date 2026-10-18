@@ -123,6 +123,19 @@ describe("workforce + preview stores", () => {
     expect(info[0].content).toBe("用户确认的计划");
   });
 
+  it("keeps workforce mode for a new official root plan and clears the previous turn", () => {
+    const wf = useWorkforceStore.getState();
+    wf.seedPlan([{ id: "old", content: "旧任务", status: "completed", terminal: [] }]);
+    wf.handleWorkforceEvent("todo_state", { agent_id: "coordinator", todos: [] });
+    expect(useWorkforceStore.getState().taskInfo).toEqual([]);
+    expect(useWorkforceStore.getState().sessionMode).toBe(SessionMode.WORKFORCE);
+    wf.handleWorkforceEvent("todo_state", { agent_id: "coordinator", todos: [
+      { id: "todo_1", content: "新任务规划", status: "in_progress" },
+    ] });
+    expect(useWorkforceStore.getState().sessionMode).toBe(SessionMode.WORKFORCE);
+    expect(useWorkforceStore.getState().taskInfo[0].content).toBe("新任务规划");
+  });
+
   it("loads Progress plan from todo_state", () => {
     useWorkforceStore.getState().setSessionMode(SessionMode.SINGLE_AGENT);
     useWorkforceStore.getState().handleWorkforceEvent("todo_state", {
@@ -145,7 +158,7 @@ describe("workforce + preview stores", () => {
     const info = useWorkforceStore.getState().taskInfo;
     expect(info).toHaveLength(2);
     expect(info[0].status).toBe("running");
-    expect(info[0].content).toContain("正在理解需求");
+    expect(info[0].content).toBe("理解用户需求与交付目标");
     expect(info[1].status).toBe("waiting");
   });
 

@@ -127,6 +127,13 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
 @router.post("/api/workforce/start")
 async def workforce_start(request: Request, body: WorkforceStartBody) -> dict[str, Any]:
     """Resolve a pending plan confirmation with (optional) edited subtasks."""
+    manager = request.app.state.task_manager
+    if getattr(manager, 'uses_deepagents', False) is True:
+        pending = await manager.pending(body.task_id)
+        plan = next((item for item in pending if item['kind'] == 'plan'), None)
+        if plan is None or not await manager.resolve(body.task_id, plan['interrupt_id'], {'subtasks': body.subtasks}):
+            raise HTTPException(409, 'Plan is no longer waiting for confirmation')
+        return {"ok": True, "task_id": body.task_id, "count": len(body.subtasks)}
     hub = request.app.state.confirm_hub
     subtasks = normalize_subtasks(body.subtasks)
     hub.resolve_plan(body.task_id, subtasks)
@@ -135,18 +142,34 @@ async def workforce_start(request: Request, body: WorkforceStartBody) -> dict[st
 
 @router.get("/api/chat/{task_id}/pending-questions")
 async def pending_human_questions(task_id: str, request: Request) -> dict[str, Any]:
+    manager = request.app.state.task_manager
+    if getattr(manager, 'uses_deepagents', False) is True:
+        return {'questions': [{**item, 'question_id': item['interrupt_id'], 'task_id': task_id}
+                              for item in await manager.pending(task_id) if item['kind'] == 'human']}
     hub = getattr(request.app.state, "human_input_hub", None)
     return {"questions": hub.pending(task_id) if hub is not None else []}
 
 
 @router.get("/api/chat/{task_id}/question-history")
 async def human_question_history(task_id: str, request: Request) -> dict[str, Any]:
+    manager = request.app.state.task_manager
+    if getattr(manager, 'uses_deepagents', False) is True:
+        events = await manager.runtime.history(task_id)
+        answers = {event['question_id']: event['answer'] for event in events if event['type'] == 'human.answered'}
+        return {'questions': [{**event, 'answer': answers.get(event['question_id']),
+            'status': 'answered' if event['question_id'] in answers else 'pending'}
+            for event in events if event['type'] == 'human.ask']}
     hub = getattr(request.app.state, "human_input_hub", None)
     return {"questions": hub.history(task_id) if hub is not None else []}
 
 
 @router.post("/api/chat/{task_id}/human-reply")
 async def human_reply(task_id: str, body: HumanReplyBody, request: Request) -> dict[str, Any]:
+    manager = request.app.state.task_manager
+    if getattr(manager, 'uses_deepagents', False) is True:
+        if not await manager.resolve(task_id, body.question_id, {'answer': body.answer}):
+            raise HTTPException(409, 'Question is no longer waiting for a reply')
+        return {'ok': True, 'question_id': body.question_id}
     hub = getattr(request.app.state, "human_input_hub", None)
     if hub is None or not hub.reply(task_id, body.question_id, body.answer):
         raise HTTPException(status_code=409, detail="Question is no longer waiting for a reply")

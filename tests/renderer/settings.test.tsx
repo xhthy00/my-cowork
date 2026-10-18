@@ -141,7 +141,7 @@ describe("Settings", () => {
         expect.objectContaining({
           name: "Anthropic",
           provider: "anthropic",
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-5-5",
           apiKey: "sk-test-key",
           activate: true,
           isValid: true,

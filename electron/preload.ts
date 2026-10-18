@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld("api", {
   }> => ipcRenderer.invoke("dialog:select-files", options),
   readTextFile: (filePath: string): Promise<{ content?: string; error?: string }> =>
     ipcRenderer.invoke("read-text-file", filePath),
+  existingPreviewFiles: (paths: string[]): Promise<string[]> =>
+    ipcRenderer.invoke("existing-preview-files", paths),
   openFile: (
     type: string,
     filePath: string,

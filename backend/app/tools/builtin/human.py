@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from langchain_core.tools import BaseTool, tool
-from pydantic import BaseModel, Field
+from runtime_contract import HumanQuestionField
 
 from app.guardrails.human_input import HumanInputHub
 from app.runtime.todo_context import get_current_agent_id, get_todo_runtime
-
-
-class HumanQuestionField(BaseModel):
-    label: str = Field(description="A short question or field label in the user's language")
-    kind: Literal["single", "multiple", "text"] = Field(description="Single choice, multiple choice, or free text")
-    options: list[str] = Field(default_factory=list, description="Short choices for single/multiple fields")
-    required: bool = Field(default=False, description="Whether this answer is necessary to continue")
-    placeholder: str = Field(default="", description="Brief example for a text answer")
 
 
 def make_ask_human_tool(hub: HumanInputHub) -> BaseTool:

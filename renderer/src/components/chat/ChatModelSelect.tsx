@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Key, Server } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from '@/api/backend';
 
 import {
   DropdownMenu,
@@ -114,9 +115,33 @@ function ProfileRow({
   );
 }
 
-export default function ChatModelSelect({ compact = false }: { compact?: boolean }) {
+export default function ChatModelSelect({ compact = false, onContextChange }: {
+  compact?: boolean;
+  onContextChange?: (info: { model: string; limit: number; key?: string }) => void;
+}) {
   const { models, active, setActive, switching, status } = useModels();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!onContextChange) return;
+    let cancelled = false;
+    onContextChange({ model: active?.model ?? '', limit: 0 });
+    if (active && window.api?.getBackendUrl) {
+      const selected = active;
+      void window.api.getBackendUrl().then(async base => {
+        if (!base) return;
+        const response = await apiFetch(`${base}/api/model/info`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: selected.provider === 'anthropic' ? 'anthropic' : 'openai_compat',
+            model: selected.model, base_url: selected.baseUrl }),
+        });
+        if (!response.ok) return;
+        const info = await response.json();
+        if (!cancelled) onContextChange({ model: selected.model, limit: Number(info.context_limit) || 0, key: info.context_key });
+      }).catch(() => { /* Unknown capacity stays unknown when the backend is unavailable. */ });
+    }
+    return () => { cancelled = true; };
+  }, [active?.id, active?.model, active?.baseUrl, active?.provider, onContextChange]);
 
   const custom = useMemo(
     () =>

@@ -8,6 +8,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 import mammoth from "mammoth";
 import Papa from "papaparse";
@@ -41,6 +42,21 @@ export function resolvePreviewPath(filePath: string): string {
   const resolved = path.resolve(raw);
   if (!path.isAbsolute(resolved)) throw new Error("path must be absolute");
   return resolved;
+}
+
+/** Verify historical answer references without reading file contents. */
+export async function existingPreviewFiles(paths: unknown): Promise<string[]> {
+  if (!Array.isArray(paths) || paths.length > 200) return [];
+  const found = await Promise.all(paths.map(async (raw) => {
+    if (typeof raw !== 'string' || raw.length > 4096 || /[\r\n\0]/.test(raw)) return null;
+    const decoded = decodeUnicodeEscapes(raw);
+    const candidate = decoded.startsWith('~/') ? path.join(os.homedir(), decoded.slice(2)) : decoded;
+    if (!path.isAbsolute(candidate) || candidate.startsWith('//') || candidate.startsWith('\\\\')) return null;
+    try {
+      return (await fs.promises.stat(candidate)).isFile() ? path.normalize(candidate) : null;
+    } catch { return null; }
+  }));
+  return [...new Set(found.filter((item): item is string => Boolean(item)))];
 }
 
 export function readPreviewFileBuffer(filePath: string): Uint8Array {

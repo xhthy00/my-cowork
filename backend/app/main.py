@@ -29,8 +29,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from app.graphs.single_agent import compile_single_agent_graph
-from app.graphs.workforce import compile_workforce_graph
 from app.guardrails.approval import ConfirmHub
 from app.guardrails.human_input import HumanInputHub
 from app.guardrails.audit import AuditStore
@@ -50,7 +48,6 @@ from app.automation import AutomationScheduler, AutomationStore
 from app.automation.migration import import_legacy_jobs, import_skill_schedules
 from app.automation.runtime import AutomationRunner
 from app.automation.tools import make_automation_tools
-from app.runtime.checkpointer import get_checkpointer
 from app.runtime.v2.context_tools import make_context_tools
 from app.sandbox.path_guard import PathGuard
 from app.workspace.paths import data_root
@@ -102,7 +99,6 @@ from app.tools.builtin.lark.tools import make_lark_send_tool
 from app.tools.builtin.notes import make_note_tools
 from app.tools.builtin.human import make_ask_human_tool
 from app.tools.builtin.skills import make_skill_tools
-from app.tools.builtin.todo import make_substep_update_tool, make_todo_write_tool
 from app.tools.builtin.web_search import make_web_search_tool
 from app.tools.builtin.web_fetch import make_web_fetch_tool
 from app.tools.builtin.browser import make_browser_tools
@@ -161,7 +157,7 @@ def _default_model_factory(
 
         kwargs: dict[str, Any] = {}
         base_url = os.environ.get("MY_COWORK_BASE_URL")
-        if base_url and p == "openai_compat":
+        if base_url and p == provider:
             kwargs["base_url"] = base_url
         return instrument_model_for_budget(
             gateway.create_model(p, m, api_key, **kwargs)
@@ -381,223 +377,71 @@ def build_stack(
 
     reload_mcp()
 
-    def _llm_for(kind: str, override: BaseChatModel | None, fallback: BaseChatModel | None) -> BaseChatModel:
-        if override is not None:
-            return override
-        provider, model = _resolve_llm(kind)
-        try:
-            return _default_model_factory(provider, model, emit=bus.emit)
-        except RuntimeError:
-            if fallback is not None:
-                return fallback
-            raise
-
-    planner_llm = _llm_for("supervisor", supervisor_llm, None)
-    developer_llm = _llm_for(
-        "developer_agent",
-        developer_agent_llm or file_worker_llm,
-        planner_llm,
-    )
-    document_llm = _llm_for(
-        "document_agent",
-        document_agent_llm or doc_worker_llm,
-        developer_llm,
-    )
-    browser_llm = _llm_for(
-        "browser_agent",
-        browser_agent_llm or web_worker_llm,
-        developer_llm,
-    )
-    multi_modal_llm = _llm_for(
-        "multi_modal_agent",
-        multi_modal_agent_llm or msg_worker_llm,
-        developer_llm,
-    )
-
-    mcp_tools = registry.list_by_prefix("mcp.")
-    todo_tool = make_todo_write_tool()
-    substep_tool = make_substep_update_tool()
-    skills_root = Path(
-        os.environ.get("MY_COWORK_SKILLS_ROOT") or str(default_skills_root())
-    )
-    skills_cfg = Path(
-        os.environ.get("MY_COWORK_SKILLS_CONFIG") or str(default_skills_config_path())
-    )
-
-    def _skills_for(agent_id: str) -> list:
-        return make_skill_tools(
-            agent_id, root=skills_root, config_path=skills_cfg
-        )
-
-    # Eigent: ObservableTodoToolkit is single-agent only. Workforce Progress
-    # is the confirmed sub_tasks list (status via graph todo_state / task_state).
-    from app.runtime.v2.office import officecli_available
-
-    office_gen_tools = (
-        []
-        if officecli_available()
-        else [docx_tool, pptx_tool, xlsx_tool]
-    )
-
-    checkpointer = get_checkpointer(data_dir / "checkpoints.db")
-
-    # Eigent Single Agent: one meta-agent with the full tool set (no routing).
+    from app.host_capabilities.broker import CapabilityBroker
+    from app.runtime_client.client import RuntimeClient
     from app.industry_apps.file_tools import make_app_file_tools
     single_agent_tools = [
-        *make_app_file_tools(),
-        todo_tool,
-        ask_human_tool,
-        *automation_tools,
-        *memory_tools,
-        *context_tools,
-        *_skills_for("single_agent"),
-        *note_tools,
-        fs_read,
-        write_tool,
-        fs_list,
-        single_bash_tool,
-        *office_gen_tools,
-        gongwen_tool,
-        pdf_tool,
-        lark_tool,
-        web_search_tool,
-        web_fetch_tool,
-        *ima_tools,
-        *browser_tools,
-        *mcp_tools,
-        *industry_tools,
+        *make_app_file_tools(), *automation_tools, *memory_tools, *context_tools,
+        *note_tools, fs_read, write_tool, fs_list, single_bash_tool,
+        docx_tool, pptx_tool, xlsx_tool, gongwen_tool, pdf_tool, lark_tool,
+        web_search_tool, web_fetch_tool, *ima_tools, *browser_tools,
+        *registry.list_by_prefix('mcp.'), *industry_tools,
     ]
-
-    graph = compile_workforce_graph(
-        workers={
-            "developer_agent": {
-                "model": developer_llm,
-                "tools": [
-                    substep_tool,
-                    ask_human_tool,
-                    *automation_tools,
-                    *memory_tools,
-                    *context_tools,
-                    *_skills_for("developer_agent"),
-                    *note_tools,
-                    fs_read,
-                    write_tool,
-                    fs_list,
-                    bash_tool,
-                    *industry_tools,
-                ],
-                "prompt_name": "developer",
-            },
-            "document_agent": {
-                "model": document_llm,
-                "tools": [
-                    substep_tool,
-                    ask_human_tool,
-                    *automation_tools,
-                    *memory_tools,
-                    *context_tools,
-                    *_skills_for("document_agent"),
-                    *note_tools,
-                    fs_read,
-                    write_tool,
-                    fs_list,
-                    document_bash_tool,
-                    *office_gen_tools,
-                    gongwen_tool,
-                    pdf_tool,
-                    lark_tool,
-                    *ima_tools,
-                    *industry_tools,
-                ],
-                "prompt_name": "document",
-            },
-            "browser_agent": {
-                "model": browser_llm,
-                "tools": [
-                    substep_tool,
-                    ask_human_tool,
-                    *automation_tools,
-                    *memory_tools,
-                    *context_tools,
-                    *_skills_for("browser_agent"),
-                    *note_tools,
-                    fs_read,
-                    fs_list,
-                    web_search_tool,
-                    web_fetch_tool,
-                    *ima_tools,
-                    *browser_tools,
-                    *mcp_tools,
-                    *industry_tools,
-                ],
-                "prompt_name": "browser",
-            },
-            "multi_modal_agent": {
-                "model": multi_modal_llm,
-                "tools": [
-                    substep_tool,
-                    ask_human_tool,
-                    *automation_tools,
-                    *memory_tools,
-                    *context_tools,
-                    *_skills_for("multi_modal_agent"),
-                    *note_tools,
-                    fs_read,
-                    fs_list,
-                    *industry_tools,
-                ],
-                "prompt_name": "multi_modal",
-            },
-        },
-        planner_llm=planner_llm,
-        checkpointer=checkpointer,
-    )
-    single_agent_graph = compile_single_agent_graph(
-        model=planner_llm,
-        tools=single_agent_tools,
-        synthesize_llm=planner_llm,
-        checkpointer=checkpointer,
-    )
-
-    short_term = ShortTermStore(data_dir / "memory.db")
-    task_store = TaskStore(data_dir / "tasks.db")
-    metrics = MetricsStore(data_dir / "metrics.db")
-    task_manager = TaskManager(
-        graph=graph,
-        tools=registry.list_tools(),
-        bus=bus,
-        long_term=long_term,
-        metrics=metrics,
-        max_total_tokens=int(os.environ.get("MY_COWORK_MAX_TOKENS", "200000")),
-        planner_llm=planner_llm,
-        single_agent_graph=single_agent_graph,
-        confirm_hub=confirm_hub,
-        human_input_hub=human_input_hub,
-        notes_root=data_dir / "notes",
-        task_store=task_store,
-        short_term=short_term,
-        admission=admission,
-    )
+    all_names = {tool.name for tool in single_agent_tools}
+    write_names = {'bash', 'fs_write', 'docx_gen', 'pptx_gen', 'xlsx_gen', 'pdf_gen', 'gongwen_format'}
+    role_tools = {
+        'developer_agent': all_names - {tool.name for tool in browser_tools},
+        'document_agent': all_names - {tool.name for tool in browser_tools},
+        'browser_agent': all_names - write_names,
+        'multi_modal_agent': all_names - write_names - {tool.name for tool in browser_tools},
+    }
+    overrides = {'supervisor': supervisor_llm,
+        'developer_agent': developer_agent_llm or file_worker_llm,
+        'document_agent': document_agent_llm or doc_worker_llm,
+        'browser_agent': browser_agent_llm or web_worker_llm,
+        'multi_modal_agent': multi_modal_agent_llm or msg_worker_llm}
+    models = {}
+    for role in overrides:
+        provider, model = _resolve_llm(role)
+        models[role] = {'provider': provider, 'model': model}
+        if os.environ.get('MY_COWORK_BASE_URL'):
+            models[role]['base_url'] = os.environ['MY_COWORK_BASE_URL']
+    broker = CapabilityBroker(data_dir, bus)
+    embedded_service = None
+    if supervisor_llm is not None:
+        # Injected models are a test/embedding seam; production always uses the
+        # same-interpreter sidecar and does not serialize model objects.
+        from cowork_harness.service import RuntimeService
+        for role in models:
+            models[role] = {'provider': 'cowork', 'model': role}
+        async def host_call(op, cid, name, args, scope_ref, **kwargs):
+            from runtime_contract import ToolInvocation
+            # Scope is supplied by the active request in RuntimeService.
+            return await getattr(broker, op)(ToolInvocation(scope_ref=scope_ref,
+                invocation_id=cid, tool=name, args=args, **kwargs))
+        embedded_service = RuntimeService(data_dir / 'harness',
+            model_factory=lambda spec: overrides.get(spec['model']) or supervisor_llm,
+            call_host=host_call)
+    runtime = RuntimeClient(data_dir, broker, embedded_service=embedded_service)
+    short_term = ShortTermStore(data_dir / 'memory.db')
+    task_store = TaskStore(data_dir / 'tasks.db')
+    metrics = MetricsStore(data_dir / 'metrics.db')
+    task_manager = TaskManager(runtime=runtime, broker=broker, tools=single_agent_tools,
+        models=models, role_tools=role_tools, data_dir=data_dir, bus=bus,
+        long_term=long_term, metrics=metrics,
+        max_steps=int(os.environ['MY_COWORK_MAX_STEPS']) if os.environ.get('MY_COWORK_MAX_STEPS') else None,
+        max_total_tokens=int(os.environ['MY_COWORK_MAX_TOKENS']) if os.environ.get('MY_COWORK_MAX_TOKENS') else None,
+        confirm_hub=confirm_hub, human_input_hub=human_input_hub,
+        task_store=task_store, short_term=short_term, admission=admission, automation_store=automation_store)
     return {
-        "task_manager": task_manager,
-        "automation_store": automation_store,
-        "bus": bus,
-        "confirm_hub": confirm_hub,
-        "human_input_hub": human_input_hub,
-        "long_term": long_term,
-        "memory_settings": memory_settings,
-        "short_term": short_term,
-        "task_store": task_store,
-        "trace_store": trace_store,
-        "desktop_sessions": desktop_sessions,
-        "audit_store": audit_store,
-        "mcp_manager": mcp_manager,
-        "mcp_json_path": mcp_json_path,
-        "reload_mcp": reload_mcp,
-        "registry": registry,
-        "data_dir": data_dir,
-        "graph": graph,
-        "single_agent_graph": single_agent_graph,
+        'task_manager': task_manager, 'runtime': runtime, 'broker': broker,
+        'automation_store': automation_store, 'bus': bus, 'confirm_hub': confirm_hub,
+        'human_input_hub': human_input_hub, 'long_term': long_term,
+        'memory_settings': memory_settings, 'short_term': short_term,
+        'task_store': task_store, 'trace_store': trace_store,
+        'desktop_sessions': desktop_sessions, 'audit_store': audit_store,
+        'mcp_manager': mcp_manager, 'mcp_json_path': mcp_json_path,
+        'reload_mcp': reload_mcp, 'registry': registry, 'data_dir': data_dir,
     }
 
 
@@ -615,6 +459,9 @@ def _create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        runtime = getattr(app.state.task_manager, "runtime", None)
+        if runtime is not None:
+            await app.state.task_manager.recover()
         automation_scheduler = getattr(app.state, "automation_scheduler", None)
         if automation_scheduler is not None:
             try:
@@ -642,6 +489,8 @@ def _create_app(
         finally:
             if automation_scheduler is not None:
                 await automation_scheduler.stop()
+            if hasattr(app.state.task_manager, "close"):
+                await app.state.task_manager.close()
             automation_store = getattr(app.state, "automations", None)
             if automation_store is not None:
                 automation_store.close()
@@ -797,6 +646,10 @@ def __getattr__(name: str) -> Any:
 
 def main() -> None:
     """CLI entry for PyInstaller / packaged backend: ``my-cowork-backend --port 0``."""
+    if "--role=harness" in sys.argv:
+        from cowork_harness.server import main as harness_main
+        harness_main()
+        return
     import argparse
 
     # Frozen Windows executables may keep the system code page despite Python

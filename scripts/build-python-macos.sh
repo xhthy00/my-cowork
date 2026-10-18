@@ -5,14 +5,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/backend"
 
 sqlite_ext_ok() {
-  uv run python -c "import sqlite3; sqlite3.connect(':memory:').enable_load_extension(True)" 2>/dev/null
+  uv run --locked python -c "import sqlite3; sqlite3.connect(':memory:').enable_load_extension(True)" 2>/dev/null
 }
 
-uv sync
+uv sync --locked
 if ! sqlite_ext_ok; then
   echo "sqlite3 cannot load extensions; switching to Homebrew CPython"
   if brew install python@3.12; then
-    uv sync --python "$(brew --prefix python@3.12)/bin/python3.12" || true
+    uv sync --locked --python "$(brew --prefix python@3.12)/bin/python3.12" || true
   fi
 fi
 if sqlite_ext_ok; then
@@ -25,8 +25,8 @@ fi
 # process its nested frameworks there. Electron-builder includes this directory
 # as an extra resource. --no-shell omits the unused headless shell.
 export PLAYWRIGHT_BROWSERS_PATH="$ROOT/build/playwright-browsers"
-uv run python -m playwright install --no-shell chromium
-uv run pyinstaller "$ROOT/build/pyinstaller/macos.spec" --distpath "$ROOT/dist" --workpath "$ROOT/build/pyinstaller/work-macos" -y
+uv run --locked python -m playwright install --no-shell chromium
+uv run --locked pyinstaller "$ROOT/build/pyinstaller/macos.spec" --distpath "$ROOT/dist" --workpath "$ROOT/build/pyinstaller/work-macos" -y
 BIN="$ROOT/dist/my-cowork-backend"
 if [[ ! -f "$BIN" ]]; then
   echo "binary missing: $BIN" >&2
@@ -47,7 +47,7 @@ export PYTHONUNBUFFERED=1
 export PYTHONFAULTHANDLER=1
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
-# One-file PyInstaller first boot extracts then create_app() compiles graphs.
+# One-file PyInstaller first boot extracts then create_app() starts the authenticated harness sidecar.
 "$BIN" --port 8765 >"$LOG" 2>&1 &
 PID=$!
 cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; }

@@ -186,39 +186,6 @@ async def test_empty_and_unavailable_selection(setup, tmp_path):
     assert len(submitted) == 1
 
 
-@pytest.mark.asyncio
-async def test_real_graph_propagates_selected_resource_scope(tmp_path, monkeypatch):
-    from app.graphs.single_agent import compile_single_agent_graph
-    from app.observability.trace import TraceBus
-    from app.orchestrator.task_manager import TaskManager, TaskRequest
-    from tests.conftest import FakeChatModel, make_ai
-    monkeypatch.setenv('MY_COWORK_DATA_DIR', str(tmp_path))
-    _, skills = make_skills(tmp_path)
-    key = 'app:cn.example.officecli:risk-analysis'
-    class InspectModel(FakeChatModel):
-        def _generate(self, messages, *args, **kwargs):
-            context = '\n'.join(str(m.content) for m in messages)
-            assert 'RISK RULE' in context and 'REPORT RULE' not in context
-            if self.idx == 1:
-                assert '1.0.0: evidence required' in context
-            if self.idx == 2:
-                assert '[ERROR]' in context
-            return super()._generate(messages, *args, **kwargs)
-    model = InspectModel(responses=[
-        make_ai(tool_calls=[{'id': 'ref', 'name': 'read_skill_resource', 'args': {'name': key, 'path': 'references/rules.md'}}]),
-        make_ai(tool_calls=[{'id': 'deny', 'name': 'read_skill_resource', 'args': {'name': 'app:cn.example.officecli:weekly-report', 'path': 'SKILL.md'}}]),
-        make_ai('已根据证据完成风险分析。'),
-    ])
-    tools = make_skill_tools('single_agent', root=tmp_path/'user')
-    graph = compile_single_agent_graph(model=model, tools=tools)
-    manager = TaskManager(graph=graph, single_agent_graph=graph, tools=tools, bus=TraceBus())
-    manager.app_skills = skills
-    scope = AppTaskScope('cn.example.officecli', frozenset({'read_skill_resource'}), skills={key: skills[key]})
-    events = [event async for event in manager.handle(TaskRequest(text='分析风险', task_id='skillgraph', session_mode='single-agent', memory_enabled=False, app_scope=scope))]
-    assert events[-1]['status'] == 'ok', events[-1]
-    assert model.idx == 3
-
-
 def test_lifecycle_catalog_tracks_candidate_commit_rollback_disable(tmp_path):
     import hashlib
     import io

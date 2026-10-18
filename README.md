@@ -97,25 +97,26 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 │   spawn 后端 · Keychain · PDF printToPDF · 文件对话框          │
 │                         │ localhost                          │
 │  Python (FastAPI + LangGraph)                                │
-│   编排 → Graph（单智能体 / Workforce）→ 工具 / MCP / Skills    │
+│   编排 → Runtime Client → Deep Agents（单代理 / 子代理）    │
 │   SQLite + sqlite-vec · APScheduler · 飞书 webhook            │
 └──────────────────────────────────────────────────────────────┘
          可选：Cloudflare Tunnel → 飞书事件订阅
 ```
 
-后端按 harness 九层划分，跨层依赖只允许向下（`import-linter` 在 CI 里卡）：
+Agent 执行由独立 `cowork_harness` 模块和 sidecar 进程承接，与后端共享 Python 环境、`backend/pyproject.toml` 和 `backend/uv.lock`。官方 `create_deep_agent()` 负责工具循环、子代理、压缩和 checkpoint；产品后端保留授权、工具、任务入口、业务数据和产物登记。
 
-| 层 | 目录 | 职责 |
-| --- | --- | --- |
-| L9 入口 | `backend/app/server/` | HTTP / SSE / webhook / 定时触发 |
-| L8 编排 | `orchestrator/` | 任务生命周期、会话 |
-| L7 执行 | `graphs/` `agents/` `runtime/` | LangGraph、checkpoint、预算闸 |
-| L6 记忆 | `memory/` | 短期上下文 + 长期向量记忆 |
-| L5 可观测 | `observability/` | Trace、日志脱敏、用量 |
-| L4 护栏 | `guardrails/` | 审批门、高危命令拒单、审计 |
-| L3 工具 | `tools/` | fs / exec / 文档 / MCP / Skills |
-| L2 模型 | `llm/` | Provider 网关、token 计数 |
-| L1 沙箱 | `sandbox/` | 路径白名单、出网策略 |
+| 模块 | 职责 |
+| --- | --- |
+| `backend/cowork_harness/` | 官方 Deep Agents 工厂、持久中断、事件、预算和运行生命周期 |
+| `backend/runtime_contract/` | 独立的版本化 JSON 协议与共享构建标识 |
+| `backend/app/runtime_client/` | 使用同一解释器启动 sidecar，检查版本和锁文件摘要 |
+| `backend/app/host_capabilities/` | 宿主工具回调、权限范围、审批票据和副作用去重 |
+| `backend/app/orchestrator/` | 产品任务状态、渠道、行业应用、上下文及产物 |
+| `backend/model_integrations/` | 宿主模型设置和 harness 共享的模型适配 |
+
+`import-linter` 在测试中验证独立模块的依赖边界。上游更新通过统一依赖锁、完整后端/前端回归和各平台冻结检查后进入正常项目发布流程；没有独立 harness 环境或运行中 `pip install -U`。
+
+实施和首次启用说明：[Deep Agents 实施说明](docs/DeepAgents实施说明.md)。
 
 密钥不写进 `config.toml`：Electron 用系统钥匙串（macOS Keychain / Windows Credential Manager）保管，启动 Python 时注入环境变量。
 
@@ -128,7 +129,7 @@ MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直�
 | 桌面壳 | Electron 35、electron-builder（dmg / NSIS） |
 | UI | React 19、Vite、TypeScript、Tailwind、Radix、Zustand |
 | 后端 | Python 3.11、FastAPI、Uvicorn、uv |
-| Agent | LangGraph Supervisor / Workforce、LangChain 模型适配 |
+| Agent | Python Deep Agents、官方 LangGraph checkpoint / subagents、LangChain 模型适配 |
 | 办公文档 | OfficeCLI + python-docx / python-pptx / openpyxl |
 | 数据 | SQLite、sqlite-vec |
 | 远程 | lark-oapi、Cloudflare Tunnel（可选） |
@@ -265,7 +266,7 @@ xattr -dr com.apple.quarantine /Applications/MyCowork.app
 ## 仓库结构
 
 ```
-backend/                 Python 后端（harness 分层）
+backend/                 Python 后端 + 独立 harness（共享环境）
 electron/                Electron 主进程
 renderer/                React 界面
 skills/                  用户 / 工作区技能

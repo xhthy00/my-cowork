@@ -21,10 +21,10 @@ class Admission:
         self._work = {}
         self._next = 0
 
-    def acquire(self, label="任务"):
+    def acquire(self, label="任务", *, restoring=False):
         with self._lock:
             parent = _lease.get()
-            if self.paused and not (parent and parent[0] is self and parent[1] in self._work):
+            if self.paused and not restoring and not (parent and parent[0] is self and parent[1] in self._work):
                 raise MaintenanceBusy()
             self._next += 1
             self._work[self._next] = label

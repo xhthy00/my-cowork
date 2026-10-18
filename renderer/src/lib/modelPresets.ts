@@ -56,7 +56,7 @@ export const BYOK_PRESETS: ModelPreset[] = [
     provider: "anthropic",
     category: "cloud_byok",
     defaultHost: "https://api.anthropic.com",
-    defaultModel: "claude-sonnet-4-20250514",
+    defaultModel: "claude-sonnet-5-5",
     requiresApiKey: true,
   },
   {

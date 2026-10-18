@@ -84,7 +84,7 @@ export function buildStepExecutionDetails(
     }
     if (ev.type !== "tool.start" && ev.type !== "tool.result") continue;
     const tool = String(ev.payload.tool ?? "");
-    if (!tool || tool === "todo_write") continue;
+    if (!tool || tool === "todo_write" || tool === "write_todos" || tool === "propose_plan") continue;
     const agent = String(ev.payload.agent_id ?? "");
     const parentId = String(ev.payload.sub_task_id ?? "")
       || assignedByAgent.get(agent)

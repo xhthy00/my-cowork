@@ -265,7 +265,7 @@ export default function SessionSidePanel() {
                 </div>
               )}
               {!hasProgress && (
-                <p className="progress-empty">正在规划全局步骤…</p>
+                <p className="progress-empty">尚未收到步骤规划</p>
               )}
               <ol className="progress-step-list">
                   {progressItems.map((task, index) => {

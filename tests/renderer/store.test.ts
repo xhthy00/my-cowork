@@ -761,6 +761,21 @@ describe("session store", () => {
     expect(files[0]?.type === "file" && files[0].path).toContain("现货黄金");
   });
 
+  it("tracks uncapped usage above 200k and clears a previous token cap", () => {
+    useSessionStore.setState({ budgetMaxTokens: 200_000 });
+    useSessionStore.getState().beginRun();
+    expect(useSessionStore.getState().budgetMaxTokens).toBe(0);
+    useSessionStore.setState({ budgetMaxTokens: 100_000 });
+    useSessionStore.getState().handleEvent({
+      type: "budget.update",
+      payload: { tokens: 212_000, max_tokens: null, steps: 2 },
+    });
+    const state = useSessionStore.getState();
+    expect(state.budgetTokens).toBe(212_000);
+    expect(state.budgetMaxTokens).toBe(0);
+    expect(state.runStatus).toBe("running");
+  });
+
   it("handleEvent tracks live budget tokens from budget.update", () => {
     useSessionStore.getState().beginRun();
     expect(useSessionStore.getState().budgetTokens).toBe(0);
@@ -800,6 +815,15 @@ describe("session store", () => {
     expect(state.contextLimit).toBe(192000);
     expect(state.inputTokens).toBe(98000);
     expect(state.outputTokens).toBe(200);
+  });
+
+  it('clears a previous model capacity when the new model window is unknown', () => {
+    useSessionStore.setState({contextLimit: 1_000_000, contextModel: 'deepseek-flash'});
+    useSessionStore.getState().handleEvent({type: 'budget.update', payload: {
+      tokens: 100, context_tokens: 60, context_limit: null, context_model: 'local-unknown',
+    }});
+    expect(useSessionStore.getState().contextLimit).toBe(0);
+    expect(useSessionStore.getState().contextModel).toBe('local-unknown');
   });
 });
 

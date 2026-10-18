@@ -8,6 +8,7 @@ import {
   MAX_PREVIEW_FILE_BYTES,
   readPreviewFileBuffer,
   writePreviewFileBuffer,
+  existingPreviewFiles,
 } from "../electron/fileReader";
 
 const tmpFiles: string[] = [];
@@ -23,6 +24,13 @@ afterEach(() => {
 });
 
 describe("preview file buffer I/O", () => {
+  it('verifies report existence without returning missing paths or directories', async () => {
+    const report = path.join(os.tmpdir(), `mycowork-已生成 报告（合并版）-${Date.now()}.html`);
+    tmpFiles.push(report);
+    fs.writeFileSync(report, '<h1>report</h1>');
+    expect(await existingPreviewFiles([report, report, `${report}.missing`, os.tmpdir(), 'relative.html', 'https://example.com/report.html'])).toEqual([report]);
+    expect(await existingPreviewFiles(Array(201).fill(report))).toEqual([]);
+  });
   it("reads and writes binary roundtrip", () => {
     const p = path.join(os.tmpdir(), `mycowork-preview-${Date.now()}.bin`);
     tmpFiles.push(p);

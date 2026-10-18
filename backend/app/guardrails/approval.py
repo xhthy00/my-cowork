@@ -167,6 +167,10 @@ class ConfirmHub:
         Remote IM channels have no confirm UI (AionUi YOLO), so tool calls
         are auto-approved instead of waiting on the desktop modal.
         """
+        from app.host_capabilities.broker import runtime_confirmed
+        if runtime_confirmed.get():
+            # CapabilityBroker already verified a scope/args-bound one-shot ticket.
+            return True
         automation_policy = _automation_policy.get()
         if automation_policy is not None and _automation_allows(tool, args, automation_policy):
             self._audit_log(kind="confirm_request", tool=tool, call_id=call_id,

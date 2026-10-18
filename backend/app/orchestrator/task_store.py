@@ -99,6 +99,10 @@ class TaskStore:
         return [self.get(row[0]) for row in rows]
 
     def append_event(self, task_id: str, event: dict[str, Any]) -> None:
+        if event.get('event_id') and self._conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id=? AND json_extract(event, '$.event_id')=? LIMIT 1",
+            (task_id, event['event_id'])).fetchone():
+            return
         with self._conn:
             self._conn.execute('INSERT INTO task_events(task_id,event) VALUES(?,?)',
                                (task_id, json.dumps(event, ensure_ascii=False, default=str)))
@@ -123,7 +127,7 @@ class TaskStore:
 
     def interrupt_app_tasks(self) -> None:
         with self._conn:
-            self._conn.execute("UPDATE tasks SET status='INTERRUPTED', updated_at=? WHERE origin IS NOT NULL AND status IN ('NEW','RUNNING','CANCELLING')", (time.time(),))
+            self._conn.execute("UPDATE tasks SET status='INTERRUPTED', updated_at=? WHERE origin IS NOT NULL AND status IN ('NEW','RUNNING','CANCELLING','WAITING_USER')", (time.time(),))
 
     def add_file(self, app_id: str, path: str, *, task_id: str | None = None) -> dict[str, str]:
         file_id = uuid.uuid4().hex

@@ -1,4 +1,4 @@
-"""Workforce routing: dependency-ready fan-out and document helpers."""
+"""Product document intent and legacy worker-name normalization."""
 
 from __future__ import annotations
 
@@ -6,12 +6,8 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
-from langgraph.types import Send
 
-from app.agents.workers import WORKER_IDS
 
-MAX_ROUNDS = 16
-MAX_RETRIES = 3
 
 _DOC_TOOL_NAMES = frozenset(
     {
@@ -440,23 +436,6 @@ def extract_claimed_office_paths(text: str) -> list[str]:
     return out
 
 
-def ready_subtasks(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return waiting tasks whose dependencies are all completed."""
-    by_id = {str(t.get("id")): t for t in subtasks}
-    ready: list[dict[str, Any]] = []
-    for t in subtasks:
-        if str(t.get("status") or "") != "waiting":
-            continue
-        deps = t.get("dependencies") or []
-        ok = True
-        for dep in deps:
-            other = by_id.get(str(dep))
-            if other is None or str(other.get("status")) != "completed":
-                ok = False
-                break
-        if ok:
-            ready.append(t)
-    return ready
 
 
 def all_terminal(subtasks: list[dict[str, Any]]) -> bool:
@@ -465,54 +444,8 @@ def all_terminal(subtasks: list[dict[str, Any]]) -> bool:
     return all(str(t.get("status")) in {"completed", "failed"} for t in subtasks)
 
 
-def apply_retry_or_fail(subtasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Reset failed tasks under retry budget to waiting; leave others."""
-    out: list[dict[str, Any]] = []
-    for t in subtasks:
-        item = dict(t)
-        if str(item.get("status")) == "failed":
-            retries = int(item.get("retries") or 0)
-            if retries < MAX_RETRIES:
-                item["retries"] = retries + 1
-                item["status"] = "waiting"
-                item["result"] = ""
-        out.append(item)
-    return out
 
 
-def route_after_coordinator(state: dict[str, Any]) -> Any:
-    """END, or list of Send to worker nodes for ready subtasks."""
-    round_n = int(state.get("round") or 0)
-    if round_n >= MAX_ROUNDS:
-        return "END"
-
-    subtasks = list(state.get("subtasks") or [])
-    if not subtasks:
-        return "END"
-
-    if all_terminal(subtasks):
-        return "END"
-
-    ready = ready_subtasks(subtasks)
-    if not ready:
-        return "END"
-
-    sends: list[Send] = []
-    for t in ready:
-        assignee = str(t.get("assignee") or "")
-        if assignee not in WORKER_IDS:
-            assignee = "browser_agent"
-        sends.append(
-            Send(
-                assignee,
-                {
-                    **state,
-                    "subtasks": subtasks,
-                    "assigned_task_id": str(t["id"]),
-                },
-            )
-        )
-    return sends if sends else "END"
 
 
 # --- Legacy helpers kept for tests that still import them during migration ---
@@ -590,30 +523,3 @@ def infer_default_worker(user_text: str) -> str:
     if any(k in q for k in ("生成", "写", "帮我", "做一份", "出一份")):
         return "document_agent"
     return "browser_agent"
-
-
-def route_after_supervisor(state: dict[str, Any]) -> Any:
-    """Deprecated: prefer route_after_coordinator. Kept for old tests."""
-    round_n = int(state.get("round") or 0)
-    if round_n >= MAX_ROUNDS:
-        return "END"
-    raw = str(state.get("next_worker") or "")
-    workers = parse_workers(raw)
-    user_text = ""
-    for msg in reversed(state.get("messages") or []):
-        if _msg_role(msg) in ("human", "user") and _msg_content(msg):
-            user_text = _msg_content(msg)
-            break
-    if not workers and round_n <= 1 and needs_forced_delegation(user_text):
-        workers = [infer_default_worker(user_text)]
-    need_pptx = wants_pptx(user_text)
-    if not workers and wants_document(user_text) and not document_tools_succeeded(
-        state, require_pptx=need_pptx
-    ):
-        if round_n < MAX_ROUNDS:
-            workers = ["document_agent"]
-    if not workers:
-        return "END"
-    if len(workers) == 1:
-        return workers[0]
-    return [Send(name, {**state, "assigned_task_id": None}) for name in workers]

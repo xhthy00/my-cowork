@@ -7,7 +7,7 @@ class TestModelPicker:
     def test_supervisor_returns_anthropic_sonnet(self):
         provider, model = model_picker("supervisor")
         assert provider == "anthropic"
-        assert model == "claude-sonnet-4-20250514"
+        assert model == "claude-sonnet-5-5"
 
     def test_compress_returns_openai_mini(self):
         provider, model = model_picker("compress")

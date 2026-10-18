@@ -59,6 +59,33 @@ def test_is_retryable():
     assert not is_retryable_llm_error(ValueError("bad schema"))
 
 
+@pytest.mark.parametrize('status', [400, 401, 403, 404, 422])
+def test_request_ids_cannot_make_client_errors_retryable(status):
+    assert not is_retryable_llm_error(_Boom('invalid request (request_id: abc500-429)', status))
+
+
+def test_sync_real_sdk_bound_tools_can_fallback():
+    import httpx
+    from langchain_openai import ChatOpenAI
+    bodies = []
+    def handler(request):
+        import json
+        body = json.loads(request.content)
+        bodies.append(body)
+        if len(bodies) == 1:
+            return httpx.Response(503, json={'error': {'message': 'unavailable', 'type': 'server_error'}})
+        return httpx.Response(200, json={'id': 'c', 'object': 'chat.completion', 'created': 1, 'model': body['model'],
+            'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': None, 'tool_calls': [
+                {'id': 't', 'type': 'function', 'function': {'name': 'lookup', 'arguments': '{}'}}]}, 'finish_reason': 'tool_calls'}]})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        models = [ChatOpenAI(model=name, api_key='test-key', http_client=client, max_retries=0) for name in ('gpt-4o-mini', 'gpt-4o')]
+        bound = FallbackChatModel(models).bind_tools([{'name': 'lookup', 'description': '检索', 'parameters': {'type': 'object', 'properties': {}}}], tool_choice='lookup')
+        result = bound.invoke([HumanMessage(content='检索')])
+        assert result.tool_calls[0]['name'] == 'lookup'
+        assert len(bodies) == 2 and bodies[1]['model'] == 'gpt-4o'
+        assert bodies[0]['tools'] == bodies[1]['tools']
+
+
 @pytest.mark.asyncio
 async def test_fallback_on_429():
     primary = _Scripted(responses=[], fail_times=1)

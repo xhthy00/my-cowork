@@ -367,6 +367,14 @@ export function createWorkforceStore() {
     }
     if (type === "todo_state") {
       const raw = Array.isArray(payload.todos) ? payload.todos : [];
+      const rootMode = payload.agent_id === "coordinator" || payload.agent_id === "supervisor"
+        ? SessionMode.WORKFORCE
+        : SessionMode.SINGLE_AGENT;
+      if (raw.length === 0 && ["coordinator", "supervisor", "single_agent"].includes(String(payload.agent_id))) {
+        set({ sessionMode: rootMode, taskInfo: [], taskRunning: [], pendingPlan: null,
+          planRevision: 0, revisionReason: "" });
+        return;
+      }
       const mapStatus = (statusRaw: string): TaskStatus =>
         statusRaw === "completed"
           ? "completed"
@@ -454,7 +462,7 @@ export function createWorkforceStore() {
         });
       });
       set({
-        sessionMode: SessionMode.SINGLE_AGENT,
+        sessionMode: rootMode,
         planRevision: Number(payload.revision) || s.planRevision || 1,
         revisionReason: payload.plan_changed && s.planRevision > 0
           ? String(payload.revision_reason || "执行中调整计划")

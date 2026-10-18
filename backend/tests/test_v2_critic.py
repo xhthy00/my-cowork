@@ -3,8 +3,7 @@
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from app.runtime.v2.compact import compact_messages, split_keep_recent
-from app.runtime.v2.critic import (
+from eval.quality import (
     TaskAnalysisResult,
     analyze_task,
     collect_evidence,
@@ -94,7 +93,7 @@ def _research_ok_messages(user: str, answer: str) -> list:
 
 
 def test_mcp_fetch_counts_toward_evidence_floor():
-    from app.runtime.v2.critic import evidence_floor_met
+    from eval.quality import evidence_floor_met
 
     msgs = [
         HumanMessage(content="调研扬州购房政策"),
@@ -463,44 +462,6 @@ def test_finalize_retry_then_halt_at_max():
 
 
 @pytest.mark.asyncio
-async def test_coordinate_skips_llm_when_all_waiting():
-    from app.graphs.coordinator import coordinate
-
-    class BoomLLM:
-        async def ainvoke(self, *_args, **_kwargs):
-            raise AssertionError("obvious dispatch must not call coordinator LLM")
-
-    decision = await coordinate(
-        "调研扬州购房政策",
-        [
-            {
-                "id": "t1",
-                "status": "waiting",
-                "content": "检索政策",
-                "assignee": "browser_agent",
-                "dependencies": [],
-            }
-        ],
-        llm=BoomLLM(),
-    )
-    assert decision["action"] == "dispatch"
-    assert decision["assignments"][0]["id"] == "t1"
-
-
-@pytest.mark.asyncio
-async def test_coordinate_without_llm_finishes_terminal_failed():
-    from app.graphs.coordinator import coordinate
-
-    decision = await coordinate(
-        "q",
-        [{"id": "t1", "status": "failed", "content": "x", "retries": 3}],
-        llm=None,
-    )
-    assert decision["action"] == "finish"
-    assert decision["rework"] == []
-
-
-@pytest.mark.asyncio
 async def test_analyze_empty_result_retries_without_llm():
     class BoomLLM:
         async def ainvoke(self, *_args, **_kwargs):
@@ -526,87 +487,10 @@ def test_finalize_replan_rewrites_brief():
     assert patch["content"] == "Write a 3-point Chinese answer."
 
 
-@pytest.mark.asyncio
-async def test_compact_keeps_recent_human_turns():
-    msgs = []
-    for i in range(6):
-        msgs.append(HumanMessage(content=f"u{i}"))
-        msgs.append(
-            ToolMessage(content=f"old-tool-{i} " + "x" * 50, tool_call_id=str(i), name="web_search")
-        )
-        msgs.append(AIMessage(content=f"a{i}"))
-    older, recent = split_keep_recent(msgs, keep_turns=3)
-    assert older
-    assert any(getattr(m, "content", "") == "u3" for m in recent)
-    compacted = await compact_messages(msgs, threshold=10, keep_turns=3)
-    assert compacted
-    assert any(
-        "Earlier work" in str(getattr(m, "content", "")) or getattr(m, "type", "") == "system"
-        for m in compacted[:2]
-    )
-
-
-@pytest.mark.asyncio
-async def test_synthesize_keeps_pure_qa_without_rewrite():
-    from app.runtime.v2.synthesize import synthesize_answer
-
-    class BoomLLM:
-        async def ainvoke(self, *_args, **_kwargs):
-            raise AssertionError("pure Q&A must not be rewritten")
-
-    user = "Python 里 list 和 tuple 的区别"
-    answer = "list 可变，tuple 不可变。"
-    text = await synthesize_answer(
-        user,
-        [HumanMessage(content=user), AIMessage(content=answer)],
-        llm=BoomLLM(),
-    )
-    assert text == answer
-
-
-@pytest.mark.asyncio
-async def test_synthesize_replaces_transcript_jargon_with_search_digest():
-    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-
-    from app.runtime.v2.synthesize import synthesize_answer
-
-    class JargonLLM:
-        async def ainvoke(self, *_args, **_kwargs):
-            return AIMessage(
-                content="基于 transcript 中可见的操作记录，Heading2 paraId 00100093。"
-            )
-
-    user = "调研扬州最新购房政策"
-    text = await synthesize_answer(
-        user,
-        [
-            HumanMessage(content=user),
-            AIMessage(
-                content="",
-                tool_calls=[{"id": "c1", "name": "web_search", "args": {"query": user}}],
-            ),
-            ToolMessage(
-                content='[{"title":"扬州购房","url":"https://yangzhou.gov.cn/p","snippet":"限购已放宽"}]',
-                tool_call_id="c1",
-                name="web_search",
-            ),
-            AIMessage(
-                content="基于 transcript 完成 Word。Heading2 paraId 00100093。"
-            ),
-        ],
-        llm=JargonLLM(),
-        rewrite=True,
-    )
-    assert "paraId" not in text
-    assert "transcript" not in text.lower()
-    assert "Heading2" not in text
-    assert "限购" in text or "yangzhou.gov.cn" in text
-
-
 def test_evidence_blob_drops_officecli_para_ids():
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-    from app.runtime.v2.synthesize import evidence_blob
+    from app.runtime.output_text import evidence_blob
 
     blob = evidence_blob(
         [
@@ -633,7 +517,7 @@ def test_evidence_blob_drops_officecli_para_ids():
 def test_evidence_blob_puts_fetch_before_search():
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from app.runtime.v2.synthesize import evidence_blob
+    from app.runtime.output_text import evidence_blob
 
     blob = evidence_blob(
         [
@@ -653,95 +537,8 @@ def test_evidence_blob_puts_fetch_before_search():
     assert blob.index("PAGE_BODY_LIMIT_PURCHASE") < blob.index("snippet-only")
 
 
-@pytest.mark.asyncio
-async def test_synthesize_research_keeps_complete_answer():
-    from langchain_core.messages import AIMessage
-
-    from app.runtime.v2.synthesize import synthesize_answer
-
-    class BoomLLM:
-        async def ainvoke(self, *_args, **_kwargs):
-            raise AssertionError("complete research answers must not be rewritten")
-
-    user = "调研扬州最新购房政策"
-    answer = "扬州限购已放宽。来源 https://example.gov/a"
-    text = await synthesize_answer(
-        user,
-        _research_ok_messages(user, answer),
-        llm=BoomLLM(),
-    )
-    assert "限购" in text
-    assert "终稿" not in text
-
-
-@pytest.mark.asyncio
-async def test_compose_workforce_keeps_worker_summary():
-    from app.runtime.v2.synthesize import compose_workforce_answer
-
-    class BoomLLM:
-        async def ainvoke(self, *_args, **_kwargs):
-            raise AssertionError("substantial worker summary must not be rewritten")
-
-    body = (
-        "扬州目前已全面取消限购、限售，门槛处于历史最宽松阶段。"
-        "最新文件是扬建房〔2026〕9号，有效期至2026年12月31日。"
-        "来源 https://example.gov/a"
-    )
-    text = await compose_workforce_answer(
-        "调研扬州最新购房政策",
-        subtasks=[{"id": "task_1", "result": f"<summary>{body}</summary>"}],
-        messages=[],
-        llm=BoomLLM(),
-    )
-    assert "限购" in text
-    assert "扬建房" in text
-
-
-@pytest.mark.asyncio
-async def test_compose_workforce_synthesizes_multiple_worker_summaries():
-    from app.runtime.v2.synthesize import compose_workforce_answer
-
-    class Cap:
-        async def ainvoke(self, *_args, **_kwargs):
-            return AIMessage(content="综合结论：限购已取消，机构偏好成长股。")
-
-    text = await compose_workforce_answer(
-        "调研投资机构偏好",
-        subtasks=[
-            {"id": "task_1", "result": "<summary>" + ("浏览器发现很长。" * 20) + "</summary>"},
-            {"id": "task_2", "result": "<summary>" + ("文档智能体也很长。" * 20) + "</summary>"},
-        ],
-        messages=[],
-        llm=Cap(),
-    )
-    assert "综合结论" in text
-    assert "浏览器发现很长" not in text
-
-
-@pytest.mark.asyncio
-async def test_compose_workforce_rewrites_thin_when_fetch_exists():
-    from app.runtime.v2.synthesize import compose_workforce_answer
-
-    called: list[int] = []
-
-    class Cap:
-        async def ainvoke(self, *_args, **_kwargs):
-            called.append(1)
-            return AIMessage(content="合成后的扬州限购要点。来源 https://example.gov/a")
-
-    user = "调研扬州最新购房政策"
-    text = await compose_workforce_answer(
-        user,
-        subtasks=[{"id": "task_1", "result": "Subtask completed."}],
-        messages=_research_ok_messages(user, "薄"),
-        llm=Cap(),
-    )
-    assert called
-    assert "合成后" in text
-
-
 def test_best_user_facing_ignores_prior_turn_article():
-    from app.runtime.v2.synthesize import best_user_facing_text, evidence_blob
+    from app.runtime.output_text import best_user_facing_text, evidence_blob
 
     prior = (
         "算法备案审核时长通常为二十个工作日。"

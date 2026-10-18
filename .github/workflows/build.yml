@@ -7,6 +7,11 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      revision:
+        description: Exact revision to build and publish
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -15,13 +20,39 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: uv sync --locked --extra dev
+        working-directory: backend
+      - run: uv run pytest -q
+        working-directory: backend
+      - run: backend/.venv/bin/python scripts/smoke-harness.py
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
   python-macos:
+    needs: quality
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
       - uses: astral-sh/setup-uv@v5
       - name: Build + smoke backend
         run: bash scripts/build-python-macos.sh
+      - name: Verify authenticated frozen harness and joint backend startup
+        run: |
+          backend/.venv/bin/python scripts/smoke-harness.py --binary dist/my-cowork-backend
+          backend/.venv/bin/python scripts/smoke-backend.py --binary dist/my-cowork-backend
       - name: Upload macOS smoke log
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,15 +78,25 @@ jobs:
           compression-level: 0
 
   python-windows:
+    needs: quality
     runs-on: windows-latest
     env:
       UV_LINK_MODE: copy
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
       - uses: astral-sh/setup-uv@v5
       - name: Build + smoke backend
         shell: pwsh
         run: ./scripts/build-python-windows.ps1
+      - name: Verify authenticated frozen harness and joint backend startup
+        shell: pwsh
+        run: |
+          backend/.venv/Scripts/python.exe scripts/smoke-harness.py --binary dist/python_runtime/python.exe
+          if ($LASTEXITCODE -ne 0) { throw "Frozen harness smoke failed" }
+          backend/.venv/Scripts/python.exe scripts/smoke-backend.py --binary dist/python_runtime/python.exe
+          if ($LASTEXITCODE -ne 0) { throw "Frozen joint startup failed" }
       - name: Upload Windows smoke log
         if: always()
         uses: actions/upload-artifact@v4
@@ -88,11 +129,14 @@ jobs:
           compression-level: 0
 
   electron:
+    environment: ${{ github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && 'production-release' || 'ci' }}
     needs: [python-macos]
-    if: ${{ !cancelled() }}
+    if: ${{ success() }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -126,7 +170,25 @@ jobs:
       - name: Package macOS app
         env:
           DEBUG: electron-builder
-        run: npx electron-builder --config build/electron-builder.yml --mac --publish never
+          AUTOMATED_RELEASE: ${{ vars.DEEPAGENTS_AUTO_RELEASE == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
+          CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          CSC_NAME: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_NAME || '' }}
+          APPLE_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          if [[ "$AUTOMATED_RELEASE" == "true" ]]; then
+            for key in CSC_LINK CSC_NAME APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+              if [[ -z "${!key}" ]]; then
+                echo "Missing protected release credential: $key" >&2
+                exit 1
+              fi
+            done
+            npx electron-builder --config build/electron-builder.yml --mac --publish never --config.mac.forceCodeSigning=true --config.mac.identity="$CSC_NAME" --config.mac.notarize=true --config.dmg.sign=true
+          else
+            npx electron-builder --config build/electron-builder.yml --mac --publish never
+          fi
       - name: Smoke bundled Chromium in macOS app
         run: |
           APP=$(find release -path '*/Contents/Resources/python_bin' -type f -print -quit)
@@ -143,11 +205,14 @@ jobs:
             release/*.blockmap
 
   electron-windows:
+    environment: ${{ github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && 'production-release' || 'ci' }}
     needs: [python-windows]
-    if: ${{ !cancelled() }}
+    if: ${{ success() }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -189,7 +254,17 @@ jobs:
       - name: Package Windows installer
         env:
           DEBUG: electron-builder
-        run: npx electron-builder --config build/electron-builder.yml --win --publish never
+          AUTOMATED_RELEASE: ${{ vars.DEEPAGENTS_AUTO_RELEASE == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
+          CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+        shell: bash
+        run: |
+          if [[ "$AUTOMATED_RELEASE" == "true" ]]; then
+            test -n "$CSC_LINK"
+            npx electron-builder --config build/electron-builder.yml --win --publish never --config.win.forceCodeSigning=true --config.win.signAndEditExecutable=true
+          else
+            npx electron-builder --config build/electron-builder.yml --win --publish never
+          fi
       - name: Smoke bundled Chromium in Windows app
         shell: pwsh
         run: |
@@ -212,6 +287,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: my-cowork-mac
@@ -233,7 +310,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ inputs.revision || github.sha }}
           files: |
             dist-mac/*.dmg
             dist-mac/*.zip

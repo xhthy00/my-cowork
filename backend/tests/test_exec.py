@@ -1,6 +1,6 @@
 import json
 import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -82,21 +82,22 @@ class TestExecBash:
         mock_proc.stdout = "hello\n"
         mock_proc.stderr = ""
         mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(mock_proc.stdout, mock_proc.stderr))
 
-        with patch("app.tools.builtin.exec.subprocess.run", return_value=mock_proc) as run:
+        with patch("app.tools.builtin.exec.asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)) as run:
             result = await bash.ainvoke({"cmd": "echo hello", "cwd": str(tmp_path)})
 
         parsed = json.loads(result)
         assert parsed["exit_code"] == 0
         assert parsed["stdout"] == "hello\n"
-        assert run.call_args.kwargs.get("capture_output") is True
+        assert run.call_args.kwargs.get("stdout") is not None
         assert "encoding" not in run.call_args.kwargs
-        assert run.call_args.kwargs.get("timeout") == 180.0
+        assert run.call_args.kwargs.get("start_new_session") is True or __import__("sys").platform == "win32"
 
     @pytest.mark.asyncio
     async def test_pandoc_docx_is_refused(self, tmp_path):
         bash = _make(make_bash, tmp_path, ok=True)
-        with patch("app.tools.builtin.exec.subprocess.run") as run:
+        with patch("app.tools.builtin.exec.asyncio.create_subprocess_shell", new=AsyncMock()) as run:
             raw = await bash.ainvoke(
                 {
                     "cmd": "pandoc report.html -o /tmp/out.docx",
@@ -114,7 +115,7 @@ class TestExecBash:
 
         bash = _make(make_bash, tmp_path, ok=True)
         with office_skills_scope(False):
-            with patch("app.tools.builtin.exec.subprocess.run") as run:
+            with patch("app.tools.builtin.exec.asyncio.create_subprocess_shell", new=AsyncMock()) as run:
                 raw = await bash.ainvoke(
                     {
                         "cmd": "officecli create /tmp/out/a.docx",

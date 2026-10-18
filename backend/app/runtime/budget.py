@@ -8,7 +8,7 @@ class BudgetExhausted(Exception):
 class Budget:
     """Track and enforce per-task step/token limits."""
 
-    def __init__(self, max_steps: int, max_total_tokens: int):
+    def __init__(self, max_steps: int | None = None, max_total_tokens: int | None = None):
         self.max_steps = max_steps
         self.max_total_tokens = max_total_tokens
         self.steps = 0
@@ -16,7 +16,7 @@ class Budget:
 
     def consume_step(self) -> None:
         next_steps = self.steps + 1
-        if next_steps > self.max_steps:
+        if self.max_steps is not None and next_steps > self.max_steps:
             raise BudgetExhausted(
                 f"Step budget exhausted: {next_steps} > {self.max_steps}"
             )
@@ -24,7 +24,7 @@ class Budget:
 
     def consume_tokens(self, n: int) -> None:
         total = self.tokens + n
-        if total > self.max_total_tokens:
+        if self.max_total_tokens is not None and total > self.max_total_tokens:
             raise BudgetExhausted(
                 f"Token budget exhausted: {total} > {self.max_total_tokens}"
             )
@@ -32,4 +32,6 @@ class Budget:
 
     @property
     def exhausted(self) -> bool:
-        return self.steps >= self.max_steps or self.tokens >= self.max_total_tokens
+        return (self.max_steps is not None and self.steps >= self.max_steps) or (
+            self.max_total_tokens is not None and self.tokens >= self.max_total_tokens
+        )

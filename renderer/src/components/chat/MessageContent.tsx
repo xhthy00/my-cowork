@@ -271,7 +271,9 @@ function flattenNumberedSectionProse(md: string): string {
 }
 
 /** `1. **已中签者——分批兑现**` is a section title, not a one-item grey card. */
-const NUMBERED_TITLE_RE = /^(\d+)\.\s+\*\*(.+?)\*\*\s*$/;
+// Only a single bold span may represent the entire title. Matching from the
+// first opener to the last closer corrupts prose with several bold phrases.
+const NUMBERED_TITLE_RE = /^(\d+)\.\s+\*\*([^*]+)\*\*\s*$/;
 
 function promoteNumberedTitles(md: string): string {
   return md

@@ -8,10 +8,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def isolated_industry_registry(tmp_path, monkeypatch):
+def isolated_industry_registry(tmp_path_factory, monkeypatch):
     # Registry initialization is now a write; assembly tests must never import
     # or migrate the developer's installed industry apps.
-    monkeypatch.setenv("MY_COWORK_INDUSTRY_APPS_ROOT", str(tmp_path / "industry-apps"))
+    state = tmp_path_factory.mktemp('host-state')
+    monkeypatch.setenv("MY_COWORK_INDUSTRY_APPS_ROOT", str(state / "industry-apps"))
+    monkeypatch.setenv("MY_COWORK_DATA_DIR", str(state / "data"))
+    monkeypatch.setenv("MY_COWORK_CHANNELS_DB", str(state / "channels.db"))
+    mcp_json = state / 'mcp.json'
+    mcp_json.write_text('{}')
+    monkeypatch.setenv('MY_COWORK_MCP_JSON', str(mcp_json))
 
 
 class FakeChatModel(BaseChatModel):
@@ -19,6 +25,7 @@ class FakeChatModel(BaseChatModel):
 
     responses: list[BaseMessage] = Field(default_factory=list)
     idx: int = 0
+    model_name: str = "cowork:scripted"
 
     def bind_tools(
         self,

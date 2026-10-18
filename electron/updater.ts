@@ -102,7 +102,7 @@ function setStatus(patch: Partial<UpdaterStatus>): UpdaterStatus {
 function wire(autoUpdater: AutoUpdater): void {
   if (wired) return;
   wired = true;
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on("checking-for-update", () => {
     setStatus({ state: "checking", message: undefined });

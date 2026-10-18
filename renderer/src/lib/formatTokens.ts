@@ -1,6 +1,6 @@
 /** Format token counts for live usage UI (e.g. 1,234 / 12.3万). */
 
-export const DEFAULT_CONTEXT_LIMIT = 200_000;
+export const DEFAULT_CONTEXT_LIMIT = 0; // Unknown until the model profile is available.
 
 export function formatTokenCount(n: number): string {
   const v = Math.max(0, Math.floor(Number(n) || 0));
@@ -22,17 +22,20 @@ export function formatTokenUsage(tokens: number, maxTokens?: number): string {
 /** WorkBuddy-style compact counts: ``98.2K`` / ``192.0K``. */
 export function formatTokenK(n: number): string {
   const v = Math.max(0, Number(n) || 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
   if (v < 1000) return String(Math.round(v));
   return `${(v / 1000).toFixed(1)}K`;
 }
 
 export function formatContextUsedStats(used: number, limit: number): string {
-  const denom = limit > 0 ? limit : DEFAULT_CONTEXT_LIMIT;
+  if (!Number.isFinite(limit) || limit <= 0) return `约 ${formatTokenK(used)} tokens · 上下文窗口未知`;
+  const denom = limit;
   const pct = denom > 0 ? Math.min(100, (Math.max(0, used) / denom) * 100) : 0;
   return `${pct.toFixed(1)}% · ${formatTokenK(used)} / ${formatTokenK(denom)}`;
 }
 
 export function formatContextUsedLabel(used: number, limit: number): string {
+  if (!Number.isFinite(limit) || limit <= 0) return formatContextUsedStats(used, limit);
   return `${formatContextUsedStats(used, limit)} 上下文已使用`;
 }
 
@@ -67,11 +70,12 @@ export function resolveContextUsage(opts: {
   const limit =
     opts.contextLimit && opts.contextLimit > 0
       ? opts.contextLimit
-      : opts.budgetMaxTokens && opts.budgetMaxTokens > 0
-        ? opts.budgetMaxTokens
-        : DEFAULT_CONTEXT_LIMIT;
+      : DEFAULT_CONTEXT_LIMIT;
   const estimated = estimateSessionContextTokens(opts.messages ?? [], opts.draft ?? "");
-  const used = Math.max(opts.contextTokens ?? 0, estimated);
+  // Full chat history survives compaction; it must not override a smaller
+  // effective prompt reported by the backend after summarization.
+  const used = opts.contextTokens != null && opts.contextTokens >= 0
+    ? opts.contextTokens + estimateTokensFromText(opts.draft ?? '') : estimated;
   const percentage = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
   return { used, limit, percentage };
 }

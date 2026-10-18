@@ -1,172 +1,75 @@
+"""Product lifecycle around the official runtime, including disconnected clients."""
 import asyncio
-from dataclasses import dataclass
-
 import pytest
-
-from app.graphs.single_agent import compile_single_agent_graph
-from app.graphs.workforce import compile_workforce_graph
-from app.observability.trace import TraceBus
-from app.orchestrator.task_manager import TaskManager, TaskRequest
+from app.main import build_stack
+from app.orchestrator.task_manager import TaskRequest
 from tests.conftest import FakeChatModel, make_ai
 
 
-@dataclass
-class _Task:
-    task_id: str
-    text: str
+def manager(tmp_path, responses):
+    return build_stack(supervisor_llm=FakeChatModel(responses=responses),
+                       whitelist=[str(tmp_path)])['task_manager']
 
 
-def _make_graph():
-    return compile_workforce_graph(
-        workers={},
-        planner_llm=FakeChatModel(responses=[make_ai("ok")] * 8),
-    )
+@pytest.mark.asyncio
+async def test_submit_returns_id_and_finishes(tmp_path):
+    tm = manager(tmp_path, [make_ai('完成')])
+    try:
+        task_id = await tm.submit(TaskRequest(text='hello', session_mode='single-agent', enabled_skill_ids=[]))
+        await asyncio.wait_for(tm._workers[task_id], 5)
+        assert tm.status(task_id) == 'DONE'
+        assert tm.admission.status()['active'] == 0
+    finally:
+        await tm.close()
 
 
-def _make_single(model: FakeChatModel):
-    return compile_single_agent_graph(
-        model=model,
-        tools=[],
-        synthesize_llm=FakeChatModel(responses=[make_ai("ok")] * 8),
-    )
-
-
-class TestTaskManagerSubmit:
-    @pytest.mark.asyncio
-    async def test_submit_returns_task_id_and_finishes_done(self):
-        # Trivial greeting skips workforce execution.
-        tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
-        req = TaskRequest(text="hello")
-        task_id = await tm.submit(req)
-
-        assert tm.status(task_id) == "NEW"
-
-        for _ in range(50):
-            if tm.status(task_id) in ("DONE", "FAILED"):
-                break
-            await asyncio.sleep(0.01)
-
-        assert tm.status(task_id) == "DONE"
-
-    @pytest.mark.asyncio
-    async def test_submit_failed_on_missing_worker(self):
-        # Non-trivial ask → fallback subtask → stub worker raises.
-        tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
-        req = TaskRequest(text="写一个文件 hello.txt 到桌面")
-        task_id = await tm.submit(req)
-
-        for _ in range(100):
-            if tm.status(task_id) in ("DONE", "FAILED"):
-                break
-            await asyncio.sleep(0.02)
-
-        assert tm.status(task_id) == "FAILED"
-
-
-class TestTaskManagerHandle:
-    @pytest.mark.asyncio
-    async def test_closing_at_terminal_event_cleans_nested_execution(self):
-        tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
-        stream = tm.handle(TaskRequest(text="hello", task_id="terminal-cleanup"))
-        async for event in stream:
-            if event["type"] == "graph.end":
-                break
+@pytest.mark.asyncio
+async def test_client_disconnect_does_not_cancel_task(tmp_path):
+    tm = manager(tmp_path, [make_ai('完成')])
+    stream = tm.handle(TaskRequest(task_id='disconnect', text='hello', session_mode='single-agent', enabled_skill_ids=[]))
+    try:
+        assert (await anext(stream))['type'] == 'graph.start'
         await stream.aclose()
-        assert tm.status("terminal-cleanup") == "DONE"
-        assert tm.admission.status()["active"] == 0
-        assert "terminal-cleanup" not in tm._graph_tasks
-        assert "terminal-cleanup" not in tm._cancel_events
-
-    @pytest.mark.asyncio
-    async def test_handle_yields_events_and_ends_done(self):
-        tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
-        req = TaskRequest(text="hello", task_id="t-handle")
-
-        events = [ev async for ev in tm.handle(req)]
-
-        assert events[0]["type"] == "graph.start"
-        assert events[-1]["type"] == "graph.end"
-        assert tm.status("t-handle") == "DONE"
-
-    @pytest.mark.asyncio
-    async def test_handle_routes_single_agent_graph(self):
-        sa_model = FakeChatModel(responses=[make_ai(content="solo ok")] * 8)
-        sa_graph = _make_single(sa_model)
-        tm = TaskManager(
-            graph=_make_graph(),
-            tools=[],
-            bus=TraceBus(),
-            single_agent_graph=sa_graph,
-        )
-        req = TaskRequest(
-            text="hello",
-            task_id="t-sa",
-            session_mode="single-agent",
-        )
-        events = [ev async for ev in tm.handle(req)]
-        assert events[-1]["type"] == "graph.end"
-        assert events[-1].get("status") != "error"
-        assert tm.status("t-sa") == "DONE"
-        assert any(
-            e["type"] == "agent.create" and e.get("agent_id") == "single_agent"
-            for e in events
-        )
+        await asyncio.wait_for(tm._workers['disconnect'], 5)
+        assert tm.status('disconnect') == 'DONE'
+    finally:
+        await tm.close()
 
 
-class TestTaskManagerIsolation:
-    @pytest.mark.asyncio
-    async def test_concurrent_handles_do_not_mix_events(self):
-        sa_model = FakeChatModel(
-            responses=[make_ai(content="solo a"), make_ai(content="solo b")] * 8
-        )
-        sa_graph = _make_single(sa_model)
-        tm = TaskManager(
-            graph=_make_graph(),
-            tools=[],
-            bus=TraceBus(),
-            single_agent_graph=sa_graph,
-        )
-
-        async def collect(task_id: str) -> list[dict]:
-            return [
-                ev
-                async for ev in tm.handle(
-                    TaskRequest(
-                        text="hello",
-                        task_id=task_id,
-                        session_mode="single-agent",
-                    )
-                )
-            ]
-
-        a, b = await asyncio.gather(collect("task-a"), collect("task-b"))
-        assert [ev["type"] for ev in a].count("graph.start") == 1
-        assert [ev["type"] for ev in b].count("graph.start") == 1
-        assert not any(ev.get("task_id") == "task-b" for ev in a)
-        assert not any(ev.get("task_id") == "task-a" for ev in b)
-
-    @pytest.mark.asyncio
-    async def test_handle_drops_foreign_bus_events(self):
-        bus = TraceBus()
-        tm = TaskManager(graph=_make_graph(), tools=[], bus=bus)
-        leaked = {"type": "step.delta", "task_id": "foreign", "delta": "leak"}
-
-        events = []
-        async for ev in tm.handle(TaskRequest(text="hello", task_id="task-a")):
-            events.append(ev)
-            if ev["type"] == "graph.start":
-                bus.emit(leaked)
-
-        assert events[0]["type"] == "graph.start"
-        assert events[-1]["type"] == "graph.end"
-        assert not any(
-            ev.get("task_id") == "foreign" or ev.get("delta") == "leak" for ev in events
-        )
+@pytest.mark.asyncio
+async def test_concurrent_sessions_do_not_mix_events(tmp_path):
+    tm = manager(tmp_path, [make_ai('one'), make_ai('two')])
+    async def collect(task_id):
+        return [event async for event in tm.handle(TaskRequest(task_id=task_id, text='hello',
+            session_id=task_id, session_mode='single-agent', enabled_skill_ids=[]))]
+    try:
+        a, b = await asyncio.gather(collect('a'), collect('b'))
+        assert all(event['task_id'] == 'a' for event in a)
+        assert all(event['task_id'] == 'b' for event in b)
+        assert a[-1]['status'] == b[-1]['status'] == 'ok'
+    finally:
+        await tm.close()
 
 
-class TestTaskManagerStatus:
-    @pytest.mark.asyncio
-    async def test_status_missing_task_raises(self):
-        tm = TaskManager(graph=_make_graph(), tools=[], bus=TraceBus())
+@pytest.mark.asyncio
+async def test_stop_before_execution_releases_admission(tmp_path):
+    tm = manager(tmp_path, [make_ai('unused')])
+    try:
+        await tm.submit(TaskRequest(task_id='early', text='hello', enabled_skill_ids=[]))
+        assert tm.cancel('early')
+        await asyncio.sleep(.01)
+        assert tm.status('early') == 'CANCELLED'
+        assert tm.admission.status()['active'] == 0
+        assert len(tm._tasks['early']['events']) == 1
+    finally:
+        await tm.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_status_raises(tmp_path):
+    tm = manager(tmp_path, [make_ai('unused')])
+    try:
         with pytest.raises(KeyError):
-            tm.status("missing")
+            tm.status('missing')
+    finally:
+        await tm.close()

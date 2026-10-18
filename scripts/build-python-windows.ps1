@@ -2,11 +2,11 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location "$Root\backend"
-uv sync
+uv sync --locked
 $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $Root "build\playwright-browsers"
-uv run python -m playwright install --no-shell chromium
+uv run --locked python -m playwright install --no-shell chromium
 if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed" }
-uv run pyinstaller "$Root\build\pyinstaller\windows.spec" --distpath "$Root\dist" --workpath "$Root\build\pyinstaller\work-windows" -y
+uv run --locked pyinstaller "$Root\build\pyinstaller\windows.spec" --distpath "$Root\dist" --workpath "$Root\build\pyinstaller\work-windows" -y
 $Bin = "$Root\dist\python_runtime\python.exe"
 if (-not (Test-Path $Bin)) {
   Write-Host "binary missing: $Bin"
@@ -60,7 +60,7 @@ $err = ""
 if (Test-Path $Log) { $out = Get-Content $Log -Raw -ErrorAction SilentlyContinue }
 if (Test-Path $ErrLog) { $err = Get-Content $ErrLog -Raw -ErrorAction SilentlyContinue }
 $content = "$out`n$err"
-if ($healthy -or $content -match "Uvicorn running|127\.0\.0\.1:") {
+if ($healthy) {
   Write-Host "SMOKE OK"
   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
   exit 0

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -102,8 +102,9 @@ class TestBashActivate:
         mock_proc.stdout = "ok\n"
         mock_proc.stderr = ""
         mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(mock_proc.stdout, mock_proc.stderr))
 
-        with patch("app.tools.builtin.exec.subprocess.run", return_value=mock_proc) as run:
+        with patch("app.tools.builtin.exec.asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)) as run:
             raw = await bash.ainvoke({"cmd": "echo hi", "cwd": str(tmp_path)})
 
         assert json.loads(raw)["exit_code"] == 0
@@ -121,8 +122,9 @@ class TestBashActivate:
         mock_proc.stdout = ""
         mock_proc.stderr = ""
         mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(mock_proc.stdout, mock_proc.stderr))
 
-        with patch("app.tools.builtin.exec.subprocess.run", return_value=mock_proc) as run:
+        with patch("app.tools.builtin.exec.asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)) as run:
             await bash.ainvoke({"cmd": "echo hi", "cwd": str(tmp_path)})
 
         assert run.call_args.args[0] == "echo hi"

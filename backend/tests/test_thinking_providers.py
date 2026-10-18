@@ -3,7 +3,7 @@
 import pytest
 
 from app.llm.gateway import create_model
-from app.llm.providers import openai_compat
+from model_integrations import openai_compat
 from app.llm.providers.openai_compat import (
     _REASONING_STREAM_CHUNK_TIMEOUT_S,
     _UNSET,
@@ -20,12 +20,23 @@ def test_deepseek_enables_thinking():
     model = create_model(
         "openai_compat", "deepseek-chat", "k", base_url="https://api.deepseek.com"
     )
-    assert model.extra_body["chat_template_kwargs"]["thinking"] is True
+    assert model.extra_body == {"thinking": {"type": "enabled"}}
+
+
+def test_native_deepseek_explicitly_disables_thinking():
+    model = create_model("openai_compat", "deepseek-flash", "k",
+                         base_url="https://api.deepseek.com", thinking=False)
+    assert model.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_custom_endpoint_does_not_guess_vendor_flags_from_model_name():
+    model = create_model("openai_compat", "deepseek-chat", "k", base_url="http://localhost:8000/v1")
+    assert not model.extra_body
 
 
 def test_glm_enables_thinking():
-    model = create_model("openai_compat", "glm-4", "k")
-    assert model.extra_body["enable_thinking"] is True
+    model = create_model("openai_compat", "glm-4.7", "k", base_url='https://api.z.ai/api/paas/v4')
+    assert model.extra_body == {'thinking': {'type': 'enabled'}}
 
 
 def test_o3_sets_reasoning_effort():
@@ -43,6 +54,45 @@ def test_anthropic_thinking_budget():
     model = create_model("anthropic", "claude-sonnet-4-20250514", "sk-ant")
     assert model.thinking == {"type": "enabled", "budget_tokens": 4096}
     assert int(model.max_tokens) >= 8192
+
+
+@pytest.mark.parametrize('model_name,url,expected', [
+    ('kimi-k2.5', 'https://api.moonshot.ai/v1', {'thinking': {'type': 'disabled'}}),
+    ('kimi-k2-thinking', 'https://api.moonshot.ai/v1', None),
+    ('glm-4.7', 'https://api.z.ai/api/paas/v4', {'thinking': {'type': 'disabled'}}),
+    ('glm-5.3', 'https://api.z.ai/api/paas/v4', None),
+    ('qwen-plus', 'https://dashscope.aliyuncs.com/compatible-mode/v1', {'enable_thinking': False}),
+    ('MiniMax-M3.1', 'https://api.minimax.io/v1', None),
+])
+def test_native_thinking_switches_are_capability_specific(model_name, url, expected):
+    model = create_model('openai_compat', model_name, 'test-key', base_url=url, thinking=False)
+    assert model.extra_body == expected
+
+
+@pytest.mark.parametrize('name', ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-sonnet-5-5'])
+def test_claude_adaptive_thinking_and_output_default(name):
+    model = create_model('anthropic', name, 'test-key', max_tokens=None, base_url='https://proxy.example.test')
+    assert model.thinking == {'type': 'adaptive'}
+    assert model.max_tokens == 8192
+    assert model.anthropic_api_url == 'https://proxy.example.test'
+
+
+def test_claude_manual_thinking_budget_is_below_output_limit():
+    model = create_model('anthropic', 'claude-sonnet-4-5', 'test-key', max_tokens=2048)
+    assert model.thinking['budget_tokens'] == 2047
+    with pytest.raises(ValueError, match='大于 1024'):
+        create_model('anthropic', 'claude-sonnet-4-5', 'test-key', max_tokens=1024)
+
+
+def test_runtime_fallback_does_not_inherit_different_protocol_endpoint(monkeypatch):
+    from cowork_harness import models
+    calls = []
+    monkeypatch.setenv('MY_COWORK_FALLBACK', 'anthropic:claude-sonnet-5-5')
+    monkeypatch.setenv('MY_COWORK_BASE_URL', 'https://api.deepseek.com')
+    monkeypatch.setattr(models, 'create_openai_compat', lambda *args, **kwargs: calls.append(kwargs) or create_model('openai_compat', 'gpt-4o-mini', 'test-key'))
+    monkeypatch.setattr(models, 'create_anthropic', lambda *args, **kwargs: calls.append(kwargs) or create_model('anthropic', 'claude-sonnet-5-5', 'test-key'))
+    models.create_model({'model': 'deepseek-flash', 'provider': 'openai_compat', 'options': {'thinking': True}})
+    assert calls == [{'base_url': 'https://api.deepseek.com', 'thinking': True}, {'base_url': None}]
 
 
 class _CaptureChatOpenAI:

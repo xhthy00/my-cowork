@@ -78,7 +78,7 @@ export default function ModelsPanel() {
   const [selectedTab, setSelectedTab] = useState<SidebarTab>("byok-anthropic");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.anthropic.com");
-  const [modelId, setModelId] = useState("claude-sonnet-4-20250514");
+  const [modelId, setModelId] = useState("claude-sonnet-5-5");
   const [editId, setEditId] = useState<string | null>(null);
   const [ring, setRing] = useState<ConfigCardRingStatus>("idle");
   const [status, setStatus] = useState("");
