@@ -27,7 +27,10 @@ if (-not $planner) {
 Write-Host "bundled planner.md: $planner"
 Write-Host "python_runtime size: $([math]::Round((Get-ChildItem $Dir -Recurse -File | Measure-Object -Property Length -Sum).Sum/1MB,1)) MB"
 New-Item -ItemType Directory -Force -Path "$Root\dist\win-python" | Out-Null
-$env:MY_COWORK_API_KEY = if ($env:MY_COWORK_API_KEY) { $env:MY_COWORK_API_KEY } else { "smoke-test-key" }
+# First-launch startup must work without a model or API key.
+foreach ($name in @("MY_COWORK_API_KEY", "MY_COWORK_PROVIDER", "MY_COWORK_MODEL", "MY_COWORK_BASE_URL", "MY_COWORK_FALLBACK", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")) {
+  Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
 $env:MY_COWORK_ENABLE_SCHEDULER = "0"
 $env:MY_COWORK_CHANNEL_AUTOSTART = "0"
 $env:PYTHONUNBUFFERED = "1"

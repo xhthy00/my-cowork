@@ -121,7 +121,6 @@ const lifecycle = new IndustryLifecycle({
     env: { MY_COWORK_APP_VERSION: getPackageVersion() },
   })),
   running: () => Boolean(backendProc && backendUrl),
-  modelReady: async () => Boolean(isE2E || process.env.MY_COWORK_API_KEY || (await buildPythonEnv()).MY_COWORK_API_KEY),
   start: async (token) => { await startBackendOnce(token); },
   stop: async () => {
     await stopAndWait(backendProc);
@@ -206,10 +205,8 @@ async function startBackendOnce(operationToken?: string): Promise<string> {
     env.MY_COWORK_TERMINAL_BASE = terminalBase;
   }
 
-  if (!env.MY_COWORK_API_KEY && !isE2E) {
-    throw new Error("MY_COWORK_API_KEY is not set; add a model with API Key in Settings first.");
-  }
-
+  // Model credentials are only needed when a task calls a model. The backend
+  // must start on a clean install so users can enter the app and its settings.
   const info = await start({
     cwd: isDev
       ? path.join(__dirname, "..", "backend")

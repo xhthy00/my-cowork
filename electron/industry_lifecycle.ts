@@ -71,7 +71,6 @@ export class JsonPipe implements MaintenancePipe {
 interface Hooks {
   pipe(): MaintenancePipe;
   running(): boolean;
-  modelReady(): Promise<boolean>;
   start(token?: string): Promise<void>;
   stop(): Promise<void>;
   runtime(action?: "drain" | "open"): Promise<RuntimeState>;
@@ -179,17 +178,12 @@ export class IndustryLifecycle {
         if (this.hooks.running()) await this.hooks.stop();
         this.hooks.publish(null);
         const candidate: any = await pipe.call({ command: "restore" });
-        if (!await this.hooks.modelReady()) {
-          this.update("recovery_required", { appId: existing.operation.app_id, message: "数据已保护，请配置模型后重试恢复并验证启动" });
-          return;
-        }
         const runtime = await this.activate(pipe, candidate);
         this.update("restored", { generation: runtime.generation, message: "已处理上次中断，原版本与数据已恢复" });
         if (request.action !== "restart" && request.action !== "retry") return;
         return;
       }
       if (request.action === "retry") request = { ...request, action: "restart" };
-      // Saving a ZIP is useful without a model, but migrations must wait.
       const op: any = await pipe.call({ command: "begin", ...request });
       if (op.unchanged && this.hooks.running()) {
         this.update("committed", { message: "源码内容未变，继续使用当前修订。" });
@@ -201,21 +195,6 @@ export class IndustryLifecycle {
       }
       begun = true;
       this.update("staged", { appId: op.app_id });
-      if (!await this.hooks.modelReady()) {
-        if (!await this.drain(pipe)) return;
-        await this.hooks.stop();
-        stopped = true;
-        this.hooks.publish(null);
-        if (["disable", "remove"].includes(String(request.action))) {
-          await pipe.call({ command: "prepare" });
-          await pipe.call({ command: "commit" });
-          this.update("committed", { message: "操作已完成，业务数据已保留" });
-          return;
-        }
-        await pipe.call({ command: "cancel", keep_candidate: true });
-        this.update("pending_activation", { message: request.action === "restart" ? "配置模型后即可继续使用" : "应用已保存，配置模型后可在此启用" });
-        return;
-      }
       if (!await this.drain(pipe)) return;
       this.update("snapshot_ready", { active: 0, tasks: [] });
       await this.hooks.stop();

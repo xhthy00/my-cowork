@@ -38,9 +38,8 @@ ls -lh "$BIN"
 
 mkdir -p "$ROOT/build/pyinstaller"
 LOG="$ROOT/build/pyinstaller/smoke-macos.log"
-export MY_COWORK_API_KEY="${MY_COWORK_API_KEY:-smoke-test-key}"
-export MY_COWORK_PROVIDER="${MY_COWORK_PROVIDER:-openai_compat}"
-export MY_COWORK_MODEL="${MY_COWORK_MODEL:-gpt-4o-mini}"
+# First-launch startup must work without a model or API key.
+unset MY_COWORK_API_KEY MY_COWORK_PROVIDER MY_COWORK_MODEL MY_COWORK_BASE_URL MY_COWORK_FALLBACK OPENAI_API_KEY ANTHROPIC_API_KEY
 export MY_COWORK_ENABLE_SCHEDULER=0
 export MY_COWORK_CHANNEL_AUTOSTART=0
 export PYTHONUNBUFFERED=1

@@ -19,7 +19,7 @@ function harness() {
     }) as MaintenancePipe["call"], close: vi.fn(),
   };
   const hooks = {
-    pipe: () => pipe, running: () => true, modelReady: async () => true,
+    pipe: () => pipe, running: () => true,
     start: vi.fn(async () => { events.push("start"); }),
     stop: vi.fn(async () => { events.push("stop"); }),
     runtime: vi.fn(async (action?: string) => { events.push(action || "runtime"); return runtime; }),
@@ -46,14 +46,32 @@ describe("industry lifecycle coordinator", () => {
     expect(hooks.start).toHaveBeenCalledTimes(1);
   });
 
-  it("drains and stops an existing runtime when its last model is removed", async () => {
+  it("starts on a clean install without a model configuration", async () => {
     const { lifecycle, hooks, events } = harness();
-    hooks.modelReady = async () => false;
+    hooks.running = () => false;
+    await lifecycle.run({ action: "restart" });
+    expect(hooks.start).toHaveBeenCalledOnce();
+    expect(events).toContain("commit");
+    expect(hooks.publish).toHaveBeenLastCalledWith(expect.objectContaining({ generation: "new" }));
+    expect(lifecycle.status.phase).toBe("committed");
+  });
+
+  it("restarts the backend when its last model is removed", async () => {
+    const { lifecycle, hooks, events } = harness();
     await lifecycle.run({ action: "restart" });
     expect(events.indexOf("drain")).toBeLessThan(events.indexOf("stop"));
-    expect(events).toContain("cancel");
-    expect(hooks.start).not.toHaveBeenCalled();
-    expect(lifecycle.status.phase).toBe("pending_activation");
+    expect(hooks.start).toHaveBeenCalledOnce();
+    expect(events).toContain("commit");
+    expect(lifecycle.status.phase).toBe("committed");
+  });
+
+  it("recovers an interrupted update without a model configuration", async () => {
+    const { lifecycle, pipe, hooks, events } = harness();
+    await pipe.call({ command: "begin" });
+    await lifecycle.run({ action: "restart" });
+    expect(events).toContain("restore");
+    expect(hooks.start).toHaveBeenCalledWith("old");
+    expect(lifecycle.status.phase).toBe("restored");
   });
 
   it("drains, stops, prepares, checks and commits before publishing", async () => {

@@ -16,7 +16,7 @@ def main(binary):
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
         (root / 'mcp.json').write_text('{}')
-        env = {**os.environ, 'MY_COWORK_API_KEY': 'smoke-test-key',
+        env = {**os.environ,
             'MY_COWORK_DATA_DIR': str(root / 'data'),
             'MY_COWORK_INDUSTRY_APPS_ROOT': str(root / 'apps'),
             'MY_COWORK_CHANNELS_DB': str(root / 'channels.db'),
@@ -24,6 +24,11 @@ def main(binary):
             'MY_COWORK_ENABLE_SCHEDULER': '0', 'MY_COWORK_CHANNEL_AUTOSTART': '0',
             'PYTHONUNBUFFERED': '1', 'MY_COWORK_HARNESS_DEBUG': '1'}
         env.pop('MY_COWORK_PARENT_PIPE', None)
+        # Exercise a clean install, without inherited model configuration.
+        for key in ('MY_COWORK_API_KEY', 'MY_COWORK_PROVIDER', 'MY_COWORK_MODEL',
+                    'MY_COWORK_BASE_URL', 'MY_COWORK_FALLBACK',
+                    'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'):
+            env.pop(key, None)
         proc = subprocess.Popen([str(binary.resolve()), '--port', '0'], env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
         lines = queue.Queue()
@@ -53,7 +58,7 @@ def main(binary):
                     # Readiness is emitted only after lifespan starts the harness
                     # and checks its dependency identity and SQLite saver.
                     assert (root / 'data/harness/checkpoints.db').is_file()
-                    print('FROZEN BACKEND SMOKE OK: backend -> same executable harness, joint readiness')
+                    print('FROZEN BACKEND SMOKE OK: no model configured, backend -> same executable harness, joint readiness')
                     return
                 except (OSError, AssertionError):
                     continue
