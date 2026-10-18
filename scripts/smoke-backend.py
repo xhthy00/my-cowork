@@ -6,10 +6,34 @@ from pathlib import Path
 import queue
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import urllib.request
+
+
+def stop_backend(proc, reader):
+    if proc.poll() is None:
+        if sys.platform == 'win32':
+            # Popen.terminate() only kills the host on Windows. Its harness can
+            # still hold SQLite files when TemporaryDirectory tries to delete
+            # them, so stop the owned process tree before cleaning up.
+            subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        else:
+            proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+    # Descendants inherit stderr, redirected to this pipe. EOF confirms their
+    # handles have closed too; waiting for the host alone is insufficient.
+    reader.join(timeout=10)
+    if reader.is_alive():
+        raise RuntimeError('Backend subprocesses did not release their log pipe')
+    proc.stdout.close()
 
 
 def main(binary):
@@ -36,7 +60,8 @@ def main(binary):
         def read():
             for line in proc.stdout:
                 lines.put(line)
-        threading.Thread(target=read, daemon=True).start()
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
         try:
             deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
@@ -58,18 +83,14 @@ def main(binary):
                     # Readiness is emitted only after lifespan starts the harness
                     # and checks its dependency identity and SQLite saver.
                     assert (root / 'data/harness/checkpoints.db').is_file()
-                    print('FROZEN BACKEND SMOKE OK: no model configured, backend -> same executable harness, joint readiness')
-                    return
+                    break
                 except (OSError, AssertionError):
                     continue
-            raise TimeoutError('Frozen backend readiness timed out: ' + ''.join(log)[-5000:])
+            else:
+                raise TimeoutError('Frozen backend readiness timed out: ' + ''.join(log)[-5000:])
         finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            stop_backend(proc, reader)
+    print('FROZEN BACKEND SMOKE OK: no model configured, backend -> same executable harness, joint readiness and cleanup')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

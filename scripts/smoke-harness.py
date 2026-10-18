@@ -13,6 +13,9 @@ from app.runtime_client.client import RuntimeClient
 
 
 async def main(binary=None):
+    # RuntimeClient starts the child in backend/, not the caller's directory.
+    if binary is not None:
+        binary = binary.resolve(strict=True)
     with tempfile.TemporaryDirectory() as folder:
         broker = CapabilityBroker(folder, TraceBus())
         client = RuntimeClient(folder, broker, launch_command=[str(binary), "--role=harness"] if binary else None)
