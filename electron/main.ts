@@ -115,6 +115,7 @@ if (isE2E) {
 
 let runningIndustry: RuntimeState | null = null;
 const lifecycle = new IndustryLifecycle({
+  list: () => industryBackendRequest("/api/industry-apps", { signal: AbortSignal.timeout(1500) }),
   pipe: () => new JsonPipe(startMaintenance({
     cwd: isDev ? path.join(__dirname, "..", "backend") : process.resourcesPath,
     dev: isDev,

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app.industry_apps.lifecycle import operation, public_operation
 from app.industry_apps.package import (
     AppPackageError,
+    app_root,
     disable_app,
     enable_app,
     inspect_zip,
@@ -26,7 +28,8 @@ async def _zip_body(request: Request) -> bytes:
 
 @router.get("/api/industry-apps")
 async def apps_list() -> dict:
-    return {"apps": list_installed()}
+    root = app_root()
+    return {"apps": list_installed(root), "operation": public_operation(operation(root))}
 
 
 @router.post("/api/industry-apps/inspect")

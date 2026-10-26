@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import IndustryWorkbench from "../../renderer/src/components/hub/IndustryWorkbench";
 import { useIndustryNavigation } from "../../renderer/src/store/industryNavigation";
+import { useIndustryApps } from "../../renderer/src/store/industryApps";
 import type { IndustryStatus } from "../../renderer/src/window";
 
 const app = {
@@ -29,6 +30,7 @@ const industryRequest = vi.fn();
 const selectFile = vi.fn();
 
 beforeEach(() => {
+  useIndustryApps.setState(useIndustryApps.getInitialState());
   useIndustryNavigation.setState({ activeId: null, dirty: false, routes: {} });
   vi.clearAllMocks();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
@@ -60,10 +62,59 @@ beforeEach(() => {
     industryManage: vi.fn(),
     restartBackend: vi.fn(),
     onBackendReady: vi.fn().mockReturnValue(() => {}),
+    onIndustryStatus: vi.fn().mockReturnValue(() => {}),
   };
 });
 
 describe("industry workbench", () => {
+  it("shows loading until the first list confirms whether any apps are installed", async () => {
+    let finish!: (result: { apps: [] }) => void;
+    industryList.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    render(<IndustryWorkbench />);
+    expect(screen.getByRole("status")).toHaveTextContent("正在加载已安装应用");
+    expect(screen.queryByText("还没有安装行业应用")).toBeNull();
+    await act(async () => { finish({ apps: [] }); });
+    expect(screen.getByText("还没有安装行业应用")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps cached cards on re-entry and removes them only after a successful refresh", async () => {
+    industryList.mockResolvedValueOnce({ apps: [app] });
+    const view = render(<IndustryWorkbench />);
+    await screen.findByRole("button", { name: "打开 任务管理样例" });
+    view.unmount();
+    let finish!: (result: { apps: [] }) => void;
+    industryList.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    render(<IndustryWorkbench />);
+    expect(screen.getByRole("button", { name: "打开 任务管理样例" })).toBeInTheDocument();
+    expect(screen.queryByText("还没有安装行业应用")).toBeNull();
+    await act(async () => { finish({ apps: [] }); });
+    expect(screen.queryByRole("button", { name: "打开 任务管理样例" })).toBeNull();
+    expect(screen.getByText("还没有安装行业应用")).toBeInTheDocument();
+  });
+
+  it("offers retry after a failed initial query without claiming no apps are installed", async () => {
+    industryList.mockRejectedValueOnce(new Error("暂时不可用"));
+    render(<IndustryWorkbench />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("暂时不可用");
+    expect(screen.queryByText("还没有安装行业应用")).toBeNull();
+    industryList.mockResolvedValueOnce({ apps: [app] });
+    await userEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByRole("button", { name: "打开 任务管理样例" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("preserves cached cards when a background refresh fails", async () => {
+    industryList.mockResolvedValueOnce({ apps: [app] });
+    const view = render(<IndustryWorkbench />);
+    await screen.findByRole("button", { name: "打开 任务管理样例" });
+    view.unmount();
+    industryList.mockRejectedValueOnce(new Error("刷新失败"));
+    render(<IndustryWorkbench />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("刷新失败");
+    expect(screen.getByRole("button", { name: "打开 任务管理样例" })).toBeInTheDocument();
+  });
+
   it("opens the plugin from the card content without a separate open control", async () => {
     industryList.mockResolvedValue({ apps: [app] });
     render(<IndustryWorkbench />);
@@ -95,7 +146,7 @@ describe("industry workbench", () => {
     industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: true, phase: "restarting", appId: app.id } });
     render(<IndustryWorkbench />);
     const disabledCard = await screen.findByRole("button", { name: "打开 任务管理样例" });
-    expect(disabledCard).toBeDisabled();
+    await waitFor(() => expect(disabledCard).toBeDisabled());
     await userEvent.click(disabledCard);
     expect(useIndustryNavigation.getState().activeId).toBeNull();
   });
@@ -187,7 +238,7 @@ describe("industry workbench", () => {
     industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: true, phase: "draining", appId: app.id, active: 1, tasks: ["current task"] } });
     window.api.industryCancel = vi.fn();
     render(<IndustryWorkbench />);
-    expect(await screen.findByRole("status")).toHaveTextContent("等待 1 项工作结束");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("等待 1 项工作结束"));
     await userEvent.click(screen.getByRole("button", { name: "取消更新" }));
     expect(window.api.industryCancel).toHaveBeenCalledOnce();
     expect(window.api.restartBackend).not.toHaveBeenCalled();
@@ -197,7 +248,7 @@ describe("industry workbench", () => {
     industryList.mockResolvedValue({ apps: [app], lifecycle: { busy: false, phase: "draining",
       active: 2, tasks: ["你好", "帮我写邮件"], message: "更新已结束" } });
     render(<IndustryWorkbench />);
-    expect(await screen.findByRole("status")).toHaveTextContent("更新已结束");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("更新已结束"));
     expect(screen.queryByText("正在进行的工作")).toBeNull();
     expect(screen.queryByRole("button", { name: "取消更新" })).toBeNull();
     expect(screen.getByRole("button", { name: "安装 ZIP" })).toBeEnabled();

@@ -173,7 +173,10 @@ def test_main_app_exposes_installed_app_routes(tmp_path: Path, monkeypatch: pyte
     client = TestClient(create_app(task_manager=object()))
     assert client.get("/api/industry-apps").status_code == 403
     headers = {"X-MyCowork-Industry-Token": "test-only-token"}
-    assert client.get("/api/industry-apps", headers=headers).json()["apps"][0]["status"] == "ready"
+    catalog = client.get("/api/industry-apps", headers=headers).json()
+    assert catalog["apps"][0]["status"] == "ready"
+    assert catalog["operation"]["phase"] == "committed"
+    assert "token" not in catalog["operation"]
     response = client.post(
         "/api/apps/cn.example.taskboard/tasks",
         json={"title": "检查库存"},

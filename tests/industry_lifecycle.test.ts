@@ -29,6 +29,28 @@ function harness() {
 }
 
 describe("industry lifecycle coordinator", () => {
+  it("reads the catalog from the running backend without starting maintenance", async () => {
+    const { hooks } = harness();
+    const result = { apps: [{ id: "cn.test.app" }], operation: { id: "op", phase: "committed" } };
+    const pipe = vi.fn(hooks.pipe);
+    const list = vi.fn().mockResolvedValue(result);
+    const lifecycle = new IndustryLifecycle({ ...hooks, pipe, list });
+    expect(await lifecycle.query({ command: "list" })).toEqual(result);
+    expect(list).toHaveBeenCalledOnce();
+    expect(pipe).not.toHaveBeenCalled();
+    await lifecycle.query({ command: "inspect", file: "/tmp/app.zip" });
+    expect(pipe).toHaveBeenCalledOnce();
+    expect(list).toHaveBeenCalledOnce();
+  });
+
+  it("can still list installed apps when the backend is unavailable", async () => {
+    const { hooks, pipe } = harness();
+    const lifecycle = new IndustryLifecycle({ ...hooks, list: vi.fn().mockRejectedValue(new Error("backend unavailable")) });
+    expect(await lifecycle.query({ command: "list" })).toEqual({ apps: [], operation: null });
+    expect(pipe.call).toHaveBeenCalledWith({ command: "list" });
+    expect(pipe.close).toHaveBeenCalledOnce();
+  });
+
   it("does not drain or restart an unchanged running development revision", async () => {
     const { lifecycle, pipe, hooks } = harness();
     (pipe.call as any).mockImplementation(async (request: any) => request.command === 'list' ? {} : { unchanged: true });

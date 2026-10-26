@@ -6,6 +6,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import type { IndustryStatus } from "@/window";
 import { usePageTabStore } from "@/store/pageTab";
 import { leaveIndustryPage, useIndustryNavigation } from "@/store/industryNavigation";
+import { refreshIndustryApps, useIndustryApps } from "@/store/industryApps";
 import { appAIRequest, startAppTask, useAppTasks, isAppTaskRunning, type AppTask } from "@/api/industryAI";
 import IndustryAIPanel, { openAppFile } from "./IndustryAIPanel";
 
@@ -13,9 +14,13 @@ type InstalledApp = Awaited<ReturnType<typeof window.api.industryList>>["apps"][
 type Inspection = Awaited<ReturnType<typeof window.api.industryInspect>>;
 
 const CHANNEL = "mycowork-app/v1";
+const EMPTY_APPS: InstalledApp[] = [];
 
 export default function IndustryWorkbench() {
-  const [apps, setApps] = useState<InstalledApp[]>([]);
+  const catalog = useIndustryApps(state => state.catalog);
+  const listLoading = useIndustryApps(state => state.loading);
+  const listError = useIndustryApps(state => state.error);
+  const apps = catalog?.apps || EMPTY_APPS;
   const activeId = useIndustryNavigation(state => state.activeId);
   const setActiveId = (id: string | null) => {
     if (!leaveIndustryPage()) return false;
@@ -44,10 +49,10 @@ export default function IndustryWorkbench() {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const initialRefresh = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     try {
-      const result = await window.api.industryList();
-      setApps(result.apps);
+      const result = await refreshIndustryApps(force);
+      if (!result) return;
       if (result.lifecycle) setLifecycle(result.lifecycle);
       setOperation(result.operation);
       if (initialRefresh.current) {
@@ -68,7 +73,7 @@ export default function IndustryWorkbench() {
   useEffect(() => {
     void refresh();
     return window.api.onBackendReady?.(() => {
-      void refresh();
+      void refresh(true);
     });
   }, [refresh]);
 
@@ -76,7 +81,7 @@ export default function IndustryWorkbench() {
     return window.api.onIndustryStatus?.((status) => {
       setLifecycle(status);
       if (status.busy) setDismissedNotice("");
-      if (!status.busy) void refresh();
+      if (!status.busy) void refresh(true);
     });
   }, [refresh]);
 
@@ -247,7 +252,7 @@ export default function IndustryWorkbench() {
     setBusy(true);
     try {
       await window.api.industryInstall(selected.filePath, selected.details.sha256);
-      await refresh();
+      await refresh(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally { setBusy(false); }
@@ -260,7 +265,7 @@ export default function IndustryWorkbench() {
     setBusy(true);
     try {
       await window.api.industryManage(entry.id, action);
-      await refresh();
+      await refresh(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally { setBusy(false); }
@@ -332,6 +337,10 @@ export default function IndustryWorkbench() {
         </div> : <Button variant="primary" disabled={working} onFocus={event => { returnFocus.current = event.currentTarget; }} onClick={() => void choosePackage()}><Upload className="size-4" />安装 ZIP</Button>}
       </div>
       {error && <p role="alert" className="rounded-xl border border-ds-border-neutral-subtle-default p-4 text-sm text-ds-text-error-default-default">{error}</p>}
+      {listError && <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-ds-border-neutral-subtle-default p-4 text-sm">
+        <p className="m-0 text-ds-text-error-default-default">应用列表加载失败：{listError}</p>
+        <Button variant="outline" size="sm" disabled={listLoading} onClick={() => void refresh(true)}>重试</Button>
+      </div>}
       {statusPanel}
       {active ? <div className="relative flex min-h-0 flex-1 flex-col">
         {frameSrc ? <div className="relative flex min-h-0 flex-1 flex-col">
@@ -370,9 +379,11 @@ export default function IndustryWorkbench() {
           </button>
           <div className="industry-app-management">{menu(entry)}</div>
         </article>)}
-      </div> : <div className="flex min-h-60 flex-col items-center justify-center rounded-2xl border border-dashed border-ds-border-neutral-subtle-default text-center">
+      </div> : !catalog && !listError ? <div role="status" aria-live="polite" aria-busy="true" className="flex min-h-60 items-center justify-center gap-2 text-sm text-ds-text-neutral-muted-default">
+        <RefreshCw className="size-4 motion-safe:animate-spin" aria-hidden="true" />正在加载已安装应用…
+      </div> : catalog && !listError ? <div className="flex min-h-60 flex-col items-center justify-center rounded-2xl border border-dashed border-ds-border-neutral-subtle-default text-center">
         <Boxes className="mb-3 size-8 text-ds-text-neutral-muted-default" /><p className="m-0 font-medium">还没有安装行业应用</p><p className="mt-2 text-sm text-ds-text-neutral-muted-default">从可信开发者获取 ZIP 后，在这里安装。</p>
-      </div>}
+      </div> : null}
 
       <dialog ref={dialogRef} onCancel={() => { setPending(null); setConfirmation(null); }} onClose={() => returnFocus.current?.focus()} aria-labelledby="industry-confirm-title"
         className="m-auto max-h-[calc(100vh-2rem)] w-[min(36rem,calc(100vw-2rem))] space-y-3 overflow-y-auto rounded-2xl border border-ds-border-neutral-subtle-default bg-ds-bg-neutral-default-default p-6 text-ds-text-neutral-default-default shadow-xl backdrop:bg-black/40">

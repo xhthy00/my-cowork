@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import App from "../../renderer/src/App";
 import { usePageTabStore } from "../../renderer/src/store/pageTab";
 import { useIndustryNavigation } from "../../renderer/src/store/industryNavigation";
+import { useIndustryApps } from "../../renderer/src/store/industryApps";
 
 vi.mock("@/components/ChatView", () => ({ default: () => <div>对话</div> }));
 vi.mock("@/components/preview/PreviewPanel", () => ({ default: () => null }));
@@ -33,6 +34,7 @@ const app = { id: "cn.example.test", version: "1.0", generation: "g", status: "r
   manifest: { name: "业务插件", description: "业务页面", ui: { entry: "frontend/dist/index.html" } } };
 
 beforeEach(() => {
+  useIndustryApps.setState(useIndustryApps.getInitialState());
   usePageTabStore.setState({ workspaceView: "hub", hubTab: "workbench", projectSidebarFolded: false });
   useIndustryNavigation.setState({ activeId: null, dirty: false, routes: {} });
   window.api = { ...window.api,

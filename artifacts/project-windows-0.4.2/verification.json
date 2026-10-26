@@ -1,0 +1,15 @@
+{
+  "version": "0.4.2",
+  "checks": [
+    "Original ModuleNotFoundError reproduced in fresh process",
+    "9 targeted tests passed",
+    "Embedded setup/session load with fastapi.staticfiles import blocked",
+    "Embedded business API starts with FRONTEND_DIST present and does not mount frontend",
+    "Standalone frontend GET / remains functional",
+    "Production build and offline CSP validation passed",
+    "Actual host Python 3.11 SDK and manifest registration passed with missing module simulated",
+    "842 packaged files match final source bytes"
+  ],
+  "tested_on_windows_machine": false,
+  "database_changes": false
+}

@@ -70,6 +70,7 @@ export class JsonPipe implements MaintenancePipe {
 
 interface Hooks {
   pipe(): MaintenancePipe;
+  list?(): Promise<any>;
   running(): boolean;
   start(token?: string): Promise<void>;
   stop(): Promise<void>;
@@ -91,6 +92,9 @@ export class IndustryLifecycle {
   }
 
   async query(request: Record<string, unknown>): Promise<any> {
+    if (request.command === "list" && this.hooks.list) {
+      try { return await this.hooks.list(); } catch { /* Fall back while the backend is unavailable. */ }
+    }
     const pipe = this.hooks.pipe();
     try { return await pipe.call(request); } finally { pipe.close(); }
   }
