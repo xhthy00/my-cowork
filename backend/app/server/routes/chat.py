@@ -1,5 +1,6 @@
 """SSE chat endpoint for the desktop agent."""
 
+import asyncio
 import json
 import uuid
 from contextlib import aclosing
@@ -16,6 +17,7 @@ router = APIRouter()
 
 # Active streaming task ids — used by /api/chat/stop
 _active_tasks: dict[str, bool] = {}
+_HEARTBEAT_SECONDS = 15.0
 
 
 class ChatHistoryTurn(BaseModel):
@@ -93,23 +95,56 @@ async def _event_stream(
     task_id = task_req.task_id or "stream"
     streaming_ids = {task_id}
     _active_tasks[task_id] = True
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    consumed = asyncio.Event()
+
+    async def produce():
+        # Open, advance and close the generator in one task so ContextVar
+        # tokens used by the runtime/admission lease stay in the same context.
+        try:
+            async with aclosing(task_manager.handle(task_req)) as stream:
+                async for event in stream:
+                    await queue.put(event)
+                    await consumed.wait()
+                    consumed.clear()
+                    if event.get("type") == "graph.end":
+                        break
+        except Exception as error:
+            await queue.put(error)
+        else:
+            await queue.put(None)
+
+    producer = asyncio.create_task(produce())
     try:
-        # Breaking at graph.end does not close an async generator. Close it in
-        # this context so task cleanup and its admission lease finish promptly.
-        async with aclosing(task_manager.handle(task_req)) as stream:
-            async for event in stream:
-                if not _active_tasks.get(task_id, True):
-                    if hasattr(task_manager, "cancel"):
-                        task_manager.cancel(task_id)
-                    yield f"data: {json.dumps({'type': 'graph.end', 'status': 'cancelled', 'task_id': task_id}, ensure_ascii=False)}\n\n"
-                    break
-                tid = str(event.get("task_id") or task_id)
-                streaming_ids.add(tid)
-                _active_tasks[tid] = _active_tasks.get(task_id, True)
-                yield f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
-                if event.get("type") == "graph.end":
-                    break
+        while True:
+            if not _active_tasks.get(task_id, True):
+                if hasattr(task_manager, "cancel"):
+                    task_manager.cancel(task_id)
+                yield f"data: {json.dumps({'type': 'graph.end', 'status': 'cancelled', 'task_id': task_id}, ensure_ascii=False)}\n\n"
+                break
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                # Comments keep HTTP reads alive while a human decides; only
+                # the queue read times out, never the waiting agent operation.
+                yield ": ping\n\n"
+                continue
+            if not _active_tasks.get(task_id, True):
+                continue
+            if event is None:
+                break
+            if isinstance(event, Exception):
+                raise event
+            tid = str(event.get("task_id") or task_id)
+            streaming_ids.add(tid)
+            _active_tasks[tid] = _active_tasks.get(task_id, True)
+            yield f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            consumed.set()
+            if event.get("type") == "graph.end":
+                break
     finally:
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
         for tid in streaming_ids:
             _active_tasks.pop(tid, None)
 

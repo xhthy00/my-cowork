@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+from types import MethodType
+from unittest.mock import AsyncMock
 
 from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
@@ -8,6 +10,7 @@ import pytest
 from app.orchestrator.task_store import TaskStore
 from app.runtime.admission import Admission
 from app.server.routes.industry_ai import router
+from app.orchestrator.task_manager import TaskManager
 
 
 @pytest_asyncio.fixture
@@ -40,6 +43,22 @@ def body(**extra):
     return {'request_id': 'request1', 'generation': 'generation1', 'prompt': '分析风险',
             'project_id': 'project1', 'space_id': 'space1', 'tools': ['list_items'],
             'context': {'selection': [1], 'partition': 'local'}, **extra}
+
+
+@pytest.mark.asyncio
+async def test_new_task_can_be_opened_before_runtime_snapshot_is_created(setup):
+    client, _, _, app = setup
+    first = await client.post('/api/industry-ai/cn.test.one/tasks', json=body())
+    ident = first.json()['task_id']
+    manager = app.state.task_manager
+    manager.uses_deepagents = True
+    manager._workers = {ident: object()}
+    manager.runtime = SimpleNamespace(read=AsyncMock(return_value=None))
+    manager.pending = MethodType(TaskManager.pending, manager)
+    response = await client.get(f'/api/industry-ai/cn.test.one/tasks/{ident}')
+    assert response.status_code == 200
+    assert response.json()['status'] == 'NEW'
+    assert response.json()['waiting'] is False
 
 
 @pytest.mark.asyncio

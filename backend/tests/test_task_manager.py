@@ -73,3 +73,18 @@ async def test_missing_status_raises(tmp_path):
             tm.status('missing')
     finally:
         await tm.close()
+
+
+def test_cancel_session_targets_all_matching_runs_only():
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from app.orchestrator.task_manager import TaskManager
+    manager = object.__new__(TaskManager)
+    manager._requests = {
+        'a': SimpleNamespace(session_id='deleted', project_id='p1'),
+        'b': SimpleNamespace(session_id='deleted', project_id='p1'),
+        'c': SimpleNamespace(session_id='other', project_id='p2'),
+    }
+    manager.cancel = Mock(return_value=True)
+    assert manager.cancel_session('deleted') == 2
+    assert {call.args[0] for call in manager.cancel.call_args_list} == {'a', 'b'}

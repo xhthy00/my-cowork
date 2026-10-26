@@ -125,3 +125,50 @@ def test_mixed_fallback_keeps_deepseek_history_out_of_other_provider_requests():
     assert adapted.models[0].extra_body['messages'][0]['reasoning_content'] == 'thought'
     assert adapted.models[1] is other
     assert 'messages' not in native.extra_body
+
+
+@pytest.mark.asyncio
+async def test_minimax_tool_images_are_media_not_base64_text():
+    from cowork_harness.models import deepseek_history_model
+    from model_integrations.openai_compat import create_openai_compat
+    from langchain_core.messages import AIMessage, ToolMessage
+    model = create_openai_compat('MiniMax-M3', 'test', base_url='https://api.minimaxi.com/v1')
+    image = 'A' * 680000
+    messages = [
+        AIMessage(content='', tool_calls=[{'id': 'one', 'name': 'read_file', 'args': {}},
+                                         {'id': 'two', 'name': 'read_file', 'args': {}}]),
+        ToolMessage(content=[{'type': 'text', 'text': 'Report screenshot'},
+                             {'type': 'image', 'base64': image, 'mime_type': 'image/png'}], tool_call_id='one'),
+        ToolMessage(content='second result', tool_call_id='two'),
+    ]
+    adapted = deepseek_history_model(model, messages)
+    wire = adapted.extra_body['messages']
+    assert [m['role'] for m in wire] == ['assistant', 'tool', 'tool', 'user']
+    assert len(wire[1]['content']) < 200 and 'Report screenshot' in wire[1]['content']
+    assert wire[2]['tool_call_id'] == 'two'
+    assert wire[3]['content'][1]['image_url']['url'] == 'data:image/png;base64,' + image
+    assert messages[1].content[1]['base64'] == image
+    # Confirm the final SDK HTTP payload also carries the image as a media block.
+    captured = []
+    def handle(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={'id': 'image-test', 'created': 1, 'model': 'MiniMax-M3',
+            'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {'role': 'assistant', 'content': 'checked'}}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        probe = type(adapted)(model=adapted.model_name, api_key='test', base_url='https://api.minimaxi.com/v1',
+            extra_body=adapted.extra_body, http_async_client=client, disable_streaming=True, max_retries=0)
+        await probe.ainvoke(messages)
+    assert captured[0]['messages'] == wire
+    assert image not in ''.join(m['content'] for m in wire if isinstance(m.get('content'), str))
+
+
+def test_minimax_images_flush_before_next_assistant_turn():
+    from cowork_harness.models import deepseek_history_model
+    from model_integrations.openai_compat import create_openai_compat
+    from langchain_core.messages import AIMessage, ToolMessage
+    model = create_openai_compat('MiniMax-M3', 'test', base_url='https://api.minimax.io/v1')
+    messages = [AIMessage(content='', tool_calls=[{'id': 'one', 'name': 'read_file', 'args': {}}]),
+                ToolMessage(content=[{'type': 'image', 'base64': 'AAAA', 'mime_type': 'image/png'}], tool_call_id='one'),
+                AIMessage(content='checked')]
+    wire = deepseek_history_model(model, messages).extra_body['messages']
+    assert [m['role'] for m in wire] == ['assistant', 'tool', 'user', 'assistant']

@@ -200,6 +200,12 @@ class TaskManager:
         asyncio.create_task(cancel_run())
         return True
 
+    def cancel_session(self, session_id):
+        # A deleted desktop conversation must not leave a durable run holding
+        # the plugin update lease after its front-end stream is disconnected.
+        return sum(self.cancel(task_id) for task_id, req in list(self._requests.items())
+                   if session_id in {req.session_id, req.project_id})
+
     def cancel_all(self):
         return sum(self.cancel(task_id) for task_id in list(self._workers))
 
@@ -315,6 +321,8 @@ class TaskManager:
                     visible_role = 'single_agent' if role == 'supervisor' and req.session_mode == 'single-agent' else role
                     if skill_visible_for_agent(view, visible_role):
                         skills.setdefault(role, []).append(virtual)
+            if req.app_scope and skills and req.app_scope.record_skills:
+                req.app_scope.record_skills()
             instructions = '用用户的语言回答，执行用户请求并验证结果。\n' + str((assistant or {}).get('rules') or '')
             instructions += f'\n真实工作目录：{frozen.working_directory}；read_file 使用 /workspace/ 虚拟路径，bash 和宿主工具使用真实路径。'
             if req.knowledge_bases:
@@ -519,7 +527,7 @@ class TaskManager:
         return True
 
     async def pending(self, task_id):
-        return (await self.runtime.read(task_id)).get('pending') or []
+        return ((await self.runtime.read(task_id)) or {}).get('pending') or []
 
     async def close(self):
         if self._unsubscribe:

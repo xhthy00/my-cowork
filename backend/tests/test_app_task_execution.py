@@ -4,7 +4,31 @@ from pathlib import Path
 from app.main import build_stack
 from app.orchestrator.task_manager import TaskRequest
 from app.runtime.app_context import AppTaskScope
+from app.skills import SkillMeta
 from tests.conftest import FakeChatModel, make_ai
+
+
+@pytest.mark.asyncio
+async def test_plugin_skill_catalog_is_recorded_when_mounted_for_execution(tmp_path):
+    folder = tmp_path / 'plugin-skill'
+    folder.mkdir()
+    (folder / 'SKILL.md').write_text('---\nname: weekly-report\ndescription: 项目周报\n---\n按授权范围生成周报。')
+    skill = SkillMeta(id='app:cn.one:weekly-report', name='项目周报', description='项目周报',
+                      prompt='按授权范围生成周报。', base_dir=folder,
+                      app_origin={'id': 'cn.one', 'name': '项目', 'version': '1.0.0'})
+    model = FakeChatModel(responses=[make_ai(tool_calls=[{'id': 'plan', 'name': 'write_todos', 'args': {
+        'todos': [{'content': '核对项目周报范围', 'status': 'in_progress'}]}}]), make_ai('已核对范围')])
+    manager = build_stack(supervisor_llm=model, whitelist=[str(tmp_path)])['task_manager']
+    loaded = []
+    scope = AppTaskScope('cn.one', frozenset(), skills={skill.id: skill}, record_skills=lambda: loaded.append(skill.id))
+    try:
+        events = [event async for event in manager.handle(TaskRequest(task_id='plugin-skill', text='核对范围',
+            session_mode='single-agent', enabled_skill_ids=[skill.id], app_scope=scope))]
+        assert events[-1]['status'] == 'ok', events[-1]
+        assert loaded == [skill.id]
+        assert any(path.is_file() for path in (manager.data_dir / 'harness-skills').rglob('SKILL.md'))
+    finally:
+        await manager.close()
 
 
 @pytest.mark.asyncio

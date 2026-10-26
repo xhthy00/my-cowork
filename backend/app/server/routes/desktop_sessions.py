@@ -29,5 +29,14 @@ def put_sessions(body: Snapshot, request: Request) -> dict[str, bool]:
     store = getattr(request.app.state, "desktop_sessions", None)
     if store is None:
         raise HTTPException(status_code=503, detail="Session storage unavailable")
+    previous = store.load()
+    if previous:
+        remaining = {row.get("id") for row in body.sessions}
+        removed = {row.get("id") for row in previous.get("sessions", [])} - remaining
+        manager = request.app.state.task_manager
+        if hasattr(manager, "cancel_session"):
+            for session_id in removed:
+                if session_id:
+                    manager.cancel_session(session_id)
     store.save(body.model_dump())
     return {"ok": True}
