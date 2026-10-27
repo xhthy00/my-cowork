@@ -20,7 +20,7 @@ async def test_subagent_context_does_not_replace_root_context(tmp_path):
     service = RuntimeService(tmp_path, model_factory=lambda spec: child if spec['model'] == 'child' else parent)
     await service.start()
     try:
-        await service.submit(RunRequest(task_id='context',session_id='s',text='核验',scope_ref='t',workspace=str(tmp_path),
+        await service.submit(RunRequest(task_id='context',session_id='s',text='核验',scope_ref='t',workspace=str(tmp_path),confirm_plan=False,
             models={'supervisor': {'model': 'parent'}, 'browser_agent': {'model': 'child'}}))
         await asyncio.wait_for(service.tasks['context'], 5)
         events = service.store.events('context')

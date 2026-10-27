@@ -87,6 +87,7 @@ class RunRequest(BaseModel):
     history: list[dict[str, Any]] = Field(default_factory=list)
     file_access: bool = True
     confirm_plan: bool = True
+    planning_required: bool = True
     # Count all model calls (including subagents); cap only when requested.
     max_steps: int | None = Field(default=None, ge=1)
     # None means usage is tracked without a cumulative task token cap.

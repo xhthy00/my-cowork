@@ -66,7 +66,7 @@ binaries += [
 HIDDEN += tmp_browser[2]
 
 # Upstream middleware, prompts and serializers contain dynamic imports.
-for package in ("deepagents", "langchain", "langchain_deepseek", "langchain_openrouter", "openrouter", "langgraph", "langgraph.checkpoint.sqlite"):
+for package in ("deepagents", "langchain", "langchain_deepseek", "langchain_openrouter", "openrouter", "langgraph", "langgraph.checkpoint.sqlite", "jsonschema", "jsonschema_specifications"):
     collected = collect_all(package)
     datas += collected[0]
     binaries += collected[1]

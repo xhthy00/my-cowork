@@ -20,6 +20,7 @@ from .models import create_model
 from .store import RunStore
 from .upgrade_state import prepare_state
 from .deliverables import preserve_html
+from .events import DeltaBuffer
 
 
 class SessionBusy(ValueError):
@@ -123,7 +124,7 @@ class RuntimeService:
 
     def profile(self, request):
         data = request.model_dump(exclude={"text", "history", "task_id", "session_id", "scope_ref",
-                                          "workspace", "instructions", "resume_execution", "max_steps", "max_total_tokens"})
+                                          "workspace", "instructions", "resume_execution", "max_steps", "max_total_tokens", "planning_required"})
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
     async def submit(self, request: RunRequest):
@@ -145,8 +146,7 @@ class RuntimeService:
     def emit(self, run_id, event):
         # Resuming an interrupt re-enters the tool node; avoid duplicate starts.
         if event.get("call_id") and event["type"] == "tool.start":
-            if any(e["type"] == "tool.start" and e.get("call_id") == event["call_id"]
-                   for e in self.store.events(run_id)):
+            if self.store.has_tool_start(run_id, event['call_id']):
                 return
         self.store.event(run_id, event)
 
@@ -157,16 +157,17 @@ class RuntimeService:
         async with lock:
             self.store.update(run_id, "running")
             prior_plans = [e for e in self.store.events(run_id) if e['type'] == 'todo_state']
-            plan_ready = bool(prior_plans and prior_plans[-1].get('todos'))
+            plan_ready = not request.planning_required or bool(prior_plans and prior_plans[-1].get('todos'))
+            writer = DeltaBuffer(lambda event: self.emit(run_id, event))
             def emit(event):
                 nonlocal plan_ready
                 if event['type'] == 'todo_state':
-                    plan_ready = bool(event.get('todos'))
+                    plan_ready = not request.planning_required or bool(event.get('todos'))
                 name = event.get('tool')
                 spec = next((spec for spec in request.tools if spec.name == name), None)
                 if spec:
                     event = {**spec.metadata, **event}
-                self.emit(run_id, event)
+                writer.emit(event)
             call_host = lambda op, cid, name, args, **kw: self._call_host(request, op, cid, name, args, **kw)
             budget = BudgetCallback(request, emit)
             usage = [event for event in self.store.events(run_id) if event['type'] == 'budget.update']
@@ -246,14 +247,22 @@ class RuntimeService:
                 self.store.update(run_id, "succeeded")
                 emit({"type": "graph.end", "status": "ok", "summary": final_text})
             except asyncio.CancelledError:
+                try:
+                    writer.flush()
+                except Exception:
+                    pass
+                writer.discard()
                 self.store.update(run_id, "cancelled")
                 self.store.discard_epoch(row['thread_id'])
-                emit({"type": "graph.end", "status": "cancelled"})
+                self.emit(run_id, {"type": "graph.end", "status": "cancelled"})
             except Exception as exc:
+                writer.discard()
                 self.store.update(run_id, "failed")
                 if not isinstance(exc, SessionBusy):
                     self.store.discard_epoch(row['thread_id'])
-                emit({"type": "graph.end", "status": "error", "error": str(exc)})
+                self.emit(run_id, {"type": "graph.end", "status": "error", "error": str(exc)})
+            finally:
+                writer.close()
 
     async def resume(self, run_id, interrupt_id, value):
         row = self.store.get(run_id)

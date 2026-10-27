@@ -6,6 +6,9 @@ backward compatibility. New code should instantiate ``PathGuard`` directly.
 """
 
 from pathlib import Path
+from contextvars import ContextVar
+
+task_path_guard = ContextVar("task_path_guard", default=None)
 
 _DESKTOP_ALIASES = {"desktop", "桌面"}
 
@@ -148,8 +151,15 @@ class PathGuard:
         """Add a path to the whitelist."""
         self._whitelist.add(str(Path(path).expanduser().resolve()))
 
+    def for_task(self) -> "PathGuard":
+        """Copy durable user grants without mutating them for a task."""
+        return PathGuard(list(self._whitelist))
+
     def check_path(self, path: str) -> None:
         """Raise PathGuardError if *path* is not inside any whitelisted directory."""
+        active = task_path_guard.get()
+        if active is not None and active is not self:
+            return active.check_path(path)
         if not self._whitelist:
             raise PathGuardError("No whitelist configured")
 

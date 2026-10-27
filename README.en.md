@@ -1,263 +1,221 @@
 <p align="center">
-
-<img src="./docs/screenshots/app-icon.png" width="96" alt="MyCowork" />
-
+  <img src="./renderer/src/assets/brand/app-logo.png" width="96" alt="MyCowork" />
 </p>
 
 <h1 align="center">MyCowork</h1>
 
 <p align="center">
-  <strong>A local office coworker</strong> · Chat to deliver Word, Excel, PPT, and official documents<br />
-  Fat desktop client · Local-first · Bring your own keys · Single-agent / multi-agent
+  <strong>A desktop office agent that also works inside your business apps</strong><br />
+  File delivery · Single / multi-agent · Skills and connectors · Automations · Industry apps
 </p>
 
-<p align="center">
-  Electron · React · FastAPI · LangGraph · OfficeCLI
-</p>
+<p align="center">Electron · React · FastAPI · Deep Agents · OfficeCLI</p>
+<p align="center"><a href="./README.md">中文</a> · <strong>English</strong></p>
 
-<p align="center">
-  <a href="./README.md">中文</a> · <strong>English</strong>
-</p>
+MyCowork is a desktop office agent for macOS and Windows. Describe a task and select a workspace: the assistant can use local files and tools, create Word, Excel, PowerPoint, PDF and Markdown deliverables, and show the results in the same window. The industry workbench brings business pages, data and AI tools into the desktop app.
 
-MyCowork is an office agent that runs on your own computer. Describe a task; the assistant reads and writes your local workspace, produces files you can open, and previews them in the same window. It sits in the same category as Claude Cowork / WorkBuddy-style “digital employees”, but models, files, and API keys stay on-device. Each teammate installs independently; nothing is shared by default.
+Execution and storage center on your computer. Models can use cloud APIs or local inference services. **With a cloud model, the task content supplied to the model is sent to the configured service.** Local execution does not imply that all content stays on your device.
 
----
+This README describes the **current 0.1.6 source** (2026-10-27). Screenshots use real UI components with isolated sample data and Chinese labels. Example conversations, automation records and model configurations do not demonstrate real executions or successful connections. See [screenshot maintenance](docs/screenshots/README.md).
 
-## Screenshots
+## Interface and capabilities
 
-Single-agent home: one cow coworker, best when you just want to get one thing done.
+Start from “New task” (新建任务), choose a model and workspace, and use the sidebar to manage projects, tasks, assistants, automations and the workbench.
 
-![Single-agent home](./docs/screenshots/home-single-agent.png)
+![Current home screen](docs/screenshots/current/home.jpg)
 
-Multi-agent home: a whole cow team, better for decomposition, parallelism, and mixed-format delivery.
-
-![Multi-agent home](./docs/screenshots/home-multi-agent.png)
-
-Workspace: chat, task list, deliverable cards, and a live document preview on one screen.
-
-![Workspace chat and document preview](./docs/screenshots/workspace.png)
-
----
-
-## What it does
-
-- **Writes to disk locally**: Outputs land in your workspace (default like `~/Documents/AIS`), not a cloud draft. Process notes stay out of the sidebar; nothing outside the workspace is touched.
-- **Two execution modes**
-  - **Single agent**: one ReAct agent runs the whole job — lightweight, good for a single document or Q&A.
-  - **Multi-agent (Workforce)**: a planner splits the work → you confirm subtasks → a coordinator fans out document / browser / developer workers by dependency, and can replan on failure.
-- **Office assistant catalog**: scene-specific skills are preloaded so you can start weekly reports, official documents, forms, dashboards, financial models, or contract review in one click.
-- **Skills + SkillHub**: toggle local skills, grant them to specific agents, or browse and install suites from SkillHub.
-- **Built-in model panel**: Anthropic, OpenAI, OpenRouter, DeepSeek, Tongyi, Moonshot, MiniMax, plus local Ollama, LM Studio, and vLLM. Keys live in the OS keychain and are saved only after a successful validate.
-- **Connectors and browser**: MCP for everyday tools; built-in Playwright actions for navigation, reading, clicking, typing, selecting, uploading, waiting, and screenshots. Installers include Chromium; source checkouts need `backend/.venv/bin/python -m playwright install chromium`.
-- **Memory, timers, scheduling**: long-term memory in local SQLite; skills with a `schedule` are registered with on-device APScheduler (the app must stay running).
-- **Optional remote entry**: a Lark/Feishu bot can expose local `/webhook/lark` over HTTPS via Cloudflare Tunnel (unreachable when the machine is off).
-
-### Office assistants
-
-![Document assistants](./docs/screenshots/assistants-docs.png)
-
-| Category | Assistants | Typical output |
-| --- | --- | --- |
-| Presentations | PPT assistant, pitch-deck assistant | `.pptx` reviews / fundraising decks |
-| Documents | Word assistant, official-document writer, Word form assistant | Weekly reports, requests/notices, fillable forms |
-| Spreadsheets | Excel assistant, data-dashboard assistant, financial-model assistant | Ledgers, KPI boards, three-statement models |
-| Legal | China legal counsel | Contract review / drafting (mainland-China knowledge base) |
-| General | Office collaboration assistant | Switch among PPT / Word / Excel in one task |
-
-Official-document writing follows common agency manuscript layout (title and body fonts, line spacing, and so on). Red-header issuance follows GB/T 9704-2012. Legal and official-document modes are **drafting / QA aids only** — not formal issuance or legal advice.
-
-![Spreadsheet assistants](./docs/screenshots/assistants-tables.png)
-
-![Legal and general office assistants](./docs/screenshots/assistants-legal.png)
-
-Document generation prefers the bundled [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) binary (`officecli`). Local preview uses OfficeCLI watch as well; if it is unavailable, the app falls back to built-in `docx_gen` / `xlsx_gen` / `pptx_gen` and a simpler preview.
-
-### Skills and models
-
-Local skills can be toggled. SkillHub recommends suites by office productivity, content, engineering, data, design, knowledge management, and more.
-
-![Skills and SkillHub](./docs/screenshots/skills.png)
-
-The models page supports cloud vendors and local inference. OpenRouter, Ollama, and similar providers are normalized to the OpenAI-compatible protocol when injected into the backend.
-
-![Model configuration](./docs/screenshots/models.png)
-
----
-
-## Architecture
-
-Fat desktop client: Electron starts a local Python (FastAPI) process. The renderer talks over localhost HTTP + SSE for chat and traces. Tool calls run in-process on the machine — there is no remote-to-local WebSocket callback.
-
-```
-┌────────────────────────── This machine ──────────────────────┐
-│  Electron renderer (React)                                   │
-│   Chat / workspace / assistants / skills / models / confirms │
-│                         │ HTTP + SSE                         │
-│  Electron main (Node)                                        │
-│   Spawn backend · keychain · PDF printToPDF · file dialogs   │
-│                         │ localhost                          │
-│  Python (FastAPI + LangGraph)                                │
-│   Orchestrate → graph (single / workforce) → tools / MCP     │
-│   SQLite + sqlite-vec · APScheduler · Lark webhook           │
-└──────────────────────────────────────────────────────────────┘
-         Optional: Cloudflare Tunnel → Lark event subscription
-```
-
-The backend is split into nine harness layers. Dependencies may only point downward (`import-linter` enforces this in CI):
-
-| Layer | Package | Role |
-| --- | --- | --- |
-| L9 Ingress | `backend/app/server/` | HTTP / SSE / webhooks / scheduled triggers |
-| L8 Orchestration | `orchestrator/` | Task lifecycle, sessions |
-| L7 Runtime | `graphs/` `agents/` `runtime/` | LangGraph, checkpoints, token budget |
-| L6 Memory | `memory/` | Short-term context + long-term vectors |
-| L5 Observability | `observability/` | Traces, redacted logs, usage |
-| L4 Guardrails | `guardrails/` | Approval gates, dangerous-command deny, audit |
-| L3 Tools | `tools/` | fs / exec / documents / MCP / skills |
-| L2 Models | `llm/` | Provider gateway, token counting |
-| L1 Sandbox | `sandbox/` | Path allowlist, egress policy |
-
-Keys are not written to `config.toml`. Electron stores them in the OS keychain (macOS Keychain / Windows Credential Manager) and injects them as env vars when starting Python.
-
----
-
-## Tech stack
-
-| Area | Choice |
+| Capability | Available in the current implementation |
 | --- | --- |
-| Desktop shell | Electron 35, electron-builder (dmg / NSIS) |
-| UI | React 19, Vite, TypeScript, Tailwind, Radix, Zustand |
-| Backend | Python 3.11, FastAPI, Uvicorn, uv |
-| Agent | LangGraph supervisor / workforce, LangChain model adapters |
-| Office files | OfficeCLI + python-docx / python-pptx / openpyxl |
-| Data | SQLite, sqlite-vec |
-| Remote | lark-oapi, Cloudflare Tunnel (optional) |
+| Tasks and projects | Workspaces, projects and sessions; history, task steps, execution details, delivered files and previews |
+| Single / multi-agent | Direct task execution or delegation to Deep Agents subagents for documents, browsing and development; complex tasks can request plan approval |
+| Office assistants | 10 assistants covering documents, presentations, spreadsheets, official documents, financial models, legal work and mixed-format delivery |
+| Skills and memory | Local and bundled skills, a skill store, agent access scopes, on-demand skill loading and managed persistent memory |
+| Connectors and browsing | MCP tools, browser reading and interaction, file uploads and screenshots |
+| Automations | Visual schedules, manual runs, pause, run history, permissions and recovery review |
+| Industry workbench | ZIP apps containing a business UI, Python backend, agent tools and bundled skills |
+| Remote channels | Feishu/Lark long connections and WeChat ClawBot QR sign-in; Telegram and DingTalk are currently marked “coming soon” |
 
----
+### Conversation, delivery and preview
 
-## Quick start
+Results can be saved as real files in the workspace. File cards, execution details and the preview panel let you inspect and revise deliverables. This example shows a Markdown weekly report.
 
-### Requirements
+![Conversation and delivered file preview](docs/screenshots/current/workspace.jpg)
 
-- Node.js 20+
-- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
-- macOS or Windows
+Office documents primarily use bundled [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) for generation and preview. The repository also includes tools based on `python-docx`, `python-pptx` and `openpyxl`. Available formats and preview fidelity depend on the tool and environment.
 
-### Development
+Switch execution mode beside the composer. The runtime uses official `create_deep_agent()` and subagents; the product layer provides plan confirmation, operation approval, task state and artifact registration.
+
+<details>
+<summary>Show the multi-agent entry point</summary>
+
+![Multi-agent task entry](docs/screenshots/current/team.jpg)
+
+</details>
+
+### Assistants, skills and connectors
+
+“Assistants · Skills · Connectors” (助理 · 技能 · 连接器) provides assistants, skill switches, the skill store, memory and MCP connectors. Choosing an assistant brings in its skills and suggested prompts.
+
+![Current assistant catalog](docs/screenshots/current/assistants.jpg)
+
+| Category | Assistants | Typical tasks |
+| --- | --- | --- |
+| Presentations | Presentation, pitch deck | Business reports, training, fundraising decks |
+| Documents | Word, official documents, Word forms | Reports, drafts, fillable forms |
+| Spreadsheets | Excel, data dashboard, financial modeling | Trackers, KPI dashboards, forecasts |
+| Legal | China legal counsel | Contract review, drafting, risks and supporting sources |
+| General | Office collaboration | Combined PPT, Word and Excel deliverables |
+
+Official-document and legal assistants support drafting, checks and analysis. Formal documents, contracts and significant decisions require human review.
+
+<details>
+<summary>Show bundled skill management</summary>
+
+![Bundled skills and agent access](docs/screenshots/current/skills.jpg)
+
+</details>
+
+### Industry workbench
+
+Use “Install ZIP” in the workbench (工作台) to add an app with its own business UI. The host validates package structure, version compatibility and file checksums. Installation or update waits for active work, saves a data recovery point and reloads the app.
+
+![Installed industry apps](docs/screenshots/current/workbench.jpg)
+
+Apps can contribute business tools and skills. A controlled page bridge passes selected business content, starts AI tasks, exposes task records and files, and routes results back into the business page. The included taskboard example demonstrates entry points for risk analysis, weekly reports and subtask generation.
+
+![Taskboard business page](docs/screenshots/current/industry.jpg)
+
+Current plugins contain a **Python backend and static web UI**. Python runs inside the host backend process. The installer neither creates a plugin virtual environment nor runs `pip` or `npm`. Page bridge restrictions do not isolate Python code, so install trusted apps.
+
+Authoring references: [industry app development guide](docs/行业应用插件开发指南.md) · [taskboard example](examples/taskboard/README.md).
+
+### Automations
+
+The Automations (自动化) page configures instructions, schedule, workspace and allowed tools, and shows each run's status and result. It supports manual execution, pause, completion notifications and recovery review after interruption.
+
+![Automation list](docs/screenshots/current/automations.jpg)
+
+Schedules execute locally while the computer is awake and the backend is running. Restarting catches up a missed schedule once; recovery with uncertain side effects may require review. The app also offers a keep-awake setting.
+
+### Models and remote channels
+
+Open **Settings → Models** (设置 → 模型) to configure Anthropic, OpenAI, OpenRouter, DeepSeek, Qwen, Moonshot, MiniMax or a custom compatible service. Local services include Ollama, LM Studio and vLLM. Enter the endpoint, model ID and required credentials; configuration is saved after validation.
+
+![Model settings](docs/screenshots/current/models.jpg)
+
+**Settings → Remote connections** (设置 → 远程连接) provides Feishu/Lark and WeChat. Feishu uses the official long connection; WeChat uses ClawBot QR sign-in. These paths do not require a public URL or Cloudflare Tunnel. Sleeping the computer or quitting the app interrupts availability.
+
+![Remote channels and availability](docs/screenshots/current/channels.jpg)
+
+## Getting started
+
+### Install and use
+
+Download the appropriate installer from [GitHub Releases](https://github.com/xhthy00/my-cowork/releases): `.dmg` for macOS or NSIS `.exe` for Windows.
+
+1. Configure a service in **Settings → Models**. Start the inference service first if using a local model.
+2. Choose a workspace and model in “New task”, or start with an office assistant.
+3. Describe the task, review requested operations, paths and commands, then inspect delivered files.
+
+A simple file-delivery check:
+
+> Create hello.md in the current workspace, write a short welcome message, and provide a file preview.
+
+### Run from source
+
+Recommended: **Node.js 22 LTS, Python 3.11 or 3.12, [uv](https://docs.astral.sh/uv/)**, and macOS or Windows. Run these commands from the repository root:
 
 ```bash
-cd backend && uv sync
-cd .. && npm install
+uv sync --project backend --locked --extra dev
+npm ci
 
-# High-fidelity office generation / preview
+# Download office tools (use Git Bash on Windows)
 npm run fetch:officecli
+
+# Install Chromium before first using the built-in browser in source development
+uv run --project backend python -m playwright install chromium
 
 npm run dev
 ```
 
-`npm run dev` starts Vite (`127.0.0.1:5174`), TypeScript watch, and Electron together.
+`npm run dev` starts Vite (default `127.0.0.1:5174`), compiles Electron and launches the desktop app. **Electron owns the Python backend and agent sidecar lifecycle**; normal development does not need a separate Uvicorn process. The OfficeCLI fetch script requires Bash; on Windows, install Git for Windows and use Git Bash. See the [deployment guide](docs/部署手册.md) for installation and use.
 
-You can also run them separately:
-
-```bash
-npm run dev:renderer
-cd backend && uv run uvicorn app.main:app --port 8765
-npm run dev:electron
-```
-
-First launch: open **Agents → Models**, pick a vendor, fill in the API key and model ID, then save (writes only after validation). Chat once the title bar shows the backend is connected.
-
-Smoke test:
-
-> Write hello.txt on the Desktop with contents hi
-
-After you allow the write confirmation, the file should appear on the Desktop.
-
-### Tests
+### Checks and packaging
 
 ```bash
-cd backend && PYTHONPATH=. uv run pytest -q
-cd backend && PYTHONPATH=. uv run lint-imports
+# Backend tests and import boundaries
+cd backend
+uv run --locked --extra dev pytest -q
+uv run --locked --extra dev lint-imports
+cd ..
+
+# Frontend / Electron unit tests; E2E includes a build
 npm test
-npm run test:e2e    # requires npm run build first
+npm run test:e2e
+
+# Preview build or release plans without pushing
+npm run package:ci -- --dry-run
+npm run release -- --dry-run
 ```
 
-### Installers
+Cloud builds use [build.yml](.github/workflows/build.yml). On Windows, use `npm run package:win` or `npm run package:win:full` for a full rebuild. On macOS, run `npm run build:python:mac` followed by `bash scripts/build-electron.sh --mac`. Publishing requires a clean working tree and Git push access; `package:ci` also requires authenticated GitHub CLI. These commands push or publish; inspect the plan with `--dry-run` first.
 
-Release artifacts come from GitHub Actions (`.github/workflows/build.yml`):
-
-- macOS: `MyCowork-*.dmg`
-- Windows: `MyCowork Setup *.exe` (NSIS; SmartScreen may warn if unsigned)
-
-Build locally:
+Scaffold an industry app:
 
 ```bash
-npm run build:python:mac      # or npm run build:python:windows on Windows
-bash scripts/build-electron.sh --mac
-# Windows: npx electron-builder --config build/electron-builder.yml --win
+npm run app -- init /path/to/my-app --id cn.example.myapp --name MyBusinessApp
+npm --prefix /path/to/my-app/frontend install
+npm run app -- dev /path/to/my-app
+npm run app -- pack /path/to/my-app -o /path/to/my-app.zip
 ```
 
-If macOS Gatekeeper blocks the app: System Settings → Privacy & Security → Open Anyway, or:
+`dev` uses isolated development data and a separate credential scope. Install the packaged app through the workbench's “Install ZIP”.
 
-```bash
-xattr -dr com.apple.quarantine /Applications/MyCowork.app
+## Architecture and data boundaries
+
+![Current desktop and agent runtime architecture](docs/screenshots/current/architecture.svg)
+
+The Electron main process manages desktop capabilities, credentials and child processes. React accesses local FastAPI through the host. The product backend owns tasks, permissions, business data and tools. A separate `cowork_harness` sidecar runs official Deep Agents and calls host capabilities for files, commands, browsing, MCP and industry tools.
+
+| Module | Responsibility |
+| --- | --- |
+| `renderer/`, `electron/` | UI, previews, IPC, credentials and process lifecycle |
+| `backend/app/orchestrator/` | Product tasks, entry-point context, events and artifacts |
+| `backend/cowork_harness/` | Deep Agents factory, subagents, checkpoints, persistent interrupts, events and budgets |
+| `backend/runtime_contract/`, `app/runtime_client/` | Versioned protocol, sidecar startup and build compatibility checks |
+| `backend/app/host_capabilities/` | Tool callbacks, task scopes, approval tickets and side-effect deduplication |
+| `backend/model_integrations/` | Shared host and harness model adapters |
+| `backend/app/industry_apps/`, `automation/`, `server/channels/` | Industry apps, scheduled runs and remote channels |
+
+Backend and sidecar share one Python environment, `backend/pyproject.toml` and `backend/uv.lock`. Deep Agents is currently pinned to 0.7.23. Its graph manages tool loops, subagents and context compaction, while the product retains authorization and delivery. See the [Deep Agents implementation notes](docs/DeepAgents实施说明.md).
+
+- **Local data:** sessions, memory, schedules and run records persist locally. Delivered files go to the task's working directory; actual paths depend on workspace and settings.
+- **Models and external tools:** cloud models, MCP, channels and knowledge services may send relevant content to external endpoints. Local models require a separately deployed inference service.
+- **Credentials:** desktop storage uses Electron `safeStorage` encryption when available. If unavailable and no encrypted file exists, the current implementation can fall back to a local JSON file protected by file permissions. Credentials are not guaranteed to reside exclusively in the OS keychain.
+- **Permissions:** file allowlists, workspace restrictions, command policies and approvals constrain host tools. The backend's default path scope includes the home directory and can be narrowed under “Privacy / Allowlist”. These are application controls, not an OS sandbox.
+- **Availability:** automations, channels and industry tasks depend on the local application and backend. They are not a separate always-on cloud service.
+
+## Repository and documentation
+
+```text
+backend/                   Product backend, harness, shared protocol and tests
+electron/                  Desktop main process and preload bridge
+renderer/                  React UI and styles
+packages/app-sdk/          Industry app frontend SDK
+templates/industry-app/    Industry app scaffold
+examples/taskboard/        Runnable industry app example
+skills/                    Repository skills
+resources/example-skills/ Bundled and third-party skills
+scripts/, build/           Development, dependencies, packaging and releases
+docs/                      Implementation, development, deployment and screenshots
 ```
 
-Full install and Lark remote steps: [docs/部署手册.md](docs/部署手册.md) (Chinese).
-
----
-
-## Usage
-
-1. **Workspace**: pick a project/session on the left; chat in the middle; preview delivered `.docx` / `.pptx` / `.xlsx` on the right.
-2. **Agents**
-   - Models: configure cloud or local LLMs; one can be the default.
-   - Skills: toggle local skills, grant them to agents, or install from SkillHub.
-   - Office assistants: start from a scene; matching skills are preloaded and a suggested prompt is filled into the composer.
-   - Memory: togglable. Saying “remember …” writes to `~/.my-cowork/memory.db`.
-3. **Connectors**: MCP servers. You can also edit `~/.my-cowork/mcp.json`, or copy `config.template.toml` to `config.toml`.
-4. **Confirmations**: writes, shell commands, and document generation pop a gate. Check the path before allowing. Later `officecli` calls in the same task may be auto-approved.
-5. **Schedules**: add `schedule` in a skill’s `skill.yaml` to register; the client must stay running.
-
-Skill conventions: [docs/开发指南.md](docs/开发指南.md) (Chinese) and [skills/README.md](skills/README.md).
-
----
-
-## Safety
-
-- **Local-first, single-tenant**: no cloud hosting, multi-tenancy, billing, or SSO.
-- **Path allowlist**: includes the home directory by default; tighten it in settings. `../` escape is rejected.
-- **Dangerous commands denied**: e.g. destructive `rm -rf /` against the filesystem root.
-- **Remote channel is tighter**: skills that write disk, `exec`, or generate documents cannot be triggered via Lark; webhooks need a verify token and source IPs.
-- **Out of scope**: desktop GUI Computer Use, training your own models, 24/7 unattended operation (timers and webhooks stop when the app is quit).
-
----
-
-## Repository layout
-
-```
-backend/                 Python backend (harness layers)
-electron/                Electron main process
-renderer/                React UI
-skills/                  User / workspace skills
-resources/example-skills Bundled skills (official docs, legal, officecli recipes, …)
-resources/bin/           Platform binaries from fetch:officecli (not committed)
-build/                   electron-builder config and app icon
-scripts/                 Dev, packaging, dependency fetch
-docs/                    Dev/deploy docs and README screenshots
-```
-
-Design notes: [落地方案.md](落地方案.md) · task plan: [开发计划.md](开发计划.md) (both Chinese).
-
----
-
-## Further docs
-
-- [开发指南](docs/开发指南.md) — local development, tests, skills / MCP / office assistants (Chinese)
-- [部署手册](docs/部署手册.md) — install, first-run setup, Lark tunnel, safety notes (Chinese)
-
----
+- [Development guide](docs/开发指南.md): local development, skills, MCP and assistants.
+- [Deployment guide](docs/部署手册.md): installation, dependencies, configuration and packaging. For remote channels, follow this README and the current settings UI.
+- [Deep Agents implementation](docs/DeepAgents实施说明.md): runtime, contracts, permissions and validation.
+- [Industry app development](docs/行业应用插件开发指南.md): packaging, SDK, tools, business AI and lifecycle.
+- [Skills](skills/README.md) · [Screenshot maintenance](docs/screenshots/README.md).
 
 ## License
 
-This repository is released under the [MIT License](LICENSE). Third-party skills bundled under `resources/example-skills/` keep the original license in each skill directory.
+This repository uses the [MIT License](LICENSE). Bundled third-party skills under `resources/example-skills/` retain the original licenses in their respective directories.

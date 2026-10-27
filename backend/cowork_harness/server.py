@@ -65,6 +65,7 @@ def create_app(service, token):
             raise HTTPException(404, "Unknown run")
         async def stream():
             cursor = after
+            heartbeat = asyncio.get_running_loop().time()
             while not await request.is_disconnected():
                 rows = service.store.events(run_id, cursor)
                 for event in rows:
@@ -72,6 +73,10 @@ def create_app(service, token):
                     yield f"id: {cursor}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
                     if event["type"] == "graph.end":
                         return
+                now = asyncio.get_running_loop().time()
+                if now - heartbeat >= 10:
+                    yield ': keepalive\n\n'
+                    heartbeat = now
                 await asyncio.sleep(0.1)
         return StreamingResponse(stream(), media_type="text/event-stream")
 

@@ -134,7 +134,7 @@ async def test_workforce_uses_official_delegate(tmp_path):
     service = RuntimeService(tmp_path, model_factory=lambda spec: child if spec['model'] == 'child' else parent)
     await service.start()
     try:
-        req = request(tmp_path).model_copy(update={'mode': 'workforce', 'models': {
+        req = request(tmp_path, confirm_plan=False).model_copy(update={'mode': 'workforce', 'models': {
             'supervisor': {'model': 'parent'}, 'developer_agent': {'model': 'child'}}})
         events = await finish(service, req)
         assert events[-1]['status'] == 'ok', events[-1]
@@ -419,7 +419,7 @@ async def test_default_runtime_finishes_more_than_50_model_calls(tmp_path, mode)
     service = RuntimeService(tmp_path, model_factory=lambda spec: child if spec['model'] == 'child' else parent, call_host=host)
     await service.start()
     try:
-        req = request(tmp_path).model_copy(update={'mode': mode, 'models': {
+        req = request(tmp_path, confirm_plan=False).model_copy(update={'mode': mode, 'models': {
             'supervisor': {'model': 'parent'}, 'browser_agent': {'model': 'child'}},
             'tools': [ToolSpec(name='lookup', description='核验材料', input_schema={'type': 'object', 'properties': {}})]})
         assert req.max_steps is None
@@ -515,7 +515,7 @@ async def test_parent_child_share_model_budget(tmp_path):
     service = RuntimeService(tmp_path, model_factory=lambda spec: child if spec['model'] == 'child' else parent)
     await service.start()
     try:
-        req = request(tmp_path, max_steps=2).model_copy(update={'mode': 'workforce', 'models': {
+        req = request(tmp_path, max_steps=2, confirm_plan=False).model_copy(update={'mode': 'workforce', 'models': {
             'supervisor': {'model': 'parent'}, 'developer_agent': {'model': 'child'}}})
         events = await finish(service, req)
         assert events[-1]['status'] == 'error'
@@ -629,7 +629,7 @@ async def test_child_tool_events_belong_to_delegate_instance(tmp_path):
     service = RuntimeService(tmp_path, model_factory=lambda spec: child if spec['model'] == 'child' else parent, call_host=host)
     await service.start()
     try:
-        req = request(tmp_path).model_copy(update={'mode': 'workforce', 'models': {
+        req = request(tmp_path, confirm_plan=False).model_copy(update={'mode': 'workforce', 'models': {
             'supervisor': {'model': 'parent'}, 'developer_agent': {'model': 'child'}},
             'tools': [ToolSpec(name='inspect', description='Inspect.', input_schema={'type': 'object', 'properties': {}},
                 roles=['developer_agent'], metadata={'app_id': 'cn.test', 'type': 'malicious-override'})]})

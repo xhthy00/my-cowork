@@ -8,6 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.callbacks.manager import AsyncCallbackManager, AsyncCallbackManagerForLLMRun, CallbackManager
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages.utils import count_tokens_approximately
 from pydantic import Field, PrivateAttr
 
 
@@ -53,7 +54,16 @@ class FallbackChatModel(BaseChatModel):
     ) -> None:
         if not models:
             raise ValueError("FallbackChatModel requires at least one model")
-        super().__init__(models=list(models), **kwargs)
+        resolved = [getattr(model, "bound", model) for model in models]
+        profile = {**(getattr(resolved[0], "profile", None) or {}), **(kwargs.pop('profile', None) or {})}
+        for key in ("max_input_tokens", "max_output_tokens"):
+            limits = [getattr(model, "profile", None) or {} for model in resolved]
+            values = [item[key] for item in limits if isinstance(item.get(key), int) and item[key] > 0]
+            if values:
+                profile[key] = min(values)
+        metadata = {**(getattr(resolved[0], "metadata", None) or {}), **(kwargs.pop('metadata', None) or {}),
+                    "cowork_context_limit": profile.get("max_input_tokens")}
+        super().__init__(models=list(models), profile=profile or None, metadata=metadata, **kwargs)
         self._on_fallback = on_fallback
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> "FallbackChatModel":
@@ -78,6 +88,7 @@ class FallbackChatModel(BaseChatModel):
     ) -> ChatResult:
         for idx, model in enumerate(self.models):
             try:
+                self._check_context(model, messages, kwargs)
                 message = model.invoke(messages, config=self._child_config(run_manager), stop=stop, **kwargs)
                 return ChatResult(generations=[ChatGeneration(message=message)])
             except Exception as exc:
@@ -93,11 +104,20 @@ class FallbackChatModel(BaseChatModel):
     ) -> ChatResult:
         for idx, model in enumerate(self.models):
             try:
+                self._check_context(model, messages, kwargs)
                 message = await model.ainvoke(messages, config=self._child_config(run_manager), stop=stop, **kwargs)
                 return ChatResult(generations=[ChatGeneration(message=message)])
             except Exception as exc:
                 self._advance(idx, exc)
         raise RuntimeError('Fallback chain is empty')
+
+    @staticmethod
+    def _check_context(model, messages, kwargs):
+        target = getattr(model, "bound", model)
+        capacity = (getattr(target, "profile", None) or {}).get("max_input_tokens")
+        tools = kwargs.get("tools") or (getattr(model, "kwargs", {}) or {}).get("tools")
+        if isinstance(capacity, int) and capacity > 0 and count_tokens_approximately(messages, tools=tools) > capacity * 0.9:
+            raise ValueError("当前上下文超过备用模型的可用窗口；请压缩上下文或选择更大窗口的模型")
 
     @staticmethod
     def _child_config(run_manager):

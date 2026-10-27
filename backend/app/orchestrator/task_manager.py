@@ -5,8 +5,6 @@ import contextvars
 import hashlib
 import json
 import os
-import re
-import shutil
 import time
 import uuid
 from dataclasses import dataclass, replace
@@ -103,11 +101,16 @@ class TaskManager:
         self.automation_store = automation_store
         self.app_skills = {}
         self._tasks, self._workers, self._requests, self._scope_refs = {}, {}, {}, {}
+        self._path_guards = {}
+        from app.skills.snapshots import SkillSnapshots
+        self._skill_snapshots = SkillSnapshots(self.data_dir / 'harness-skills')
         self._unsubscribe = self.bus.subscribe(self._on_host_event)
         if task_store and hasattr(task_store, 'interrupt_app_tasks'):
             task_store.interrupt_app_tasks()
 
-    def _set_status(self, task_id, status, *, source=None, text=None):
+    def _set_status(self, task_id, status, *, source=None, text=None, force=False):
+        if not force and self._tasks.get(task_id, {}).get('status') == status:
+            return
         req = self._requests.get(task_id)
         source = source if source is not None else (req.source if req else 'user')
         text = text if text is not None else (req.text if req else '')
@@ -152,9 +155,13 @@ class TaskManager:
                 if row['status'] == 'waiting_user':
                     raise ValueError('任务正在等待输入，请恢复原任务')
                 events = await self.runtime.history(task_id)
+                host_end = self.task_store.latest_event(task_id, 'graph.end') if self.task_store else None
+                if host_end and host_end.get('delivery_validation') == 'failed':
+                    events = [event for event in events if event['type'] != 'graph.end'] + [host_end]
                 self._requests[task_id] = replace(task_req, task_id=task_id)
                 self._tasks[task_id] = {'events': events, 'status': {
-                    'succeeded': 'DONE', 'cancelled': 'CANCELLED'}.get(row['status'], 'FAILED')}
+                    'succeeded': 'DONE', 'cancelled': 'CANCELLED'}.get(row['status'], 'FAILED')
+                    if not host_end or host_end.get('delivery_validation') != 'failed' else 'FAILED'}
                 self._workers[task_id] = asyncio.create_task(asyncio.sleep(0))
                 return task_id
         lease = self.admission.acquire(task_req.text[:60] or '聊天任务')
@@ -225,12 +232,14 @@ class TaskManager:
         frozen = get_workspace_resolver().freeze_task_directories(
             space_id=req.space_id or 'space-local', project_id=req.project_id or req.session_id or req.task_id,
             task_id=req.task_id, space_root_path=req.space_root_path, workdir_mode=req.workdir_mode)
-        guard = get_guard()
+        from app.sandbox.path_guard import task_path_guard
+        guard = get_guard().for_task()
         guard.add_whitelist(str(frozen.working_directory))
         guard.add_whitelist(str(frozen.task_output_root))
         if frozen.space_root:
             guard.add_whitelist(str(frozen.space_root))
         text = stage_attachments_for_task(req.text, frozen.working_directory, guard)
+        self._path_guards[req.task_id] = guard
         role = 'single_agent' if req.session_mode == 'single-agent' else 'coordinator'
         todo = TodoRuntime(task_id=req.task_id, bus=self.bus, agent_id=role, user_text=req.text,
             source=req.source, workspace=str(frozen.working_directory), project_id=req.project_id,
@@ -253,6 +262,7 @@ class TaskManager:
                     current_auto_approve_commands=lambda: bool(current() and current().auto_approve_commands))
                 stack.callback(reset_automation_policy, token)
             for setter, resetter, value in (
+                (task_path_guard.set, task_path_guard.reset, guard),
                 (app_task_scope.set, app_task_scope.reset, req.app_scope),
                 (set_remote_channel, reset_remote_channel, req.source in REMOTE_CHANNEL_SOURCES),
                 (set_enabled_mcp, reset_enabled_mcp, req.enabled_mcp),
@@ -277,7 +287,7 @@ class TaskManager:
             self._scope_refs[req.task_id] = ref
             specs = [ToolSpec(name=tool.name, description=tool.description,
                 input_schema=tool.args_schema if isinstance(tool.args_schema, dict) else tool.args_schema.model_json_schema(),
-                roles=[role for role, names in self.role_tools.items() if tool.name in names],
+                roles=[role for role, names in self.role_tools.items() if tool.name in names] or ['supervisor'],
                 metadata=dict(tool.metadata or {})) for tool in tools]
             assistant = get_assistant(req.assistant_id) if req.assistant_id else {}
             selected = req.enabled_skill_ids if req.enabled_skill_ids is not None else (assistant or {}).get('enabled_skills')
@@ -289,32 +299,7 @@ class TaskManager:
                 view = merge_skill_view(skill, cfg)
                 if not view['enabled']:
                     continue
-                revision = hashlib.sha256(json.dumps([skill.id, skill.prompt, skill.description or skill.name], ensure_ascii=False).encode())
-                items = sorted(skill.base_dir.rglob('*')) if skill.base_dir else []
-                if any(item.is_symlink() for item in items):
-                    raise ValueError(f'Skill contains links: {skill.id}')
-                for item in items:
-                    if item.is_file():
-                        revision.update(str(item.relative_to(skill.base_dir)).encode())
-                        with item.open('rb') as resource:
-                            for chunk in iter(lambda: resource.read(1024 * 1024), b''):
-                                revision.update(chunk)
-                slug = revision.hexdigest()[:16]
-                root = self.data_dir / 'harness-skills' / slug
-                skill_name = re.sub('[^a-z0-9-]+', '-', skill.id.lower()).strip('-')[:40] + '-' + slug[:6]
-                dest = root / skill_name
-                if skill.base_dir and skill.base_dir.is_dir() and not (dest / 'SKILL.md').exists():
-                    shutil.copytree(skill.base_dir, dest, dirs_exist_ok=True)
-                else:
-                    dest.mkdir(parents=True, exist_ok=True)
-                # Normalize legacy skill.yaml packages to the official SKILL.md format.
-                front = '---\nname: ' + json.dumps(skill_name, ensure_ascii=False) + '\ndescription: ' + json.dumps(skill.description or skill.name or skill.id, ensure_ascii=False) + '\n---\n'
-                entry = dest / 'SKILL.md'
-                content = front + skill.prompt
-                if not entry.exists() or entry.read_text(encoding='utf-8') != content:
-                    temporary = dest / ('.SKILL-' + uuid.uuid4().hex + '.tmp')
-                    temporary.write_text(content, encoding='utf-8')
-                    temporary.replace(entry)
+                slug, root, _ = await asyncio.to_thread(self._skill_snapshots.prepare, skill)
                 virtual = f'/skills/{slug}/'
                 routes[virtual] = str(root)
                 for role in ['supervisor', *self.role_tools]:
@@ -340,13 +325,15 @@ class TaskManager:
                 memory_paths = ['/memories/AGENTS.md']
             history = req.history or [{'role': m.type, 'content': m.content}
                 for m in load_thread(todo.session_id) if m.type in {'human', 'ai'} and not getattr(m, 'tool_calls', [])]
+            from app.runtime.task_policy import planning_required
             return RunRequest(task_id=req.task_id, session_id=todo.session_id, text=text,
                 mode=req.session_mode, scope_ref=ref, workspace=str(frozen.working_directory),
                 workspace_key=json.dumps([req.space_id, req.project_id, req.space_root_path]),
                 profile_revision=hashlib.sha256(json.dumps(assistant or {}, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                 models=self.models, tools=specs, instructions=instructions, skills=skills, skill_routes=routes,
                 history=history, memory_paths=memory_paths, file_access=req.app_scope is None,
-                confirm_plan=req.source not in REMOTE_CHANNEL_SOURCES, max_steps=self.max_steps,
+                confirm_plan=req.source not in REMOTE_CHANNEL_SOURCES and req.source != 'schedule',
+                planning_required=planning_required(text), max_steps=self.max_steps,
                 max_total_tokens=self.max_total_tokens, resume_execution=req.resume_execution)
 
     async def recover(self):
@@ -415,13 +402,20 @@ class TaskManager:
 
     def _record(self, task_id, event, publish=True):
         state = self._tasks[task_id]
-        if event.get('event_id') and any(row.get('event_id') == event['event_id'] for row in state['events']):
+        if 'event_ids' not in state:
+            state['event_ids'] = {row['event_id'] for row in state['events'] if row.get('event_id')}
+            state['ended'] = any(row['type'] == 'graph.end' for row in state['events'])
+        if event.get('event_id') in state['event_ids']:
             return
-        if event["type"] == "graph.end" and any(row["type"] == "graph.end" for row in state["events"]):
+        if event["type"] == "graph.end" and state['ended']:
             return
         if self.task_store:
             self.task_store.append_event(task_id, event)
         state['events'].append(event)
+        if event.get('event_id'):
+            state['event_ids'].add(event['event_id'])
+        if event['type'] == 'graph.end':
+            state['ended'] = True
         if publish:
             self.bus.emit(event)
         if event['type'] in {'tool.confirm_request', 'human.ask', 'to_sub_tasks'}:
@@ -447,6 +441,7 @@ class TaskManager:
             await self._fail(req.task_id, exc)
         finally:
             self.admission.release(lease)
+            self._path_guards.pop(req.task_id, None)
 
     async def _fail(self, task_id, exc):
         # Stop remote computation and host effects before reporting failure.
@@ -462,7 +457,7 @@ class TaskManager:
             self.bus.emit(event)
         state['status'] = 'FAILED'
         try:
-            self._set_status(task_id, 'FAILED')
+            self._set_status(task_id, 'FAILED', force=True)
         except Exception:
             pass
 
@@ -470,13 +465,21 @@ class TaskManager:
         from app.tools.builtin.fs import get_guard
         from app.workspace.artifacts import paths_in_answer, paths_in_write_result, verified_artifact
         from app.workspace.output_files import list_new_output_files
+        from app.workspace.validation import validate_deliverable, requested_formats
+        from app.graphs.routing import wants_file_document
         workspace = request.get('workspace', '')
         seen = {row.get('path') for row in self._tasks[req.task_id]['events'] if row['type'] == 'artifact.file'}
+        invalid = {}
 
-        def register(paths):
+        async def register(paths):
             for raw in paths:
-                path = verified_artifact(raw, workspace, get_guard(), req.app_scope)
+                path = verified_artifact(raw, workspace, self._path_guards.get(req.task_id) or get_guard(), req.app_scope)
                 if path and path not in seen:
+                    problem = await asyncio.to_thread(validate_deliverable, path)
+                    if problem:
+                        invalid[path] = problem
+                        continue
+                    invalid.pop(path, None)
                     self._record(req.task_id, {'type': 'artifact.file', 'task_id': req.task_id, 'path': path})
                     seen.add(path)
 
@@ -493,11 +496,27 @@ class TaskManager:
             if self._tasks[req.task_id].get('storage_error'):
                 raise OSError(self._tasks[req.task_id]['storage_error'])
             if event['type'] == 'tool.result' and event.get('tool') in {'fs_write', 'fs.write', 'docx_gen', 'pptx_gen', 'xlsx_gen', 'pdf_gen', 'app_write_report'}:
-                register(paths_in_write_result(event.get('result', '')))
+                await register(paths_in_write_result(event.get('result', '')))
             if event['type'] == 'graph.end' and event.get('status') == 'ok':
                 if started > 0:
-                    register(await asyncio.to_thread(list_new_output_files, workspace, min_mtime=started))
-                register(paths_in_answer(event.get('summary', '')))
+                    discovered = await asyncio.to_thread(list_new_output_files, workspace, min_mtime=started)
+                    await register(path for path in discovered if not Path(path).is_relative_to(Path(workspace) / 'attachments'))
+                await register(paths_in_answer(event.get('summary', '')))
+                for path in list(seen):
+                    problem = await asyncio.to_thread(validate_deliverable, path)
+                    if problem:
+                        seen.remove(path)
+                        invalid[path] = problem
+                formats = requested_formats(req.text)
+                delivered = {path for path in seen if not formats or Path(path).suffix.lower() in formats}
+                if (wants_file_document(req.text) or formats) and not delivered and not any(
+                    marker in event.get('summary', '') for marker in ('未获准', '尚未确认保存', '已取消', '无法生成', '无法保存', '未生成', '未保存')):
+                    detail = '；'.join(invalid.values()) or ('尚未验证到所需格式的交付文件' if formats else '尚未验证到实际交付文件')
+                    changes = {'status': 'error', 'error': detail, 'delivery_validation': 'failed',
+                               'summary': event.get('summary', '') + '\n\n文件交付验证未通过：' + detail}
+                    event = {**event, **changes, 'payload': {**event.get('payload', {}), **changes}}
+                    self._record(req.task_id, event)
+                    continue
                 from app.runtime.v2.session import append_run
                 from langchain_core.messages import HumanMessage, AIMessage
                 append_run(request.get('session_id') or req.session_id or req.task_id, [HumanMessage(content=req.text), AIMessage(content=event.get('summary', ''))])

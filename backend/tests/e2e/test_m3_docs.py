@@ -93,7 +93,10 @@ async def test_m3_pptx_via_chat_route(tmp_path: Path, monkeypatch: pytest.Monkey
     out = tmp_path / "via-chat.pptx"
     desk = str(out)
 
-    planner = FakeChatModel(responses=[make_ai(tool_calls=[{'id': 'delegate', 'name': 'task',
+    planner = FakeChatModel(responses=[
+        make_ai(tool_calls=[{'id': 'steps', 'name': 'write_todos', 'args': {'todos': [{'content': '制作并验证 PPT', 'status': 'in_progress'}]}}]),
+        make_ai(tool_calls=[{'id': 'approval', 'name': 'propose_plan', 'args': {'subtasks': [{'content': '制作并验证 PPT'}]}}]),
+        make_ai(tool_calls=[{'id': 'delegate', 'name': 'task',
         'args': {'subagent_type': 'document_agent', 'description': '生成 PPT《2026Q1》2 页'}}]), make_ai('PPT 已生成。')])
     document = FakeChatModel(
         responses=[

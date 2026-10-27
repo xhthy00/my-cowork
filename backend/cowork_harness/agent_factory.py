@@ -1,27 +1,33 @@
 """The sole upstream integration point. Never runs a custom agent/tool loop."""
 import contextvars
+import asyncio
 import json
-from typing import Any
+from typing import Any, Annotated
+from typing_extensions import NotRequired
 
 from deepagents import (create_deep_agent, HarnessProfile, GeneralPurposeSubagentProfile,
                         register_harness_profile)
 from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
 from deepagents.middleware.filesystem import FilesystemPermission
+from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import TodoListMiddleware, AgentMiddleware, hook_config
+from langchain.agents.middleware.types import AgentState, OmitFromInput
 from langchain_core.messages import ToolMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 from langgraph.prebuilt import ToolRuntime
-from langgraph.types import interrupt
+from langgraph.types import interrupt, Command
+from langgraph.errors import GraphInterrupt
 
 from runtime_contract import HumanQuestionField, HumanQuestionInput, RunRequest
+from runtime_contract.tool_results import RESULT_TAG
 from .models import planning_model, deepseek_history_model, planning_tool_choice
 from .deliverables import EnsureHtmlFile
 
 ROLES = {
-    "developer_agent": "实现代码、操作项目文件和执行经过授权的命令。",
-    "document_agent": "制作办公文档并验证产物。",
-    "browser_agent": "检索信息、浏览网页、操作浏览器。",
-    "multi_modal_agent": "分析图片、附件和多模态内容。",
+    "developer_agent": "负责代码实现、项目文件和命令执行。先检查现有实现，完成后运行与改动相关的检查。返回改动文件、验证结果和剩余问题。",
+    "document_agent": "负责报告、表格和演示文稿。遵循已加载技能，生成真实文件并检查文件结构与内容。返回绝对路径、关键内容和验证结果。",
+    "browser_agent": "负责检索、来源核实和网页操作。返回有来源链接的事实、已执行操作和未解决的问题，明确区分来源事实与推断。",
+    "multi_modal_agent": "负责图片、截图和附件解读。根据实际可见内容分析，不把文件路径当作已看到图片。返回观察依据、结论和无法确认的内容。",
 }
 
 
@@ -39,10 +45,37 @@ CLARIFICATION_INSTRUCTIONS = (
 _agent_instance = contextvars.ContextVar("agent_instance", default=None)
 
 
+class DelegationState(AgentState):
+    plan_approved: Annotated[NotRequired[bool], OmitFromInput]
+
+
+class DelegationApproval(AgentMiddleware):
+    state_schema = DelegationState
+
+    def __init__(self, enabled):
+        self.enabled = enabled
+
+    async def abefore_agent(self, state, runtime):
+        return {"plan_approved": False}
+
+    async def awrap_model_call(self, request, handler):
+        if self.enabled and not request.state.get("plan_approved"):
+            request = request.override(tools=[tool for tool in request.tools
+                if (tool.get("name") if isinstance(tool, dict) else tool.name) != "task"])
+        return await handler(request)
+
+    async def awrap_tool_call(self, request, handler):
+        if self.enabled and request.tool_call["name"] == "task" and not request.state.get("plan_approved"):
+            return ToolMessage(content="委派尚未执行。请先调用 propose_plan 并等待用户确认；收到确认后按编辑后的计划委派。",
+                               tool_call_id=request.tool_call["id"], status="error")
+        return await handler(request)
+
+
 class InitialPlan(AgentMiddleware):
     """Publish the root task's official todos before ordinary model actions."""
 
-    def __init__(self):
+    def __init__(self, required=True):
+        self.required = required
         self.attempts = 0
         self.choice = 'write_todos'
 
@@ -53,6 +86,8 @@ class InitialPlan(AgentMiddleware):
         return {'todos': []}
 
     async def awrap_model_call(self, request, handler):
+        if not self.required:
+            return await handler(request)
         if not request.state.get('todos'):
             self.attempts += 1
             if self.attempts > 3:
@@ -74,6 +109,8 @@ class InitialPlan(AgentMiddleware):
 
     @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state, runtime):
+        if not self.required:
+            return None
         if self.choice == 'write_todos' or state.get('todos'):
             return None
         calls = getattr(state['messages'][-1], 'tool_calls', [])
@@ -112,6 +149,16 @@ class ToolEvents(AgentMiddleware):
         token = _agent_instance.set(cid) if name == 'task' else None
         try:
             result = await handler(request)
+        except GraphInterrupt:
+            raise
+        except BaseException as exc:
+            self.emit({"type": "tool.result", "call_id": cid, "tool": name, "agent_id": agent_id,
+                       "result": str(exc), "status": "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"})
+            if name == 'task':
+                self.emit({"type": "agent.deactivate", "agent_id": cid})
+                self.emit({"type": "task_state", "sub_task_id": cid,
+                           "status": "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"})
+            raise
         finally:
             if token is not None:
                 _agent_instance.reset(token)
@@ -119,7 +166,8 @@ class ToolEvents(AgentMiddleware):
                    "result": getattr(result, "content", str(result))})
         if name == "task":
             self.emit({"type": "agent.deactivate", "agent_id": cid})
-            self.emit({"type": "task_state", "sub_task_id": cid, "status": "completed"})
+            self.emit({"type": "task_state", "sub_task_id": cid,
+                       "status": "failed" if getattr(result, 'status', None) == 'error' else "completed"})
         return result
 
 
@@ -128,14 +176,21 @@ def host_tool(spec, call_host):
         invocation_id = runtime.tool_call_id
         decision = await call_host("authorize", invocation_id, spec.name, kwargs)
         if decision["decision"] == "deny":
-            return "[ERROR] " + decision.get("error", "工具未获授权")
+            return ToolMessage(content="[ERROR] " + decision.get("error", "工具未获授权"),
+                               tool_call_id=invocation_id, status="error")
         ticket = decision.get("ticket")
         if decision["decision"] == "ask":
             answer = interrupt({"kind": "approval", "call_id": ticket,
                                 "tool": spec.name, "args": kwargs})
             if not answer.get("ok"):
-                return "[ERROR] Operation rejected by user"
+                return ToolMessage(content="[ERROR] Operation rejected by user", tool_call_id=invocation_id, status="error")
         result = await call_host("execute", invocation_id, spec.name, kwargs, ticket=ticket)
+        if isinstance(result, dict) and result.get(RESULT_TAG) == 1:
+            return ToolMessage(content=result["content"], tool_call_id=invocation_id,
+                               status="error" if result.get("is_error") else "success")
+        if (isinstance(result, dict) and result.get('error')) or (isinstance(result, str) and result.startswith('[ERROR]')):
+            return ToolMessage(content=result if isinstance(result, str) else json.dumps(result, ensure_ascii=False),
+                               tool_call_id=invocation_id, status="error")
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
 
     return StructuredTool.from_function(coroutine=invoke, name=spec.name,
@@ -158,12 +213,11 @@ def interaction_tools(confirm_plan=True):
                            "options": options or [], "fields": [field.model_dump() for field in fields or []]})
         return str(value["answer"])
 
-    async def propose_plan(subtasks: list[dict[str, Any]]) -> str:
+    async def propose_plan(subtasks: list[dict[str, Any]], runtime: ToolRuntime) -> Command:
         """Present a task plan for user confirmation before delegating work."""
-        if not confirm_plan:
-            return json.dumps(subtasks, ensure_ascii=False)
-        value = interrupt({"kind": "plan", "subtasks": subtasks})
-        return json.dumps(value["subtasks"], ensure_ascii=False)
+        value = interrupt({"kind": "plan", "subtasks": subtasks}) if confirm_plan else {"subtasks": subtasks}
+        return Command(update={"plan_approved": True, "messages": [ToolMessage(
+            content=json.dumps(value["subtasks"], ensure_ascii=False), tool_call_id=runtime.tool_call_id)]})
 
     return [StructuredTool.from_function(coroutine=ask_human, args_schema=HumanQuestionInput),
             StructuredTool.from_function(coroutine=propose_plan)]
@@ -207,10 +261,12 @@ def build_agent(request: RunRequest, saver, model_factory, call_host, emit):
                 "skills": request.skills.get(role, []), "permissions": permissions,
                 "middleware": [EnsureHtmlFile(next((spec.name for spec in request.tools
                     if spec.name in {'fs_write', 'fs.write'} and (not spec.roles or role in spec.roles)), None)),
-                    ReasoningHistory(), ToolEvents(emit, role)],
+                    ReasoningHistory(), ToolEvents(emit, role),
+                    *([MemoryMiddleware(backend=backend, sources=request.memory_paths)] if request.memory_paths else [])],
             })
     instructions = request.instructions + CLARIFICATION_INSTRUCTIONS + (
-        "\n每个新任务先调用 write_todos，列出与本次用户请求对应的真实步骤，第一步设为 in_progress，其余 pending。"
+        ("\n每个新任务先调用 write_todos，列出与本次用户请求对应的真实步骤，第一步设为 in_progress，其余 pending。" if request.planning_required
+         else "\n本次是简短问答，可直接回答，无需发布步骤；如果发现需要多步骤操作，再调用 write_todos。") +
         "必要的 ask_human 澄清可在规划前进行；只有工具返回用户答复后才算收到信息，工具报错或未执行时不能声称正在等待用户。"
         "简单问答可以只有一个步骤。不要把正文中的编号列表当作步骤发布；执行中用 write_todos 更新状态，完成时标记 completed。"
         "用宿主文件和命令工具执行真实写入。"
@@ -225,6 +281,7 @@ def build_agent(request: RunRequest, saver, model_factory, call_host, emit):
         system_prompt=instructions, backend=backend, permissions=permissions,
         skills=request.skills.get("supervisor", []), memory=request.memory_paths or None,
         subagents=subagents, checkpointer=saver,
-        middleware=[TodoListMiddleware(), InitialPlan(), EnsureHtmlFile(writer), ReasoningHistory(),
+        middleware=[TodoListMiddleware(), InitialPlan(request.planning_required), EnsureHtmlFile(writer), ReasoningHistory(),
+                    DelegationApproval(request.mode == "workforce" and request.confirm_plan),
                     ToolEvents(emit, 'coordinator' if request.mode == 'workforce' else 'single_agent')],
     )

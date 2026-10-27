@@ -175,7 +175,7 @@ async def test_delegated_agent_can_ask_the_same_form(tmp_path):
     service = RuntimeService(tmp_path, model_factory=lambda spec: child if spec['model'] == 'child' else parent)
     await service.start()
     try:
-        await service.submit(RunRequest(task_id='delegated', session_id='s', text='调研 FED',
+        await service.submit(RunRequest(task_id='delegated', session_id='s', text='调研 FED', confirm_plan=False,
             workspace=str(tmp_path), scope_ref='t', mode='workforce',
             models={'supervisor': {'model': 'parent'}, 'browser_agent': {'model': 'child'}}))
         await asyncio.wait_for(service.tasks['delegated'], 5)

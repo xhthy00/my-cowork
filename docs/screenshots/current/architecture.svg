@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800" role="img" aria-labelledby="title desc">
+  <title id="title">MyCowork desktop and agent runtime architecture</title>
+  <desc id="desc">The local desktop hosts React and Electron, a FastAPI product backend, a separate Deep Agents sidecar, host tools, trusted industry plugins, local data and optional local inference. The sidecar calls host tools through an authenticated broker. Configured cloud models, connectors and remote channels communicate with external services.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 8 4 0 8" fill="none" stroke="#56718b" stroke-width="1.5"/></marker>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; fill: #24384b; }
+      .title { font-size: 30px; font-weight: 700; }
+      .head { font-size: 21px; font-weight: 650; }
+      .body { font-size: 17px; }
+      .small { font-size: 14px; fill: #526b80; }
+      .box { fill: #fff; stroke: #b8d0e4; stroke-width: 1.5; }
+      .line { fill: none; stroke: #56718b; stroke-width: 1.6; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1280" height="800" fill="#f6fbff"/>
+  <text x="38" y="48" class="title">MyCowork</text>
+  <text x="242" y="47" class="body">Desktop, business apps and the agent runtime</text>
+  <text x="1238" y="47" text-anchor="end" class="small">Source 0.1.6 · 2026-10-27</text>
+  <rect x="24" y="88" width="1232" height="584" rx="20" fill="#eaf4fc" stroke="#a4c6e2" stroke-dasharray="7 5"/>
+  <text x="48" y="120" class="small">LOCAL COMPUTER · application controls, not an OS sandbox</text>
+  <rect x="50" y="154" width="320" height="148" rx="14" class="box"/>
+  <text x="72" y="187" class="head">React + Electron</text>
+  <text x="72" y="219" class="body">Tasks, projects and file previews</text>
+  <text x="72" y="246" class="body">IPC, credentials, child processes</text>
+  <text x="72" y="278" class="small">Desktop host owns backend lifecycle</text>
+  <rect x="460" y="154" width="350" height="148" rx="14" class="box"/>
+  <text x="482" y="187" class="head">FastAPI product backend</text>
+  <text x="482" y="219" class="body">Tasks, context, artifacts, schedules</text>
+  <text x="482" y="246" class="body">Permissions and business data</text>
+  <text x="482" y="278" class="small">Runtime client + versioned contract</text>
+  <rect x="900" y="154" width="330" height="148" rx="14" class="box"/>
+  <text x="922" y="187" class="head">Deep Agents sidecar</text>
+  <text x="922" y="219" class="body">Tool loop, subagents, compaction</text>
+  <text x="922" y="246" class="body">Checkpoints and interrupts</text>
+  <text x="922" y="278" class="small">Shared Python environment + lockfile</text>
+  <path d="M370 224H455" class="line"/>
+  <text x="415" y="205" text-anchor="middle" class="small">Host IPC /</text>
+  <text x="415" y="245" text-anchor="middle" class="small">HTTP + SSE</text>
+  <path d="M810 224H895" class="line"/>
+  <text x="855" y="205" text-anchor="middle" class="small">Local HTTP</text>
+  <text x="855" y="245" text-anchor="middle" class="small">+ SSE</text>
+  <rect x="460" y="378" width="350" height="108" rx="14" class="box"/>
+  <text x="482" y="412" class="head">Host capability broker</text>
+  <text x="482" y="441" class="body">Task scopes, approvals, call tickets</text>
+  <text x="482" y="469" class="small">Authenticated callbacks · side-effect dedup</text>
+  <path d="M635 302V373" class="line"/>
+  <text x="650" y="332" class="small">Register allowed tools</text>
+  <path d="M965 302V349H785V373" class="line"/>
+  <text x="1010" y="344" class="small">Tool callbacks</text>
+  <rect x="50" y="378" width="320" height="108" rx="14" class="box"/>
+  <text x="72" y="412" class="head">Host tools</text>
+  <text x="72" y="441" class="body">Files, commands, OfficeCLI</text>
+  <text x="72" y="469" class="body">Browser, MCP, business tools</text>
+  <path d="M460 432H375" class="line"/>
+  <rect x="50" y="538" width="320" height="100" rx="14" class="box"/>
+  <text x="72" y="570" class="head">Industry apps</text>
+  <text x="72" y="598" class="body">Static UI + trusted Python plugins</text>
+  <text x="72" y="623" class="small">Python shares the product backend process</text>
+  <path d="M210 538V491" class="line"/>
+  <rect x="460" y="538" width="350" height="100" rx="14" class="box"/>
+  <text x="482" y="570" class="head">Local persistence</text>
+  <text x="482" y="598" class="body">Sessions, memory, runs, checkpoints</text>
+  <text x="482" y="623" class="small">SQLite, workspace files, app recovery points</text>
+  <path d="M635 486V533" class="line"/>
+  <rect x="900" y="538" width="330" height="100" rx="14" class="box"/>
+  <text x="922" y="570" class="head">Optional local inference</text>
+  <text x="922" y="598" class="body">Ollama / LM Studio / vLLM</text>
+  <text x="922" y="623" class="small">A separately running model service</text>
+  <path d="M1155 302V533" class="line"/>
+  <text x="1126" y="422" text-anchor="end" class="small">Model adapter</text>
+  <rect x="50" y="717" width="1180" height="61" rx="14" fill="#fff5e7" stroke="#d9ba89"/>
+  <text x="72" y="744" class="head">External services, when configured</text>
+  <text x="72" y="767" class="small">Cloud model APIs · MCP services · Feishu / WeChat · knowledge services — relevant content leaves the computer</text>
+  <path d="M1230 270H1241V697H1195V712" class="line"/>
+</svg>

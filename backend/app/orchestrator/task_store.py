@@ -32,6 +32,7 @@ class TaskStore:
             self._conn.execute('ALTER TABLE tasks ADD COLUMN origin TEXT')
         self._conn.execute('CREATE TABLE IF NOT EXISTS task_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, event TEXT NOT NULL)')
         self._conn.execute('CREATE INDEX IF NOT EXISTS task_events_owner ON task_events(task_id, seq)')
+        self._conn.execute("CREATE INDEX IF NOT EXISTS task_events_identity ON task_events(task_id, json_extract(event, '$.event_id'))")
         self._conn.execute('CREATE TABLE IF NOT EXISTS app_files (id TEXT PRIMARY KEY, app_id TEXT NOT NULL, path TEXT NOT NULL, task_id TEXT)')
         self._conn.commit()
 

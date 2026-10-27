@@ -18,7 +18,8 @@ from urllib.parse import urljoin
 
 import httpx
 from langchain_core.tools import StructuredTool
-from pydantic import Field, create_model
+from jsonschema.validators import validator_for
+from runtime_contract.tool_results import mcp_result
 
 from app.tools.registry import ToolRegistry
 
@@ -607,15 +608,11 @@ class McpManager:
         description = str(tool.get("description") or tool_name)
         schema = tool.get("inputSchema") or {"type": "object", "properties": {}}
 
-        props = schema.get("properties") or {}
-        fields: dict[str, Any] = {}
-        for key, prop in props.items():
-            fields[key] = (Any, Field(default=None, description=str(prop.get("description", ""))))
-        if not fields:
-            fields["payload"] = (Any, Field(default=None, description="Raw tool input"))
-        ArgsModel = create_model(f"Mcp{server}_{tool_name}_Args", **fields)  # type: ignore[call-overload]
+        validator_type = validator_for(schema)
+        validator_type.check_schema(schema)
+        validator = validator_type(schema)
 
-        def _invoke(**kwargs: Any) -> str:
+        def _invoke(**kwargs: Any):
             allowed = get_enabled_mcp()
             if allowed is not None and mcp_name_token(server) not in {
                 mcp_name_token(s) for s in allowed
@@ -623,30 +620,17 @@ class McpManager:
                 return (
                     f"[ERROR] MCP server {server!r} is not enabled for this message."
                 )
-            args = {k: v for k, v in kwargs.items() if v is not None}
-            if "payload" in args and not props:
-                value = args.pop("payload")
-                if isinstance(value, str):
-                    try:
-                        args = json.loads(value)
-                    except json.JSONDecodeError:
-                        args = {"text": value}
+            validator.validate(kwargs)
             result = session.rpc(
                 "tools/call",
-                {"name": tool_name, "arguments": args},
+                {"name": tool_name, "arguments": kwargs},
             )
-            content = result.get("content") or []
-            texts = [
-                str(part.get("text", ""))
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            ]
-            return "\n".join(texts) if texts else json.dumps(result)
+            return mcp_result(result)
 
         return StructuredTool.from_function(
             func=_invoke,
             name=f"mcp_{server}_{tool_name}",
             description=description,
-            args_schema=ArgsModel,
+            args_schema=schema,
             metadata={"mcp_server": server},
         )

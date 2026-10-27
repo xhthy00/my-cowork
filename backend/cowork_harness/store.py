@@ -24,6 +24,7 @@ class RunStore:
               session_id TEXT NOT NULL, profile TEXT NOT NULL, thread_id TEXT NOT NULL,
               PRIMARY KEY (session_id, profile));
         """)
+        self.db.execute("CREATE INDEX IF NOT EXISTS event_calls ON events(run_id, json_extract(payload, '$.type'), json_extract(payload, '$.call_id'))")
         # An in-flight model/tool cannot safely be replayed after a crash.
         for row in self.db.execute("SELECT id, thread_id FROM runs WHERE status IN ('running', 'queued')").fetchall():
             self.event(row["id"], {"type": "graph.end", "status": "error",
@@ -81,6 +82,10 @@ class RunStore:
     def events(self, run_id: str, after: int = 0) -> list[dict]:
         return [json.loads(row[0]) for row in self.db.execute(
             "SELECT payload FROM events WHERE run_id=? AND seq>? ORDER BY seq", (run_id, after))]
+
+    def has_tool_start(self, run_id, call_id):
+        return self.db.execute("SELECT 1 FROM events WHERE run_id=? AND json_extract(payload, '$.type')='tool.start' AND json_extract(payload, '$.call_id')=? LIMIT 1",
+                               (run_id, call_id)).fetchone() is not None
 
     def close(self):
         self.db.close()

@@ -387,13 +387,15 @@ def build_stack(
         web_search_tool, web_fetch_tool, *ima_tools, *browser_tools,
         *registry.list_by_prefix('mcp.'), *industry_tools,
     ]
-    all_names = {tool.name for tool in single_agent_tools}
-    write_names = {'bash', 'fs_write', 'docx_gen', 'pptx_gen', 'xlsx_gen', 'pdf_gen', 'gongwen_format'}
+    office_names = {'docx_gen', 'pptx_gen', 'xlsx_gen', 'pdf_gen', 'gongwen_format'}
+    common_names = {tool.name for tool in [*memory_tools, *context_tools, *note_tools,
+        fs_read, write_tool, fs_list, web_search_tool, web_fetch_tool, *ima_tools, *make_app_file_tools()]}
+    connected_names = {tool.name for tool in [*registry.list_by_prefix('mcp.'), *industry_tools]}
     role_tools = {
-        'developer_agent': all_names - {tool.name for tool in browser_tools},
-        'document_agent': all_names - {tool.name for tool in browser_tools},
-        'browser_agent': all_names - write_names,
-        'multi_modal_agent': all_names - write_names - {tool.name for tool in browser_tools},
+        'developer_agent': common_names | connected_names | {'bash'},
+        'document_agent': common_names | connected_names | office_names | {'bash'},
+        'browser_agent': common_names - {'fs_write'} | connected_names | {tool.name for tool in browser_tools},
+        'multi_modal_agent': common_names - {'fs_write'} | connected_names,
     }
     overrides = {'supervisor': supervisor_llm,
         'developer_agent': developer_agent_llm or file_worker_llm,

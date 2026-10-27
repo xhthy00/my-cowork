@@ -138,11 +138,34 @@ class RuntimeClient:
                         return
                 await asyncio.sleep(0.01)
         else:
-            async with self.http.stream("GET", f"/v1/runs/{run_id}/events", params={"after": after}) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        yield json.loads(line[6:])
+            attempts = 0
+            while True:
+                try:
+                    async with self.http.stream("GET", f"/v1/runs/{run_id}/events", params={"after": after},
+                                                timeout=httpx.Timeout(None, read=30)) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            event = json.loads(line[6:])
+                            if event['seq'] <= after:
+                                continue
+                            after = event['seq']
+                            attempts = 0
+                            yield event
+                            if event['type'] == 'graph.end':
+                                return
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code < 500:
+                        raise
+                except httpx.TransportError:
+                    pass
+                attempts += 1
+                if self.process and self.process.returncode is not None:
+                    raise RuntimeError('Harness 执行进程已退出')
+                if attempts > 5:
+                    raise RuntimeError('Harness 事件流重连失败，已保留最后接收位置')
+                await asyncio.sleep(min(0.1 * 2 ** (attempts - 1), 2))
 
     async def resume(self, run_id, interrupt_id, value):
         if self.embedded_service:

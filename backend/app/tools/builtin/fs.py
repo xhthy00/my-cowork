@@ -4,7 +4,7 @@ import uuid
 from langchain_core.tools import BaseTool, tool
 
 from app.guardrails.approval import ConfirmHub
-from app.sandbox.path_guard import PathGuard, PathGuardError, _DEFAULT_GUARD, resolve_tool_path, resolve_write_path
+from app.sandbox.path_guard import PathGuard, PathGuardError, _DEFAULT_GUARD, resolve_tool_path, resolve_write_path, task_path_guard
 from app.workspace.overlay import maybe_record_write
 
 # By default fs tools share the global legacy guard so that callers using
@@ -21,7 +21,7 @@ def set_guard(guard: PathGuard) -> None:
 
 def get_guard() -> PathGuard:
     """Return the currently active ``PathGuard`` instance."""
-    return _guard
+    return task_path_guard.get() or _guard
 
 
 def _prepare_write(path: str) -> Path:

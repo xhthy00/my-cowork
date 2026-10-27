@@ -10,6 +10,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from runtime_contract import ToolInvocation
+from jsonschema import ValidationError
+from jsonschema.validators import validator_for
 from app.guardrails.approval import _automation_policy, _automation_allows, is_remote_channel
 
 runtime_confirmed = contextvars.ContextVar("runtime_confirmed", default=False)
@@ -80,6 +82,13 @@ class CapabilityBroker:
 
     async def authorize(self, body):
         scope = self.scope(body)
+        tool = scope["tools"][body.tool]
+        if (tool.metadata or {}).get("mcp_server"):
+            schema = tool.args_schema
+            try:
+                validator_for(schema)(schema).validate(body.args)
+            except ValidationError as exc:
+                return {"decision": "deny", "error": "工具参数无效：" + exc.message}
         row = self.db.execute("SELECT * FROM invocations WHERE scope=? AND id=?",
                               (body.scope_ref, body.invocation_id)).fetchone()
         fingerprint = self.fingerprint(body)

@@ -1,292 +1,220 @@
 <p align="center">
-
-<img src="./docs/screenshots/app-icon.png" width="96" alt="MyCowork" />
-
+  <img src="./renderer/src/assets/brand/app-logo.png" width="96" alt="MyCowork" />
 </p>
 
 <h1 align="center">MyCowork</h1>
 
 <p align="center">
-  <strong>本机办公数字员工</strong> · 对话即交付 Word / Excel / PPT / 公文<br />
-  单机胖客户端 · 本地优先 · 自带密钥 · 单智能体 / 多智能体
+  <strong>本机办公数字员工，也能进入你的业务工作台</strong><br />
+  文件交付 · 单 / 多智能体 · 技能与连接器 · 自动化 · 行业应用
 </p>
 
-<p align="center">
-  Electron · React · FastAPI · LangGraph · OfficeCLI
-</p>
+<p align="center">Electron · React · FastAPI · Deep Agents · OfficeCLI</p>
+<p align="center"><strong>中文</strong> · <a href="./README.en.md">English</a></p>
 
-<p align="center">
-  <strong>中文</strong> · <a href="./README.en.md">English</a>
-</p>
+MyCowork 是面向 macOS 和 Windows 的桌面办公 Agent。描述任务、选择工作空间，助手可以使用本机文件和工具，生成 Word、Excel、PPT、PDF、Markdown 等交付物，并在同一窗口中查看结果。通过行业工作台，还可以把业务页面、数据和 AI 工具装进同一个桌面应用。
 
-MyCowork 是跑在你自己电脑上的办公 Agent：描述任务，助手直接读写本机工作区、生成可打开的文档，并在同一窗口里预览。对标 Claude Cowork / WorkBuddy 一类「数字员工」，但模型、文件和密钥都留在本机，各成员独立部署、互不共享。
+任务执行与数据存储以本机为中心；模型可接云服务或本地推理服务。**使用云模型时，任务中交给模型的内容会发送到所配置的服务端**，并非所有内容都留在本机。
 
----
+本文按 **0.1.6 当前源码**整理（2026-10-27）。截图使用真实界面组件与隔离示例数据；示例会话、自动化记录和模型配置不代表实际执行或连接结果。截图维护方式见 [截图说明](docs/screenshots/README.md)。
 
-## 界面一览
+## 界面与主要功能
 
-单智能体主页：一只牛同事，适合直接交代一件事。
+从「新建任务」选择模型和工作空间开始，侧栏集中管理项目、任务、助理、自动化和工作台。
 
-![单智能体主页](./docs/screenshots/home-single-agent.png)
+![当前版本首页](docs/screenshots/current/home.jpg)
 
-多智能体主页：一整个牛团队，适合拆解、并行、多格式一起交付。
+| 能力 | 当前支持 |
+| --- | --- |
+| 任务与项目 | 工作空间、项目与会话管理，历史记录、任务步骤、运行详情、交付文件和预览 |
+| 单 / 多智能体 | 单智能体直接处理任务；多智能体通过 Deep Agents 子代理委派文档、浏览、开发等工作，复杂任务可先确认计划 |
+| 办公助理 | 10 位场景助理，覆盖文档、演示、表格、公文、财务建模、法务和跨格式协作 |
+| 技能与记忆 | 本机技能、内置技能、技能商店、智能体访问范围；技能按需加载，长期记忆可管理 |
+| 连接器与浏览器 | MCP 工具连接、浏览器页面读取与操作、文件上传和截图 |
+| 自动化 | 可视化创建计划、立即运行、暂停、查看运行记录、配置权限和处理恢复审核 |
+| 行业工作台 | 安装带独立页面、Python 业务后端、Agent 工具和随包技能的 ZIP 应用 |
+| 远程连接 | 飞书官方长连接、微信 ClawBot 扫码接入；Telegram 和钉钉目前标为「即将推出」 |
 
-![多智能体主页](./docs/screenshots/home-multi-agent.png)
+### 对话、交付和预览
 
-工作区：对话、任务列表、交付文件卡片和右侧文档预览同一屏完成。
+任务结果可以保存为工作空间中的真实文件。文件卡片、运行详情与预览面板帮助你检查交付结果，并继续修改。下图以 Markdown 周报展示对话与预览布局。
 
-![工作区对话与文档预览](./docs/screenshots/workspace.png)
+![对话与交付文件预览](docs/screenshots/current/workspace.jpg)
 
----
+办公文档优先使用捆绑的 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) 生成和预览；仓库也包含 `python-docx`、`python-pptx`、`openpyxl` 等文档工具。具体格式和预览效果取决于所用工具及运行环境。
 
-## 它能做什么
+多智能体模式从同一输入框切换。底层使用官方 `create_deep_agent()` 与子代理机制，产品层提供计划确认、权限审批、任务状态和产物登记。
 
-- **本机落盘**：产物写到你的工作区（默认如 `~/Documents/AIS`），不是云端草稿。过程发现记在笔记里；侧栏只展示写文件工具和终稿路径，不碰工作区外的东西。
-- **两种执行模式**
-  - **单智能体**：一个 ReAct Agent 走完全程，轻量、适合单一文档或问答。
-  - **多智能体（Workforce）**：Planner 拆任务 → 你确认子任务 → Coordinator 按依赖并行委派文档 / 浏览 / 开发工人，失败可重规划。
-- **办公助手目录**：按场景预加载 Skill，一键开始写周报、公文、表单、仪表盘、财务模型或合同审查。
-- **Skills + SkillHub**：本机技能可开关、可授权给指定智能体；也可从 SkillHub 浏览、安装套件。
-- **自带模型面板**：Anthropic / OpenAI / OpenRouter / DeepSeek / 通义 / Moonshot / MiniMax，以及 Ollama、LM Studio、vLLM 本地模型。Key 存在系统钥匙串，校验通过才保存。
-- **连接器与浏览器**：MCP 连接日常工具；内置 Playwright 浏览器支持打开、读取、点击、输入、选择、上传、等待和截图。安装包自带 Chromium；从源码开发时运行 `backend/.venv/bin/python -m playwright install chromium`。
-- **记忆、定时、调度**：长期记忆写入本机 SQLite；带 `schedule` 的 Skill 由本机 APScheduler 触发（应用保持运行才会执行）。
-- **可选远程入口**：飞书机器人经 Cloudflare Tunnel 把本机 `/webhook/lark` 暴露为 HTTPS（关机则不可达）。
+<details>
+<summary>查看多智能体入口</summary>
 
-### 办公助手
+![多智能体模式入口](docs/screenshots/current/team.jpg)
 
-![文档类办公助手](./docs/screenshots/assistants-docs.png)
+</details>
 
-| 分类 | 助手 | 典型产出 |
+### 办公助理、技能与连接器
+
+「助理 · 技能 · 连接器」集中提供场景助理、技能开关、技能商店、记忆和 MCP 连接器。选择助理可以带入对应技能和建议提问。
+
+![当前办公助理目录](docs/screenshots/current/assistants.jpg)
+
+| 分类 | 助理 | 典型用途 |
 | --- | --- | --- |
-| 演示文稿 | PPT 演示助手、路演 PPT 助手 | `.pptx` 汇报 / 融资 deck |
-| 文档 | Word 文档助手、公文写作助手、Word 表单助手 | 周报、请示/通知、可填写表单 |
-| 表格 | Excel 表格助手、数据仪表盘助手、财务建模助手 | 台账、KPI 看板、三表模型 |
-| 法务 | 中国法务顾问 | 合同审查 / 起草（含大陆法规知识库） |
-| 通用 | 办公协作助手 | 同一任务在 PPT / Word / Excel 间切换 |
+| 演示文稿 | PPT 演示、路演 PPT | 业务汇报、培训、融资路演 |
+| 文档 | Word 文档、公文写作、Word 表单 | 周报方案、公文草稿、填写表单 |
+| 表格 | Excel 表格、数据仪表盘、财务建模 | 台账、KPI 看板、预测模型 |
+| 法务 | 中国法务顾问 | 合同审查、起草、风险与依据整理 |
+| 通用 | 办公协作 | 同一任务组合交付 PPT、Word、Excel |
 
-公文写作按机关常用稿面（标题、正文字体、行距等）排版，套红发文对照 GB/T 9704-2012。法务与公文均为**辅助撰写 / 质检**，不构成正式发文或法律意见。
+公文和法务助理用于辅助撰写、检查与分析；正式发文、合同与重大事项需要人工复核。
 
-![表格类办公助手](./docs/screenshots/assistants-tables.png)
+<details>
+<summary>查看内置技能管理</summary>
 
-![法务与通用办公助手](./docs/screenshots/assistants-legal.png)
+![内置技能及访问权限](docs/screenshots/current/skills.jpg)
 
-文档生成优先走捆绑的 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) 二进制（`officecli`），本机预览同样走 OfficeCLI watch；不可用时再降级到内置 `docx_gen` / `xlsx_gen` / `pptx_gen` 和简易预览。
+</details>
 
-### 技能与模型
+### 行业工作台
 
-本机技能可开关，SkillHub 按办公效率、内容创作、开发、数据、设计、知识管理等分类推荐套件。
+在侧栏「工作台」安装 ZIP，即可使用带业务页面的行业应用。宿主检查包结构、兼容版本和文件校验值；安装或更新会等待当前工作结束，保存数据恢复点并重新加载应用。
 
-![技能与 SkillHub](./docs/screenshots/skills.png)
+![行业工作台应用列表](docs/screenshots/current/workbench.jpg)
 
-模型页支持云厂商与本地推理；OpenRouter / Ollama 等在注入后端时归一为 OpenAI 兼容协议。
+应用可以贡献业务工具和技能。页面通过受控桥接传递选中业务内容、发起 AI 任务、查看记录与交付文件，并按结果返回业务页面。仓库内的任务管理样例演示了风险分析、周报生成和子任务拆分入口。
 
-![模型配置](./docs/screenshots/models.png)
+![任务管理样例业务页面](docs/screenshots/current/industry.jpg)
 
----
+当前插件是 **Python 后端 + 静态 Web 页面**。Python 插件在宿主后端进程中运行，安装器不会为其创建独立虚拟环境或执行 `pip` / `npm`。页面桥接限制不等于 Python 代码隔离，因此应安装来源可信的应用。
 
-## 架构
+开发入口：[行业应用插件开发指南](docs/行业应用插件开发指南.md) · [任务管理样例](examples/taskboard/README.md)。
 
-单机胖客户端：Electron 启动时拉起本机 Python（FastAPI），渲染进程用 localhost HTTP + SSE 对话和看 Trace。工具调用都在本机进程内完成，没有「远端再回调本机」的 WebSocket。
+### 自动化
 
-```
-┌────────────────────────── 用户本机 ──────────────────────────┐
-│  Electron 渲染进程 (React)                                   │
-│   对话 / 工作区 / 助手 / Skills / 模型 / 确认弹窗              │
-│                         │ HTTP + SSE                         │
-│  Electron 主进程 (Node)                                      │
-│   spawn 后端 · Keychain · PDF printToPDF · 文件对话框          │
-│                         │ localhost                          │
-│  Python (FastAPI + LangGraph)                                │
-│   编排 → Runtime Client → Deep Agents（单代理 / 子代理）    │
-│   SQLite + sqlite-vec · APScheduler · 飞书 webhook            │
-└──────────────────────────────────────────────────────────────┘
-         可选：Cloudflare Tunnel → 飞书事件订阅
-```
+在侧栏「自动化」配置任务内容、计划、工作空间与允许使用的工具，查看每次运行的结果和状态。支持立即执行、暂停、完成通知以及中断后的恢复审核。
 
-Agent 执行由独立 `cowork_harness` 模块和 sidecar 进程承接，与后端共享 Python 环境、`backend/pyproject.toml` 和 `backend/uv.lock`。官方 `create_deep_agent()` 负责工具循环、子代理、压缩和 checkpoint；产品后端保留授权、工具、任务入口、业务数据和产物登记。
+![自动化任务列表](docs/screenshots/current/automations.jpg)
 
-| 模块 | 职责 |
-| --- | --- |
-| `backend/cowork_harness/` | 官方 Deep Agents 工厂、持久中断、事件、预算和运行生命周期 |
-| `backend/runtime_contract/` | 独立的版本化 JSON 协议与共享构建标识 |
-| `backend/app/runtime_client/` | 使用同一解释器启动 sidecar，检查版本和锁文件摘要 |
-| `backend/app/host_capabilities/` | 宿主工具回调、权限范围、审批票据和副作用去重 |
-| `backend/app/orchestrator/` | 产品任务状态、渠道、行业应用、上下文及产物 |
-| `backend/model_integrations/` | 宿主模型设置和 harness 共享的模型适配 |
+计划由本机执行，需要电脑保持唤醒且后端运行。重新启动后会对错过的计划补执行一次；涉及不确定副作用的恢复可能需要人工审核。应用内可打开「保持唤醒」。
 
-`import-linter` 在测试中验证独立模块的依赖边界。上游更新通过统一依赖锁、完整后端/前端回归和各平台冻结检查后进入正常项目发布流程；没有独立 harness 环境或运行中 `pip install -U`。
+### 模型与远程连接
 
-实施和首次启用说明：[Deep Agents 实施说明](docs/DeepAgents实施说明.md)。
+模型设置位于左下角 **设置 → 模型**。支持 Anthropic、OpenAI、OpenRouter、DeepSeek、通义千问、Moonshot、MiniMax、自定义兼容服务，以及 Ollama、LM Studio、vLLM 等本地服务。填写服务地址、模型 ID 和所需密钥，验证通过后保存。
 
-密钥不写进 `config.toml`：Electron 用系统钥匙串（macOS Keychain / Windows Credential Manager）保管，启动 Python 时注入环境变量。
+![模型设置](docs/screenshots/current/models.jpg)
 
----
+**设置 → 远程连接**提供飞书和微信入口。飞书使用官方长连接，微信通过 ClawBot 扫码登录，这两种入口无需配置公网 URL 或 Cloudflare Tunnel。电脑休眠或退出应用后，远程任务不能持续执行。
 
-## 技术栈
-
-| 部分 | 选型 |
-| --- | --- |
-| 桌面壳 | Electron 35、electron-builder（dmg / NSIS） |
-| UI | React 19、Vite、TypeScript、Tailwind、Radix、Zustand |
-| 后端 | Python 3.11、FastAPI、Uvicorn、uv |
-| Agent | Python Deep Agents、官方 LangGraph checkpoint / subagents、LangChain 模型适配 |
-| 办公文档 | OfficeCLI + python-docx / python-pptx / openpyxl |
-| 数据 | SQLite、sqlite-vec |
-| 远程 | lark-oapi、Cloudflare Tunnel（可选） |
-
----
+![远程连接及渠道状态](docs/screenshots/current/channels.jpg)
 
 ## 快速开始
 
-### 环境
+### 安装使用
 
-- Node.js 20+
-- Python 3.11+ 与 [uv](https://docs.astral.sh/uv/)
-- macOS 或 Windows
+从 [GitHub Releases](https://github.com/xhthy00/my-cowork/releases) 获取对应平台安装包：macOS 为 `.dmg`，Windows 为 NSIS `.exe`。
 
-### 开发模式
+1. 打开应用，在 **设置 → 模型** 配置服务；使用本地模型时，先启动相应推理服务。
+2. 在「新建任务」选择工作空间与模型，或从办公助理开始。
+3. 输入任务；出现权限请求时核对操作、路径和命令，然后查看交付文件。
+
+可用以下任务检查文件交付：
+
+> 在当前工作空间创建 hello.md，写入一段欢迎文字，完成后提供文件预览。
+
+### 从源码运行
+
+建议环境：**Node.js 22 LTS、Python 3.11 或 3.12、[uv](https://docs.astral.sh/uv/)**，以及 macOS 或 Windows。以下命令在仓库根目录执行：
 
 ```bash
-cd backend && uv sync
-cd .. && npm install
+uv sync --project backend --locked --extra dev
+npm ci
 
-# 如需办公文档高保真生成 / 预览
+# 下载办公文档工具（Windows 请在 Git Bash 中执行）
 npm run fetch:officecli
+
+# 源码开发首次使用内置浏览器时安装 Chromium
+uv run --project backend python -m playwright install chromium
 
 npm run dev
 ```
 
-`npm run dev` 会同时拉起 Vite（`127.0.0.1:5174`）、TypeScript watch 和 Electron。
+`npm run dev` 启动 Vite（默认 `127.0.0.1:5174`），编译 Electron 并启动桌面应用。**Electron 管理 Python 后端和 Agent sidecar 的启动与退出**，正常开发流程无需另外手动运行 Uvicorn。`fetch:officecli` 需要 Bash；Windows 可安装 Git for Windows 并在 Git Bash 中执行。安装使用说明见 [部署手册](docs/部署手册.md)。
 
-分开跑也可以：
-
-```bash
-npm run dev:renderer
-cd backend && uv run uvicorn app.main:app --port 8765
-npm run dev:electron
-```
-
-首次使用：打开 **智能体 → 模型**，选厂商、填 API Key 与模型 ID，点保存（校验通过才会写入）。标题栏显示后端已连接后即可对话。
-
-烟雾测试：
-
-> 在桌面写 hello.txt，内容 hi
-
-允许写盘确认后，桌面应出现该文件。
-
-### 测试
+### 检查与打包
 
 ```bash
-cd backend && PYTHONPATH=. uv run pytest -q
-cd backend && PYTHONPATH=. uv run lint-imports
+# 后端测试与依赖边界检查
+cd backend
+uv run --locked --extra dev pytest -q
+uv run --locked --extra dev lint-imports
+cd ..
+
+# 前端 / Electron 单元测试；E2E 命令内含构建
 npm test
-npm run test:e2e    # 需先 npm run build
+npm run test:e2e
+
+# 预览云端打包或版本发布计划，不执行推送
+npm run package:ci -- --dry-run
+npm run release -- --dry-run
 ```
 
-### 安装包
+云端构建配置位于 [build.yml](.github/workflows/build.yml)。本地 Windows 可用 `npm run package:win`，全量构建使用 `npm run package:win:full`；macOS 可用 `npm run build:python:mac` 后执行 `bash scripts/build-electron.sh --mac`。实际发布要求工作区干净并具有 Git 推送权限；`package:ci` 还需要已登录的 GitHub CLI。命令会执行推送或发布，先用 `--dry-run` 检查计划。
 
-发布产物见 GitHub Actions（`.github/workflows/build.yml`）：
-
-- macOS：`MyCowork-*.dmg`
-- Windows：`MyCowork Setup *.exe`（NSIS，未签名时 SmartScreen 可能提示）
-
-云端打包走 GitHub Actions（`.github/workflows/build.yml`），**不替代**本地 `package:win`：
+行业应用开发可从脚手架开始：
 
 ```bash
-npm run package:ci              # 推当前分支，云端打包并发布 GitHub Release（用 package.json 版本）
-npm run package:ci -- --watch   # 同上，并等待跑完
-npm run package:ci -- --dry-run # 只预览，不推送
+npm run app -- init /path/to/my-app --id cn.example.myapp --name 我的业务应用
+npm --prefix /path/to/my-app/frontend install
+npm run app -- dev /path/to/my-app
+npm run app -- pack /path/to/my-app -o /path/to/my-app.zip
 ```
 
-安装包在对应 run 的 Artifacts，也会挂到 `v{version}` 的 GitHub Release（已有同名 Release 则更新资产）。push / PR 不会发 Release。
+`dev` 使用隔离的开发数据与凭据范围；正式安装包通过工作台的「安装 ZIP」加载。
 
-用新版本号打 tag 发版：
+## 架构与数据边界
 
-```bash
-npm run release -- --dry-run    # 只预览，不推送
-npm run release                 # 用当前 package.json 版本打 tag 并推送
-npm run release -- --patch      # 0.0.4 -> 0.0.5 后打 tag 并推送
-npm run release -- 0.0.5        # 指定版本
+![当前桌面应用与 Agent 运行架构](docs/screenshots/current/architecture.svg)
+
+Electron 主进程负责桌面能力、凭据与进程管理，React 界面通过宿主访问本机 FastAPI。产品后端管理任务、权限、业务数据和工具；独立 `cowork_harness` sidecar 承接官方 Deep Agents 执行，通过宿主能力回调使用文件、命令、浏览器、MCP 和行业工具。
+
+| 模块 | 职责 |
+| --- | --- |
+| `renderer/`、`electron/` | 页面、文件预览、IPC、凭据与进程生命周期 |
+| `backend/app/orchestrator/` | 产品任务、入口上下文、事件和产物 |
+| `backend/cowork_harness/` | Deep Agents 工厂、子代理、checkpoint、持久中断、事件与预算 |
+| `backend/runtime_contract/`、`app/runtime_client/` | 版本化协议、sidecar 启动与构建兼容性检查 |
+| `backend/app/host_capabilities/` | 工具回调、任务权限范围、审批票据与副作用去重 |
+| `backend/model_integrations/` | 宿主与 harness 共享的模型适配 |
+| `backend/app/industry_apps/`、`automation/`、`server/channels/` | 行业应用、计划运行和远程渠道 |
+
+后端和 sidecar 共用 Python 环境、`backend/pyproject.toml` 与 `backend/uv.lock`。当前锁定 Deep Agents 0.7.23；由官方图管理工具循环、子代理和上下文压缩，产品保留授权与交付流程。实施细节见 [Deep Agents 实施说明](docs/DeepAgents实施说明.md)。
+
+- **本机数据**：会话、记忆、计划与运行记录存储在本机；交付文件写入任务对应的工作目录。实际目录以工作空间和设置为准。
+- **模型与外部工具**：云模型、MCP、远程渠道与知识服务可能把相关内容发送到外部服务；本地模型也需要你另行部署推理服务。
+- **凭据**：桌面端在系统安全存储可用时使用 Electron `safeStorage` 加密凭据文件；不可用且没有既有加密文件时，当前实现可退回受文件权限保护的本机 JSON，不能承诺始终存于系统钥匙串。
+- **权限**：文件白名单、工作目录限制、命令策略与操作审批共同约束宿主工具；后端默认路径范围包含用户主目录，可在「隐私 / 白名单」中收紧。这些是应用层控制，不是操作系统沙箱。
+- **运行条件**：自动化、远程连接和行业任务依赖本机应用与后端；当前不是独立的云端常驻服务。
+
+## 仓库与文档
+
+```text
+backend/                   产品后端、独立 harness、共享运行协议与测试
+electron/                  桌面主进程与预加载桥接
+renderer/                  React 界面与样式
+packages/app-sdk/          行业应用前端 SDK
+templates/industry-app/    行业应用脚手架
+examples/taskboard/        可运行的行业应用样例
+skills/                    仓库技能
+resources/example-skills/ 内置与第三方技能
+scripts/、build/           开发、依赖获取、打包与发布
+docs/                      实施、开发、部署文档与截图
 ```
 
-`package:ci` 需要已安装并登录 [GitHub CLI](https://cli.github.com/)（`gh auth login`）。`release` 只需能 `git push`。工作区必须干净。
-
-本地打包（Windows 推荐一键脚本）：
-
-```powershell
-npm run package:win          # 智能跳过已有 python_runtime / prebuilt / officecli，只重打前端+安装包
-npm run package:win:full     # 全量重建（Python + 终端环境 + 安装包，耗时长）
-# 或直接：powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
-```
-
-macOS / 手动分步：
-
-```bash
-npm run build:python:mac
-bash scripts/build-electron.sh --mac
-# Windows 分步：npm run build:python:windows && npx electron-builder --config build/electron-builder.yml --win
-```
-
-macOS Gatekeeper 若拦截：系统设置 → 隐私与安全性 → 仍要打开，或：
-
-```bash
-xattr -dr com.apple.quarantine /Applications/MyCowork.app
-```
-
-更完整的安装与飞书远程步骤见 [docs/部署手册.md](docs/部署手册.md)。
-
----
-
-## 使用说明
-
-1. **工作区**：左侧选项目 / 会话；中间对话；右侧预览交付的 `.docx` / `.pptx` / `.xlsx`。
-2. **智能体**
-   - 模型：配置云或本地 LLM，可设默认。
-   - 技能：开关本机 Skill，给智能体授权，或从 SkillHub 安装。
-   - 办公助手：按场景开始，会预加载对应 Skill 并把推荐提问填进输入框。
-   - 记忆：可开关；「记住 …」会写入 `~/.my-cowork/memory.db`。
-3. **连接器**：MCP Server。也可编辑 `~/.my-cowork/mcp.json`，或从 `config.template.toml` 复制为 `config.toml`。
-4. **确认闸门**：写文件、执行命令、生成文档会弹窗。请核对路径后再允许。同一次任务里后续 `officecli` 调用可自动放行。
-5. **定时**：Skill 的 `skill.yaml` 里写 `schedule` 即可注册；客户端需保持运行。
-
-添加 Skill 的约定见 [docs/开发指南.md](docs/开发指南.md) 与 [skills/README.md](skills/README.md)。
-
----
-
-## 安全边界
-
-- **本地优先、单租户**：不做云托管、多租户、计费或 SSO。
-- **路径白名单**：默认含用户主目录，可在设置中收紧；禁止 `../` 穿越。
-- **高危命令硬拒**：例如针对根目录的破坏性 `rm -rf /`。
-- **远程通道收紧**：含写盘 / `exec` / 文档生成的 Skill 不能经飞书远程触发；webhook 需配置校验 token 与来源 IP。
-- **不做**：桌面 GUI Computer Use、自训练模型、24 小时无人值守（关机则定时与 webhook 都停）。
-
----
-
-## 仓库结构
-
-```
-backend/                 Python 后端 + 独立 harness（共享环境）
-electron/                Electron 主进程
-renderer/                React 界面
-skills/                  用户 / 工作区技能
-resources/example-skills 内置技能（公文、法务、officecli 配方等）
-resources/bin/           fetch:officecli 下载的平台二进制（不入库）
-build/                   electron-builder 配置与应用图标
-scripts/                 开发、打包、拉取依赖
-docs/                    开发 / 部署文档与本 README 截图
-```
-
-设计文档：[落地方案.md](落地方案.md) · 任务拆分：[开发计划.md](开发计划.md)
-
----
-
-## 相关文档
-
-- [开发指南](docs/开发指南.md) — 本地开发、测试、Skill / MCP / 办公助手
-- [部署手册](docs/部署手册.md) — 安装、首次配置、飞书 Tunnel、安全提示
-
----
+- [开发指南](docs/开发指南.md)：本地开发、Skill、MCP 与办公助理。
+- [部署手册](docs/部署手册.md)：安装、依赖、配置与打包；远程入口以本文及当前「远程连接」界面为准。
+- [Deep Agents 实施说明](docs/DeepAgents实施说明.md)：运行架构、协议、权限与验证。
+- [行业应用插件开发指南](docs/行业应用插件开发指南.md)：包规范、SDK、工具、业务 AI 与生命周期。
+- [技能说明](skills/README.md) · [截图维护说明](docs/screenshots/README.md)。
 
 ## 协议
 
